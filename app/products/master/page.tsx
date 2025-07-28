@@ -374,7 +374,7 @@ export default function MasterProductsPage() {
       console.error('Bulk upload error:', error);
       setBulkResults({
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error occurred'
+        error: (error as Error)?.message || 'Unknown error occurred'
       });
       toast.error('Failed to process bulk upload');
     } finally {
@@ -414,7 +414,7 @@ export default function MasterProductsPage() {
       renderCell: (params: GridRenderCellParams) => (
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <Avatar
-            src={params.row.images?.[0]}
+            src={params.row.image_url}
             sx={{ width: 32, height: 32 }}
             variant="rounded"
           >
@@ -711,7 +711,7 @@ export default function MasterProductsPage() {
                 <CardMedia
                   component="img"
                   height="200"
-                  image={selectedProduct.images?.[0] || '/placeholder-product.png'}
+                  image={selectedProduct.image_url || '/placeholder-product.png'}
                   alt={selectedProduct.name}
                   sx={{ borderRadius: 1 }}
                 />
@@ -719,9 +719,6 @@ export default function MasterProductsPage() {
               <Grid item xs={12} md={8}>
                 <Stack spacing={2}>
                   <Typography variant="h6">{selectedProduct.name}</Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    {selectedProduct.description}
-                  </Typography>
                   <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
                     <Chip label={selectedProduct.category} />
                     {selectedProduct.subcategory && (
@@ -732,26 +729,9 @@ export default function MasterProductsPage() {
                     )}
                   </Box>
 
-                  <Grid container spacing={2}>
-                    <Grid item xs={6}>
-                      <Typography variant="body2"><strong>SKU:</strong> {selectedProduct.sku}</Typography>
-                    </Grid>
-                    <Grid item xs={6}>
-                      <Typography variant="body2"><strong>Barcode:</strong> {selectedProduct.barcode}</Typography>
-                    </Grid>
-                    <Grid item xs={6}>
-                      <Typography variant="body2"><strong>Weight:</strong> {selectedProduct.weight}g</Typography>
-                    </Grid>
-                    <Grid item xs={6}>
-                      <Typography variant="body2"><strong>Dimensions:</strong> {selectedProduct.dimensions}</Typography>
-                    </Grid>
-                    <Grid item xs={6}>
-                      <Typography variant="body2"><strong>Material:</strong> {selectedProduct.material}</Typography>
-                    </Grid>
-                    <Grid item xs={6}>
-                      <Typography variant="body2"><strong>Color:</strong> {selectedProduct.color}</Typography>
-                    </Grid>
-                  </Grid>
+                  <Typography variant="body2" color="text.secondary">
+                    Created: {new Date(selectedProduct.created_at).toLocaleDateString()}
+                  </Typography>
                   <Typography variant="body2">
                     Status: <Chip label={selectedProduct.status} size="small" />
                   </Typography>
