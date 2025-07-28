@@ -15,7 +15,7 @@ frontend:
         - ls -la app/
         - npm run build
   artifacts:
-    baseDirectory: .
+    baseDirectory: .next
     files:
       - '**/*'
   cache:
