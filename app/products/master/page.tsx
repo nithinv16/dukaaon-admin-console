@@ -215,7 +215,7 @@ export default function MasterProductsPage() {
         category: newProduct.category,
         subcategory: newProduct.subcategory,
         brand: newProduct.brand,
-        image_url: imageUrls[0] || null, // Use first image as primary image
+        image_url: imageUrls[0] || undefined, // Use first image as primary image
         status: 'active' as const
       };
 
@@ -340,7 +340,7 @@ export default function MasterProductsPage() {
       
       // Process CSV data and create products
       const productsToInsert = csvData.map(row => {
-        const imageUrl = row.image_filename ? imageUrlMap[row.image_filename] : null;
+        const imageUrl = row.image_filename ? imageUrlMap[row.image_filename] : undefined;
         return {
           name: row.name.trim(),
           category: row.category.toLowerCase().trim(),
