@@ -158,7 +158,7 @@ export default function MasterProductsPage() {
         filterStatus
       );
       setProducts(result.products);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error loading master products:', error);
       toast.error('Failed to load master products');
     } finally {
@@ -175,7 +175,7 @@ export default function MasterProductsPage() {
         draftProducts: stats.draft,
         inactiveProducts: stats.inactive,
       });
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error loading stats:', error);
     }
   };
@@ -236,7 +236,7 @@ export default function MasterProductsPage() {
       // Refresh products list
       loadMasterProducts();
       loadStats();
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error adding master product:', error);
       toast.error('Failed to add master product');
     } finally {
