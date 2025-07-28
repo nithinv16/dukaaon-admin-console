@@ -370,7 +370,7 @@ export default function MasterProductsPage() {
       loadMasterProducts();
       loadStats();
       
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Bulk upload error:', error);
       setBulkResults({
         success: false,
