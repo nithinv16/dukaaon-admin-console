@@ -1,30 +1,28 @@
 version: 1
-applications:
-  - appRoot: .
-    frontend:
-      phases:
-        preBuild:
-          commands:
-            - nvm install 18.17.0
-            - nvm use 18.17.0
-            - node --version
-            - npm --version
-            - pwd
-            - ls -la
-            - npm ci
-        build:
-          commands:
-            - npm run build
-      artifacts:
-        baseDirectory: .next
-        files:
-          - '**/*'
-      cache:
-        paths:
-          - node_modules/**/*
-          - .next/cache/**/*
-    env:
-      variables:
-        NEXT_PRIVATE_STANDALONE: 'false'
-        NODE_ENV: 'production'
-        _LIVE_UPDATES: '[{"pkg":"next","type":"internal","origins":[],"files":["next.config.js"]}]'
+frontend:
+  phases:
+    preBuild:
+      commands:
+        - nvm install 18.17.0
+        - nvm use 18.17.0
+        - node --version
+        - npm --version
+        - pwd
+        - ls -la
+        - npm ci
+    build:
+      commands:
+        - npm run build
+  artifacts:
+    baseDirectory: .next
+    files:
+      - '**/*'
+  cache:
+    paths:
+      - node_modules/**/*
+      - .next/cache/**/*
+  env:
+    variables:
+      NEXT_PRIVATE_STANDALONE: 'false'
+      NODE_ENV: 'production'
+      _LIVE_UPDATES: '[{"pkg":"next","type":"internal","origins":[],"files":["next.config.js"]}]'
