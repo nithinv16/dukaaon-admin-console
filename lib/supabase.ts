@@ -1,5 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
+// Cache bust timestamp: 2025-01-31T15:42:00Z
+
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
@@ -90,10 +92,21 @@ export interface Product {
 export interface MasterProduct {
   id: string;
   name: string;
+  description: string;
+  price: number;
   category: string;
   subcategory?: string;
   brand?: string;
-  image_url?: string;
+  sku?: string;
+  barcode?: string;
+  weight?: number;
+  dimensions?: string;
+  material?: string;
+  color?: string;
+  size?: string;
+  images?: string[];
+  image_url?: string; // For backward compatibility
+  specifications?: any;
   status: 'active' | 'inactive' | 'draft';
   created_at: string;
   updated_at: string;
@@ -655,22 +668,51 @@ export const adminQueries = {
     specifications?: any;
   }) {
     try {
+      console.log('=== addProduct v3 START ===');
+      console.log('Input productData:', JSON.stringify(productData, null, 2));
+      
+      // Extract the first image URL for the image_url column - NO IMAGES FIELD!
+      const { images, stock, ...restProductData } = productData;
+      const productToInsert = {
+        ...restProductData,
+        image_url: images && images.length > 0 ? images[0] : null,
+        stock_available: stock || 0,
+        status: 'active',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+      
+      console.log('Final product to insert:', JSON.stringify(productToInsert, null, 2));
+      console.log('Columns being inserted:', Object.keys(productToInsert));
+      
+      // Verify no 'images' field exists
+      if ('images' in productToInsert) {
+        console.error('ERROR: images field still exists in productToInsert!');
+        delete (productToInsert as any).images;
+      }
+
       const { data, error } = await supabase
         .from('products')
-        .insert([
-          {
-            ...productData,
-            status: 'active',
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          }
-        ])
+        .insert([productToInsert])
         .select();
 
-      if (error) throw error;
+      console.log('Supabase response - data:', data);
+      console.log('Supabase response - error:', error);
+      
+      if (error) {
+        console.error('=== SUPABASE ERROR ===');
+        console.error('Error code:', error.code);
+        console.error('Error message:', error.message);
+        console.error('Error details:', error.details);
+        console.error('Error hint:', error.hint);
+        throw error;
+      }
+      
+      console.log('=== addProduct v3 SUCCESS ===');
       return { success: true, data: data[0] };
     } catch (error) {
-      console.error('Error adding product:', error);
+      console.error('=== addProduct v3 CATCH ERROR ===');
+      console.error('Error:', error);
       throw error;
     }
   },
@@ -978,7 +1020,160 @@ export const adminQueries = {
     }
   },
 
-  async updateMasterProduct(id: string, updates: Partial<MasterProduct>) {
+  async uploadImagesToMasterProducts(files: File[]) {
+    try {
+      // Upload images to master-products folder
+      const uploadResults = await this.uploadBulkImages(files, 'master-products');
+      
+      // Match uploaded images to existing products and update image_url
+      const matchResults = [];
+      
+      for (const uploadedImage of uploadResults.successful) {
+        try {
+          // Extract product name from filename (remove extension and clean up)
+          const productNameFromFile = uploadedImage.fileName
+            .replace(/\.[^/.]+$/, '') // Remove extension
+            .toLowerCase()
+            .trim();
+          
+          // Find matching product by name (fuzzy matching)
+           const { data: matchingProducts } = await supabase
+             .from('master_products')
+             .select('id, name, image_url')
+             .ilike('name', `%${productNameFromFile}%`);
+           
+           if (matchingProducts && matchingProducts.length > 0) {
+             // Update the first matching product with the image URL only if it doesn't have one
+             const productToUpdate = matchingProducts[0];
+             
+             // Only update image_url if the product doesn't already have one
+             if (!productToUpdate.image_url) {
+               const { error: updateError } = await supabase
+                 .from('master_products')
+                 .update({ 
+                   image_url: uploadedImage.url,
+                   updated_at: new Date().toISOString()
+                 })
+                 .eq('id', productToUpdate.id);
+               
+               if (updateError) throw updateError;
+             }
+             
+             matchResults.push({
+               fileName: uploadedImage.fileName,
+               productName: productToUpdate.name,
+               productId: productToUpdate.id,
+               imageUrl: productToUpdate.image_url || uploadedImage.url,
+               matched: true,
+               imageReplaced: true,
+               urlUpdated: !productToUpdate.image_url
+             });
+          } else {
+            matchResults.push({
+              fileName: uploadedImage.fileName,
+              productName: null,
+              productId: null,
+              imageUrl: uploadedImage.url,
+              matched: false
+            });
+          }
+        } catch (error) {
+          console.error(`Error matching image ${uploadedImage.fileName}:`, error);
+          matchResults.push({
+            fileName: uploadedImage.fileName,
+            productName: null,
+            productId: null,
+            imageUrl: uploadedImage.url,
+            matched: false,
+            error: error.message
+          });
+        }
+      }
+      
+      return {
+        uploadResults,
+        matchResults,
+        totalUploaded: uploadResults.successful.length,
+        totalFailed: uploadResults.failed.length,
+        totalMatched: matchResults.filter(r => r.matched).length,
+        totalUnmatched: matchResults.filter(r => !r.matched).length
+      };
+    } catch (error) {
+      console.error('Error uploading images to master products:', error);
+      throw error;
+    }
+  },
+
+   async checkMasterProductDuplicates(productData: any) {
+     try {
+       const { data: existingProducts } = await supabase
+         .from('master_products')
+         .select('id, name, category, subcategory, brand, image_url')
+         .or(`name.ilike.%${productData.name}%,and(category.eq.${productData.category},subcategory.eq.${productData.subcategory || 'null'},brand.eq.${productData.brand || 'null'})`);
+       
+       if (existingProducts && existingProducts.length > 0) {
+         // Check for exact name match
+         const exactNameMatch = existingProducts.find(p => 
+           p.name.toLowerCase().trim() === productData.name.toLowerCase().trim()
+         );
+         
+         if (exactNameMatch) {
+           // Check if image filename exists in storage
+           if (productData.image_filename) {
+             const { data: imageExists } = await supabase.storage
+               .from('product-images')
+               .list('master-products', {
+                 search: productData.image_filename
+               });
+             
+             if (imageExists && imageExists.length > 0) {
+               return {
+                 isDuplicate: true,
+                 reason: 'Product name and image filename already exist',
+                 existingProduct: exactNameMatch
+               };
+             }
+           }
+           
+           return {
+             isDuplicate: true,
+             reason: 'Product name already exists',
+             existingProduct: exactNameMatch
+           };
+         }
+         
+         // Check for similar products (same category, subcategory, brand)
+         const similarProduct = existingProducts.find(p => 
+           p.category === productData.category &&
+           p.subcategory === productData.subcategory &&
+           p.brand === productData.brand
+         );
+         
+         if (similarProduct) {
+           return {
+             isDuplicate: true,
+             reason: 'Similar product exists (same category, subcategory, and brand)',
+             existingProduct: similarProduct
+           };
+         }
+       }
+       
+       return {
+         isDuplicate: false,
+         reason: null,
+         existingProduct: null
+       };
+     } catch (error) {
+       console.error('Error checking for duplicates:', error);
+       return {
+         isDuplicate: false,
+         reason: null,
+         existingProduct: null
+       };
+     }
+   },
+ 
+   async updateMasterProduct(id: string, updates: Partial<MasterProduct>) {
     try {
       const { data, error } = await supabase
         .from('master_products')
@@ -1051,6 +1246,157 @@ export const adminQueries = {
         draft: 0,
         inactive: 0
       };
+    }
+  },
+
+  // User Profile Management
+  async updateUser(userId: string, updates: {
+    phone_number?: string;
+    status?: 'active' | 'inactive' | 'suspended';
+    kyc_status?: 'pending' | 'verified' | 'rejected';
+    business_details?: {
+      shopName?: string;
+      address?: string;
+      latitude?: number;
+      longitude?: number;
+    };
+    profile_image_url?: string;
+  }) {
+    try {
+      // Update profiles table
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .update({
+          ...updates,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', userId)
+        .select()
+        .single();
+
+      if (profileError) throw profileError;
+
+      // If updating seller details, also update seller_details table
+      if (updates.business_details && profileData.role !== 'retailer') {
+        const { error: sellerError } = await supabase
+          .from('seller_details')
+          .update({
+            business_name: updates.business_details.shopName,
+            location_address: updates.business_details.address,
+            updated_at: new Date().toISOString()
+          })
+          .eq('user_id', userId);
+
+        if (sellerError) {
+          console.warn('Error updating seller details:', sellerError);
+        }
+      }
+
+      return { data: profileData, error: null };
+    } catch (error) {
+      console.error('Error updating user:', error);
+      return { data: null, error };
+    }
+  },
+
+  // Add master product to seller inventory
+  async addMasterProductToSeller(masterProductId: string, sellerId: string, sellerData: {
+    price?: number;
+    stock_available?: number;
+    min_order_quantity?: number;
+    unit?: string;
+    description?: string;
+  }) {
+    try {
+      // First, get the master product details
+      const { data: masterProduct, error: masterError } = await supabase
+        .from('master_products')
+        .select('*')
+        .eq('id', masterProductId)
+        .single();
+
+      if (masterError || !masterProduct) {
+        throw new Error('Master product not found');
+      }
+
+      // Prepare product data for seller inventory
+      const productData = {
+        name: masterProduct.name,
+        description: sellerData.description || masterProduct.description,
+        price: sellerData.price || masterProduct.price,
+        category: masterProduct.category,
+        subcategory: masterProduct.subcategory || '',
+        seller_id: sellerId,
+        status: 'active' as const,
+        image_url: masterProduct.images?.[0] || masterProduct.image_url,
+        stock_available: sellerData.stock_available || 0,
+        min_order_quantity: sellerData.min_order_quantity || 1,
+        unit: sellerData.unit || 'piece',
+        brand: masterProduct.brand,
+        // Map additional master product fields to specifications
+        specifications: {
+          ...masterProduct.specifications,
+          sku: masterProduct.sku,
+          barcode: masterProduct.barcode,
+          weight: masterProduct.weight,
+          dimensions: masterProduct.dimensions,
+          material: masterProduct.material,
+          color: masterProduct.color,
+          size: masterProduct.size,
+          master_product_id: masterProductId
+        }
+      };
+
+      // Add product to seller inventory
+      const { data, error } = await supabase
+        .from('products')
+        .insert(productData)
+        .select();
+
+      if (error) {
+        console.error('Error adding product to seller inventory:', error);
+        throw error;
+      }
+
+      return { data: data[0], error: null };
+    } catch (error) {
+      console.error('Error in addMasterProductToSeller:', error);
+      return { data: null, error };
+    }
+  },
+
+  // Get sellers for dropdown selection
+  async getSellers() {
+    try {
+      const { data: sellers, error } = await supabase
+        .from('seller_details')
+        .select(`
+          user_id,
+          business_name,
+          owner_name,
+          seller_type,
+          status,
+          profiles!seller_details_user_id_fkey(
+            phone_number
+          )
+        `)
+        .eq('status', 'active');
+
+      if (error) throw error;
+
+      return {
+        data: sellers?.map(seller => ({
+          id: seller.user_id,
+          name: seller.business_name || seller.owner_name || seller.profiles?.phone_number || 'Unknown',
+          business_name: seller.business_name,
+          seller_type: seller.seller_type,
+          phone_number: seller.profiles?.phone_number
+        })) || [],
+        error: null
+      };
+    } catch (error) {
+      console.error('Error fetching sellers:', error);
+      return { data: [], error };
     }
   }
 };
