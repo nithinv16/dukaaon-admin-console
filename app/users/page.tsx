@@ -23,6 +23,7 @@ import {
   Alert,
   Pagination,
   Stack,
+  CircularProgress,
 } from '@mui/material';
 import {
   DataGrid,
@@ -63,6 +64,9 @@ export default function UsersPage() {
   const [filterStatus, setFilterStatus] = useState('all');
   const [selectedUser, setSelectedUser] = useState<Profile | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState<Profile | null>(null);
+  const [updating, setUpdating] = useState(false);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(25);
 
@@ -124,6 +128,41 @@ export default function UsersPage() {
     } catch (error) {
       console.error(`Error ${action}ing user:`, error);
       toast.error(`Failed to ${action} user`);
+    }
+  };
+
+  const handleEditUser = (user: Profile) => {
+    setEditingUser({ ...user });
+    setEditDialogOpen(true);
+  };
+
+  const handleUpdateUser = async () => {
+    if (!editingUser) return;
+
+    try {
+      setUpdating(true);
+      const result = await adminQueries.updateUser(editingUser.id, {
+        phone_number: editingUser.phone_number,
+        status: editingUser.status,
+        kyc_status: editingUser.kyc_status,
+        business_details: editingUser.business_details,
+        profile_image_url: editingUser.profile_image_url
+      });
+
+      if (result.error) {
+        throw result.error;
+      }
+
+      toast.success('User updated successfully!');
+      setEditDialogOpen(false);
+      setEditingUser(null);
+      loadUsers();
+      loadStats();
+    } catch (error) {
+      console.error('Error updating user:', error);
+      toast.error('Failed to update user');
+    } finally {
+      setUpdating(false);
     }
   };
 
@@ -211,7 +250,7 @@ export default function UsersPage() {
     {
       field: 'actions',
       headerName: 'Actions',
-      width: 150,
+      width: 200,
       renderCell: (params: GridRenderCellParams) => (
         <Box>
           <IconButton
@@ -222,6 +261,13 @@ export default function UsersPage() {
             }}
           >
             <Visibility />
+          </IconButton>
+          <IconButton
+            size="small"
+            color="primary"
+            onClick={() => handleEditUser(params.row)}
+          >
+            <Edit />
           </IconButton>
           <IconButton
             size="small"
@@ -460,11 +506,155 @@ export default function UsersPage() {
             variant="contained"
             startIcon={<Edit />}
             onClick={() => {
-              // Handle edit user
-              toast('Edit user functionality coming soon');
+              if (selectedUser) {
+                handleEditUser(selectedUser);
+                setDialogOpen(false);
+              }
             }}
           >
             Edit User
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Edit User Dialog */}
+      <Dialog
+        open={editDialogOpen}
+        onClose={() => setEditDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          Edit User Details
+          {editingUser && (
+            <Chip
+              label={editingUser.user_type || editingUser.role}
+              color="primary"
+              sx={{ ml: 2 }}
+            />
+          )}
+        </DialogTitle>
+        <DialogContent>
+          {editingUser && (
+            <Grid container spacing={2} sx={{ mt: 1 }}>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  label="Phone Number"
+                  value={editingUser.phone_number || ''}
+                  onChange={(e) => setEditingUser(prev => prev ? {
+                    ...prev,
+                    phone_number: e.target.value
+                  } : null)}
+                  fullWidth
+                  required
+                />
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <FormControl fullWidth>
+                  <InputLabel>Status</InputLabel>
+                  <Select
+                    value={editingUser.status || 'active'}
+                    label="Status"
+                    onChange={(e) => setEditingUser(prev => prev ? {
+                      ...prev,
+                      status: e.target.value as 'active' | 'inactive' | 'suspended'
+                    } : null)}
+                  >
+                    <MenuItem value="active">Active</MenuItem>
+                    <MenuItem value="inactive">Inactive</MenuItem>
+                    <MenuItem value="suspended">Suspended</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <FormControl fullWidth>
+                  <InputLabel>KYC Status</InputLabel>
+                  <Select
+                    value={editingUser.kyc_status || 'pending'}
+                    label="KYC Status"
+                    onChange={(e) => setEditingUser(prev => prev ? {
+                      ...prev,
+                      kyc_status: e.target.value as 'pending' | 'verified' | 'rejected'
+                    } : null)}
+                  >
+                    <MenuItem value="pending">Pending</MenuItem>
+                    <MenuItem value="verified">Verified</MenuItem>
+                    <MenuItem value="rejected">Rejected</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  label="Business/Shop Name"
+                  value={editingUser.business_details?.shopName || ''}
+                  onChange={(e) => setEditingUser(prev => prev ? {
+                    ...prev,
+                    business_details: {
+                      ...prev.business_details,
+                      shopName: e.target.value
+                    }
+                  } : null)}
+                  fullWidth
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  label="Address"
+                  value={editingUser.business_details?.address || ''}
+                  onChange={(e) => setEditingUser(prev => prev ? {
+                    ...prev,
+                    business_details: {
+                      ...prev.business_details,
+                      address: e.target.value
+                    }
+                  } : null)}
+                  fullWidth
+                  multiline
+                  rows={2}
+                />
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  label="Latitude"
+                  type="number"
+                  value={editingUser.business_details?.latitude || ''}
+                  onChange={(e) => setEditingUser(prev => prev ? {
+                    ...prev,
+                    business_details: {
+                      ...prev.business_details,
+                      latitude: parseFloat(e.target.value) || undefined
+                    }
+                  } : null)}
+                  fullWidth
+                />
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  label="Longitude"
+                  type="number"
+                  value={editingUser.business_details?.longitude || ''}
+                  onChange={(e) => setEditingUser(prev => prev ? {
+                    ...prev,
+                    business_details: {
+                      ...prev.business_details,
+                      longitude: parseFloat(e.target.value) || undefined
+                    }
+                  } : null)}
+                  fullWidth
+                />
+              </Grid>
+            </Grid>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditDialogOpen(false)}>Cancel</Button>
+          <Button
+            onClick={handleUpdateUser}
+            variant="contained"
+            disabled={updating}
+            startIcon={updating ? <CircularProgress size={20} /> : <Edit />}
+          >
+            {updating ? 'Updating...' : 'Update User'}
           </Button>
         </DialogActions>
       </Dialog>

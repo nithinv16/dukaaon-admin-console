@@ -68,6 +68,11 @@ import { useRouter } from 'next/navigation';
 import { adminQueries, MasterProduct } from '@/lib/supabase';
 import toast from 'react-hot-toast';
 import Papa from 'papaparse';
+import { 
+  defaultCategorySubcategoryMap, 
+  mergeCategoriesFromCsv,
+  type CategorySubcategoryMap 
+} from '@/lib/categoryUtils';
 
 interface MasterProductStats {
   totalProducts: number;
@@ -98,37 +103,22 @@ export default function MasterProductsPage() {
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [imageFiles, setImageFiles] = useState<File[]>([]);
   const [bulkProcessing, setBulkProcessing] = useState(false);
-  const [bulkResults, setBulkResults] = useState<any>(null);
+  const [bulkResults, setBulkResults] = useState<{
+    success: boolean;
+    totalProcessed: number;
+    totalInserted: number;
+    duplicatesSkipped?: number;
+    duplicateDetails?: Array<{ product: any; reason: string; existing: any }>;
+    imageResults?: {
+      totalUploaded: number;
+      totalFailed: number;
+    } | null;
+    error?: string;
+  } | null>(null);
   const [csvData, setCsvData] = useState<any[]>([]);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
-  // Category-Subcategory mapping
-  const categorySubcategoryMap: Record<string, string[]> = {
-    electronics: ['smartphones', 'laptops', 'tablets', 'headphones', 'cameras', 'gaming'],
-    clothing: ['mens', 'womens', 'kids', 'shoes', 'bags'],
-    groceries: ['rice', 'pulses', 'spices', 'oil', 'flour', 'canned', 'frozen'],
-    sweets: ['chocolates', 'candies', 'traditional', 'cookies'],
-    beverages: ['soft-drinks', 'juices', 'tea', 'water', 'energy'],
-    dairy: ['milk', 'cheese', 'yogurt', 'eggs', 'butter'],
-    fruits: ['fresh-fruits', 'fresh-vegetables', 'organic', 'exotic'],
-    meat: ['fresh-meat', 'frozen-meat', 'seafood', 'processed'],
-    bakery: ['bread', 'pastries', 'cakes', 'muffins'],
-    snacks: ['chips', 'nuts', 'crackers', 'popcorn'],
-    home: ['furniture', 'decor', 'lighting', 'storage', 'garden'],
-    kitchen: ['appliances', 'cookware', 'utensils', 'storage'],
-    books: ['fiction', 'non-fiction', 'educational', 'stationery'],
-    sports: ['fitness', 'outdoor', 'team-sports', 'water-sports'],
-    beauty: ['skincare', 'makeup', 'haircare', 'fragrances'],
-    health: ['supplements', 'medical', 'fitness', 'wellness'],
-    baby: ['feeding', 'clothing', 'toys', 'care'],
-    automotive: ['parts', 'accessories', 'tools', 'fluids'],
-    toys: ['educational', 'action', 'dolls', 'games'],
-    pet: ['food', 'toys', 'care', 'accessories'],
-    office: ['supplies', 'furniture', 'electronics', 'storage'],
-    tools: ['hand-tools', 'power-tools', 'hardware', 'safety'],
-    jewelry: ['rings', 'necklaces', 'earrings', 'watches'],
-    music: ['instruments', 'audio', 'accessories', 'sheet-music'],
-    travel: ['luggage', 'accessories', 'comfort', 'security']
-  };
+  // Category-Subcategory mapping - use the centralized utility
+  const [categorySubcategoryMap, setCategorySubcategoryMap] = useState<CategorySubcategoryMap>(defaultCategorySubcategoryMap);
 
   const [newProduct, setNewProduct] = useState({
     name: '',
@@ -141,6 +131,12 @@ export default function MasterProductsPage() {
   const [uploading, setUploading] = useState(false);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(25);
+  
+  // Image-only upload states
+  const [imageOnlyUploadOpen, setImageOnlyUploadOpen] = useState(false);
+  const [imageOnlyFiles, setImageOnlyFiles] = useState<File[]>([]);
+  const [imageOnlyProcessing, setImageOnlyProcessing] = useState(false);
+  const [imageOnlyResults, setImageOnlyResults] = useState<any>(null);
 
   useEffect(() => {
     loadMasterProducts();
@@ -287,6 +283,13 @@ export default function MasterProductsPage() {
     const errors: string[] = [];
     const requiredFields = ['name', 'category'];
     
+    // Use the utility function to merge categories from CSV
+     const { updatedMap, newCategories, newSubcategories } = mergeCategoriesFromCsv(categorySubcategoryMap, data);
+    
+    // Update the local state with the merged categories
+    setCategorySubcategoryMap(updatedMap);
+    
+    // Validate data with updated category map
     data.forEach((row, index) => {
       requiredFields.forEach(field => {
         if (!row[field] || row[field].trim() === '') {
@@ -294,24 +297,17 @@ export default function MasterProductsPage() {
         }
       });
       
-      // Validate category exists
-      if (row.category && !categorySubcategoryMap[row.category.toLowerCase()]) {
-        errors.push(`Row ${index + 1}: Invalid category '${row.category}'`);
-      }
-      
-      // Validate subcategory if provided
-      if (row.subcategory && row.category) {
-        const validSubcategories = categorySubcategoryMap[row.category.toLowerCase()] || [];
-        if (!validSubcategories.includes(row.subcategory.toLowerCase())) {
-          errors.push(`Row ${index + 1}: Invalid subcategory '${row.subcategory}' for category '${row.category}'`);
-        }
-      }
-      
       // Validate status if provided
       if (row.status && !['active', 'inactive', 'draft'].includes(row.status.toLowerCase())) {
         errors.push(`Row ${index + 1}: Invalid status '${row.status}'. Must be 'active', 'inactive', or 'draft'`);
       }
     });
+    
+    // Show info about new categories/subcategories added
+     if (newCategories.length > 0 || newSubcategories > 0) {
+       const message = `Auto-detected: ${newCategories.length} new categories, ${newSubcategories} new subcategories`;
+       toast(message, { icon: 'ℹ️' });
+     }
     
     setValidationErrors(errors);
   };
@@ -338,26 +334,53 @@ export default function MasterProductsPage() {
         });
       }
       
-      // Process CSV data and create products
-      const productsToInsert = csvData.map(row => {
-        const imageUrl = row.image_filename ? imageUrlMap[row.image_filename] : undefined;
-        return {
+      // Process CSV data and validate for duplicates
+      const validatedProducts = [];
+      const duplicateProducts = [];
+      
+      for (const row of csvData) {
+        const productData = {
           name: row.name.trim(),
           category: row.category.toLowerCase().trim(),
           subcategory: row.subcategory ? row.subcategory.toLowerCase().trim() : undefined,
           brand: row.brand ? row.brand.trim() : undefined,
-          image_url: imageUrl,
+          image_filename: row.image_filename,
           status: (row.status ? row.status.toLowerCase().trim() : 'active') as 'active' | 'inactive' | 'draft'
         };
-      });
+        
+        const duplicateCheck = await checkForDuplicates(productData);
+        
+        if (duplicateCheck.isDuplicate) {
+          duplicateProducts.push({
+            product: productData,
+            reason: duplicateCheck.reason,
+            existing: duplicateCheck.existingProduct
+          });
+        } else {
+          const imageUrl = row.image_filename ? imageUrlMap[row.image_filename] : undefined;
+          validatedProducts.push({
+            name: productData.name,
+            category: productData.category,
+            subcategory: productData.subcategory,
+            brand: productData.brand,
+            image_url: imageUrl,
+            status: productData.status
+          });
+        }
+      }
       
-      // Insert products in bulk
-      const result = await adminQueries.addMasterProductsBulk(productsToInsert);
+      // Insert only non-duplicate products
+      let result = { count: 0 };
+      if (validatedProducts.length > 0) {
+        result = await adminQueries.addMasterProductsBulk(validatedProducts);
+      }
       
       setBulkResults({
         success: true,
         totalProcessed: csvData.length,
         totalInserted: result.count,
+        duplicatesSkipped: duplicateProducts.length,
+        duplicateDetails: duplicateProducts,
         imageResults: imageFiles.length > 0 ? {
           totalUploaded: Object.keys(imageUrlMap).length,
           totalFailed: imageFiles.length - Object.keys(imageUrlMap).length
@@ -404,6 +427,65 @@ export default function MasterProductsPage() {
     setValidationErrors([]);
     setBulkResults(null);
     setBulkProcessing(false);
+  };
+
+  // Image-only upload functions
+  const handleImageOnlyUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    setImageOnlyFiles(files);
+  };
+
+  const processImageOnlyUpload = async () => {
+    if (imageOnlyFiles.length === 0) {
+      toast.error('Please select images to upload');
+      return;
+    }
+
+    setImageOnlyProcessing(true);
+    try {
+      // Upload images to master-products bucket and match to products
+      const results = await adminQueries.uploadImagesToMasterProducts(imageOnlyFiles);
+      
+      setImageOnlyResults({
+        success: true,
+        totalUploaded: results.totalUploaded,
+        totalFailed: results.totalFailed,
+        totalMatched: results.totalMatched,
+        totalUnmatched: results.totalUnmatched
+      });
+      
+      toast.success(`Images processed! ${results.totalMatched} matched, ${results.totalUnmatched} unmatched`);
+      
+      // Refresh products list
+      loadMasterProducts();
+      
+    } catch (error: unknown) {
+      console.error('Image upload error:', error);
+      setImageOnlyResults({
+        success: false,
+        error: (error as Error)?.message || 'Unknown error occurred'
+      });
+      toast.error('Failed to process image upload');
+    } finally {
+      setImageOnlyProcessing(false);
+    }
+  };
+
+  const resetImageOnlyUpload = () => {
+    setImageOnlyFiles([]);
+    setImageOnlyResults(null);
+    setImageOnlyProcessing(false);
+  };
+
+  // Duplicate validation function
+  const checkForDuplicates = async (productData: any) => {
+    try {
+      const duplicateCheck = await adminQueries.checkMasterProductDuplicates(productData);
+      return duplicateCheck;
+    } catch (error) {
+      console.error('Error checking duplicates:', error);
+      return { isDuplicate: false };
+    }
   };
 
   const columns: GridColDef[] = [
@@ -668,6 +750,14 @@ export default function MasterProductsPage() {
                 >
                   Bulk Upload
                 </Button>
+                <Button
+                  fullWidth
+                  variant="outlined"
+                  startIcon={<CloudUpload />}
+                  onClick={() => setImageOnlyUploadOpen(true)}
+                >
+                  Upload Images
+                </Button>
               </Stack>
             </Grid>
           </Grid>
@@ -791,31 +881,11 @@ export default function MasterProductsPage() {
                       }}
                      label="Category"
                    >
-                     <MenuItem value="electronics">Electronics</MenuItem>
-                     <MenuItem value="clothing">Clothing & Fashion</MenuItem>
-                     <MenuItem value="groceries">Groceries & Food</MenuItem>
-                     <MenuItem value="sweets">Sweets & Chocolates</MenuItem>
-                     <MenuItem value="beverages">Beverages</MenuItem>
-                     <MenuItem value="dairy">Dairy & Eggs</MenuItem>
-                     <MenuItem value="fruits">Fruits & Vegetables</MenuItem>
-                     <MenuItem value="meat">Meat & Seafood</MenuItem>
-                     <MenuItem value="bakery">Bakery & Bread</MenuItem>
-                     <MenuItem value="snacks">Snacks & Confectionery</MenuItem>
-                     <MenuItem value="home">Home & Garden</MenuItem>
-                     <MenuItem value="kitchen">Kitchen & Dining</MenuItem>
-                     <MenuItem value="books">Books & Stationery</MenuItem>
-                     <MenuItem value="sports">Sports & Outdoors</MenuItem>
-                     <MenuItem value="beauty">Beauty & Personal Care</MenuItem>
-                     <MenuItem value="health">Health & Wellness</MenuItem>
-                     <MenuItem value="baby">Baby & Kids</MenuItem>
-                     <MenuItem value="automotive">Automotive</MenuItem>
-                     <MenuItem value="toys">Toys & Games</MenuItem>
-                     <MenuItem value="pet">Pet Supplies</MenuItem>
-                     <MenuItem value="office">Office & Business</MenuItem>
-                     <MenuItem value="tools">Tools & Hardware</MenuItem>
-                     <MenuItem value="jewelry">Jewelry & Accessories</MenuItem>
-                     <MenuItem value="music">Music & Instruments</MenuItem>
-                     <MenuItem value="travel">Travel & Luggage</MenuItem>
+                     {Object.keys(categorySubcategoryMap).map((category) => (
+                       <MenuItem key={category} value={category}>
+                         {category.charAt(0).toUpperCase() + category.slice(1).replace(/[-_]/g, ' ')}
+                       </MenuItem>
+                     ))}
                    </Select>
                 </FormControl>
               </Grid>
@@ -1097,6 +1167,11 @@ export default function MasterProductsPage() {
                     <Typography variant="body2">
                       • {bulkResults.totalInserted} products added out of {bulkResults.totalProcessed} processed
                     </Typography>
+                    {bulkResults.duplicatesSkipped && bulkResults.duplicatesSkipped > 0 && (
+                      <Typography variant="body2">
+                        • {bulkResults.duplicatesSkipped} duplicates skipped
+                      </Typography>
+                    )}
                     {bulkResults.imageResults && (
                       <Typography variant="body2">
                         • {bulkResults.imageResults.totalUploaded} images uploaded successfully
@@ -1130,6 +1205,122 @@ export default function MasterProductsPage() {
             startIcon={bulkProcessing ? <CircularProgress size={20} /> : <Upload />}
           >
             {bulkProcessing ? 'Processing...' : 'Process Upload'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Image-Only Upload Dialog */}
+      <Dialog open={imageOnlyUploadOpen} onClose={() => setImageOnlyUploadOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            Upload Images to Existing Products
+            <IconButton onClick={() => setImageOnlyUploadOpen(false)}>
+              <Close />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, mt: 1 }}>
+            <Alert severity="info">
+               <Typography variant="body2">
+                 Upload images that will be automatically matched to existing products by filename.
+                 Image filenames should contain or match the product name for automatic matching.
+                 <br /><br />
+                 <strong>Note:</strong> Images will replace existing files in the storage bucket, but product image URLs 
+                 in the database will only be updated for products that don't already have an image URL set.
+               </Typography>
+             </Alert>
+
+            <Box>
+              <Typography variant="h6" gutterBottom>
+                Select Images
+              </Typography>
+              <input
+                accept="image/*"
+                style={{ display: 'none' }}
+                id="image-only-upload"
+                multiple
+                type="file"
+                onChange={handleImageOnlyUpload}
+              />
+              <label htmlFor="image-only-upload">
+                <Button
+                  variant="outlined"
+                  component="span"
+                  startIcon={<CloudUpload />}
+                  sx={{ mb: 2 }}
+                >
+                  Select Images
+                </Button>
+              </label>
+              {imageOnlyFiles.length > 0 && (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                  <CheckCircle color="success" />
+                  <Typography variant="body2">
+                    {imageOnlyFiles.length} images selected
+                  </Typography>
+                </Box>
+              )}
+            </Box>
+
+            {imageOnlyProcessing && (
+              <Box>
+                <Typography variant="body2" gutterBottom>
+                  Processing image upload...
+                </Typography>
+                <LinearProgress />
+              </Box>
+            )}
+
+            {imageOnlyResults && (
+               <Alert severity={imageOnlyResults.success ? 'success' : 'error'}>
+                 {imageOnlyResults.success ? (
+                   <Box>
+                     <Typography variant="subtitle2" gutterBottom>
+                       Image Upload Completed!
+                     </Typography>
+                     <Typography variant="body2">
+                       • {imageOnlyResults.totalUploaded} images uploaded to bucket
+                     </Typography>
+                     <Typography variant="body2">
+                       • {imageOnlyResults.totalMatched} images matched to products
+                     </Typography>
+                     <Typography variant="body2">
+                       • {imageOnlyResults.totalUnmatched} images could not be matched
+                     </Typography>
+                     {imageOnlyResults.totalFailed > 0 && (
+                       <Typography variant="body2">
+                         • {imageOnlyResults.totalFailed} images failed to upload
+                       </Typography>
+                     )}
+                     <Typography variant="body2" sx={{ mt: 1, fontStyle: 'italic', color: 'text.secondary' }}>
+                       Note: Images replace existing files in storage, but product image URLs remain unchanged if already set.
+                     </Typography>
+                   </Box>
+                 ) : (
+                   <Box>
+                     <Typography variant="subtitle2" gutterBottom>
+                       Upload Failed
+                     </Typography>
+                     <Typography variant="body2">
+                       {imageOnlyResults.error}
+                     </Typography>
+                   </Box>
+                 )}
+               </Alert>
+             )}
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={resetImageOnlyUpload}>Reset</Button>
+          <Button onClick={() => setImageOnlyUploadOpen(false)}>Close</Button>
+          <Button
+            variant="contained"
+            onClick={processImageOnlyUpload}
+            disabled={imageOnlyFiles.length === 0 || imageOnlyProcessing}
+            startIcon={imageOnlyProcessing ? <CircularProgress size={20} /> : <Upload />}
+          >
+            {imageOnlyProcessing ? 'Processing...' : 'Upload Images'}
           </Button>
         </DialogActions>
       </Dialog>

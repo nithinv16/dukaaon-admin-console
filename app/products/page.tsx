@@ -44,6 +44,7 @@ import {
   AttachMoney,
   CloudUpload,
   Close,
+  PlaylistAdd,
 } from '@mui/icons-material';
 import { adminQueries, Product } from '@/lib/supabase';
 import toast from 'react-hot-toast';
@@ -57,6 +58,7 @@ interface ProductStats {
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
+  const [sellers, setSellers] = useState<any[]>([]);
   const [stats, setStats] = useState<ProductStats>({
     totalProducts: 0,
     activeProducts: 0,
@@ -75,10 +77,10 @@ export default function ProductsPage() {
   const [newProduct, setNewProduct] = useState({
     name: '',
     description: '',
-    price: 0,
+    price: '',
     category: '',
     subcategory: '',
-    stock: 0,
+    stock: '',
     unit: 'piece',
     seller_id: '',
     images: [] as string[]
@@ -87,11 +89,30 @@ export default function ProductsPage() {
   const [uploading, setUploading] = useState(false);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(25);
+  const [totalProducts, setTotalProducts] = useState(0);
+  
+  // Master products dialog states
+  const [masterProductsDialogOpen, setMasterProductsDialogOpen] = useState(false);
+  const [masterProducts, setMasterProducts] = useState<any[]>([]);
+  const [selectedMasterProduct, setSelectedMasterProduct] = useState<any>(null);
+  const [masterProductLoading, setMasterProductLoading] = useState(false);
+  const [sellerData, setSellerData] = useState({
+    seller_id: '',
+    price: '',
+    stock_available: '',
+    min_order_quantity: '1',
+    unit: 'piece',
+    description: ''
+  });
 
   useEffect(() => {
     loadProducts();
     loadStats();
   }, [page, pageSize, searchTerm, filterCategory, filterStatus]);
+
+  useEffect(() => {
+    loadSellers();
+  }, []);
 
   const handleViewProduct = (product: Product) => {
     setSelectedProduct(product);
@@ -131,8 +152,8 @@ export default function ProductsPage() {
   };
 
   const handleAddProduct = async () => {
-    if (!newProduct.name || !newProduct.description || !newProduct.price || !newProduct.category) {
-      alert('Please fill in all required fields');
+    if (!newProduct.name || !newProduct.description || !newProduct.price || !newProduct.category || !newProduct.seller_id) {
+      toast.error('Please fill in all required fields including seller selection');
       return;
     }
 
@@ -150,8 +171,9 @@ export default function ProductsPage() {
       // Add product with image URLs
       const productData = {
         ...newProduct,
-        images: imageUrls,
-        seller_id: 'admin' // Admin adding product
+        price: parseFloat(newProduct.price) || 0,
+        stock: parseInt(newProduct.stock) || 0,
+        images: imageUrls
       };
 
       await adminQueries.addProduct(productData);
@@ -160,10 +182,10 @@ export default function ProductsPage() {
       setNewProduct({
         name: '',
         description: '',
-        price: 0,
+        price: '',
         category: '',
         subcategory: '',
-        stock: 0,
+        stock: '',
         unit: 'piece',
         seller_id: '',
         images: []
@@ -174,10 +196,10 @@ export default function ProductsPage() {
       // Refresh products list
       loadProducts();
       
-      alert('Product added successfully!');
+      toast.success('Product added successfully!');
     } catch (error) {
       console.error('Error adding product:', error);
-      alert('Failed to add product. Please try again.');
+      toast.error('Failed to add product. Please try again.');
     } finally {
       setUploading(false);
     }
@@ -203,6 +225,7 @@ export default function ProductsPage() {
         filterStatus === 'all' ? undefined : filterStatus
       );
       setProducts(result.products || []);
+      setTotalProducts(result.total || 0);
     } catch (error) {
       console.error('Error loading products:', error);
       toast.error('Failed to load products');
@@ -234,6 +257,81 @@ export default function ProductsPage() {
     } catch (error) {
       console.error('Error loading stats:', error);
     }
+  };
+
+  const loadSellers = async () => {
+    try {
+      const result = await adminQueries.getUsers({ limit: 1000 });
+      const allUsers = result.data || [];
+      
+      // Filter to get only sellers (wholesalers and manufacturers)
+      const sellersOnly = allUsers.filter(user => 
+        user.role === 'wholesaler' || user.role === 'manufacturer'
+      );
+      
+      console.log('Loaded sellers:', sellersOnly);
+      setSellers(sellersOnly);
+    } catch (error) {
+      console.error('Error loading sellers:', error);
+    }
+  };
+
+  const loadMasterProducts = async () => {
+    try {
+      setMasterProductLoading(true);
+      const result = await adminQueries.getMasterProducts();
+      setMasterProducts(result || []);
+    } catch (error) {
+      console.error('Error loading master products:', error);
+      toast.error('Failed to load master products');
+    } finally {
+      setMasterProductLoading(false);
+    }
+  };
+
+  const handleAddMasterProductToSeller = async () => {
+    if (!selectedMasterProduct || !sellerData.seller_id) {
+      toast.error('Please select a master product and seller');
+      return;
+    }
+
+    try {
+      setUploading(true);
+      await adminQueries.addMasterProductToSeller(
+        selectedMasterProduct.id,
+        sellerData.seller_id,
+        {
+          price: parseFloat(sellerData.price) || selectedMasterProduct.price,
+          stock_available: parseInt(sellerData.stock_available) || 0,
+          min_order_quantity: parseInt(sellerData.min_order_quantity) || 1,
+          unit: sellerData.unit,
+          description: sellerData.description || selectedMasterProduct.description
+        }
+      );
+      
+      toast.success('Product added to seller inventory successfully!');
+      setMasterProductsDialogOpen(false);
+      setSelectedMasterProduct(null);
+      setSellerData({
+        seller_id: '',
+        price: '',
+        stock_available: '',
+        min_order_quantity: '1',
+        unit: 'piece',
+        description: ''
+      });
+      loadProducts(); // Refresh the products list
+    } catch (error) {
+      console.error('Error adding master product to seller:', error);
+      toast.error('Failed to add product to seller inventory');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleMasterProductDialogOpen = () => {
+    setMasterProductsDialogOpen(true);
+    loadMasterProducts();
   };
 
   const getStatusColor = (status: string) => {
@@ -487,7 +585,7 @@ export default function ProductsPage() {
                 </Select>
               </FormControl>
             </Grid>
-            <Grid item xs={12} md={3}>
+            <Grid item xs={12} md={2.4}>
               <Button
                 fullWidth
                 variant="contained"
@@ -497,7 +595,18 @@ export default function ProductsPage() {
                 Add Product
               </Button>
             </Grid>
-            <Grid item xs={12} md={3}>
+            <Grid item xs={12} md={2.4}>
+              <Button
+                fullWidth
+                variant="outlined"
+                startIcon={<PlaylistAdd />}
+                onClick={handleMasterProductDialogOpen}
+                sx={{ whiteSpace: 'nowrap' }}
+              >
+                Quick Add from Master
+              </Button>
+            </Grid>
+            <Grid item xs={12} md={2.4}>
               <Button
                 fullWidth
                 variant="outlined"
@@ -521,6 +630,8 @@ export default function ProductsPage() {
             loading={loading}
             pageSizeOptions={[25, 50, 100]}
             paginationModel={{ page, pageSize }}
+            paginationMode="server"
+            rowCount={totalProducts}
             onPaginationModelChange={(model) => {
               setPage(model.page);
               setPageSize(model.pageSize);
@@ -612,7 +723,7 @@ export default function ProductsPage() {
                 label="Price"
                 type="number"
                 value={newProduct.price}
-                onChange={(e) => setNewProduct(prev => ({ ...prev, price: parseFloat(e.target.value) || 0 }))}
+                onChange={(e) => setNewProduct(prev => ({ ...prev, price: e.target.value }))}
                 fullWidth
                 required
               />
@@ -621,7 +732,7 @@ export default function ProductsPage() {
                 label="Stock"
                 type="number"
                 value={newProduct.stock}
-                onChange={(e) => setNewProduct(prev => ({ ...prev, stock: parseInt(e.target.value) || 0 }))}
+                onChange={(e) => setNewProduct(prev => ({ ...prev, stock: e.target.value }))}
                 fullWidth
               />
             </Box>
@@ -642,6 +753,22 @@ export default function ProductsPage() {
                 fullWidth
               />
             </Box>
+            
+            <FormControl fullWidth required>
+              <InputLabel>Select Seller</InputLabel>
+              <Select
+                value={newProduct.seller_id}
+                onChange={(e) => setNewProduct(prev => ({ ...prev, seller_id: e.target.value }))}
+                label="Select Seller"
+              >
+                {sellers.map((seller) => (
+                  <MenuItem key={seller.id} value={seller.id}>
+                    {seller.business_details?.shopName || seller.business_name || seller.phone_number} 
+                    ({seller.role})
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
             
             <TextField
               label="Unit"
@@ -806,6 +933,166 @@ export default function ProductsPage() {
             startIcon={uploading ? <CircularProgress size={20} /> : <Edit />}
           >
             {uploading ? 'Updating...' : 'Update Product'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Master Products Dialog */}
+      <Dialog
+        open={masterProductsDialogOpen}
+        onClose={() => setMasterProductsDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>Add Product from Master Products</DialogTitle>
+        <DialogContent>
+          <Box sx={{ mt: 2 }}>
+            {masterProductLoading ? (
+              <Box display="flex" justifyContent="center" p={3}>
+                <CircularProgress />
+              </Box>
+            ) : (
+              <>
+                <Typography variant="h6" gutterBottom>
+                  Select Master Product
+                </Typography>
+                <Grid container spacing={2} sx={{ mb: 3 }}>
+                  {masterProducts.map((product) => (
+                    <Grid item xs={12} sm={6} md={4} key={product.id}>
+                      <Card
+                        sx={{
+                          cursor: 'pointer',
+                          border: selectedMasterProduct?.id === product.id ? 2 : 1,
+                          borderColor: selectedMasterProduct?.id === product.id ? 'primary.main' : 'divider',
+                          '&:hover': { borderColor: 'primary.main' }
+                        }}
+                        onClick={() => {
+                          setSelectedMasterProduct(product);
+                          setSellerData(prev => ({
+                            ...prev,
+                            price: product.price?.toString() || '',
+                            description: product.description || ''
+                          }));
+                        }}
+                      >
+                        <CardMedia
+                          component="img"
+                          height="120"
+                          image={product.images?.[0] || '/placeholder-image.png'}
+                          alt={product.name}
+                          sx={{ objectFit: 'cover' }}
+                        />
+                        <CardContent>
+                          <Typography variant="subtitle2" noWrap>
+                            {product.name}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary" noWrap>
+                            {product.category} • {product.subcategory}
+                          </Typography>
+                          <Typography variant="body2" color="primary" fontWeight="medium">
+                            ${product.price}
+                          </Typography>
+                        </CardContent>
+                      </Card>
+                    </Grid>
+                  ))}
+                </Grid>
+
+                {selectedMasterProduct && (
+                  <>
+                    <Typography variant="h6" gutterBottom>
+                      Seller Details
+                    </Typography>
+                    <Grid container spacing={2}>
+                      <Grid item xs={12} md={6}>
+                        <FormControl fullWidth>
+                          <InputLabel>Select Seller</InputLabel>
+                          <Select
+                            value={sellerData.seller_id}
+                            onChange={(e) => setSellerData(prev => ({ ...prev, seller_id: e.target.value }))}
+                            label="Select Seller"
+                          >
+                            {sellers.map((seller) => (
+                              <MenuItem key={seller.id} value={seller.id}>
+                                {seller.business_name || seller.full_name}
+                              </MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
+                      </Grid>
+                      <Grid item xs={12} md={6}>
+                        <TextField
+                          fullWidth
+                          label="Price"
+                          type="number"
+                          value={sellerData.price}
+                          onChange={(e) => setSellerData(prev => ({ ...prev, price: e.target.value }))}
+                          inputProps={{ step: '0.01', min: '0' }}
+                        />
+                      </Grid>
+                      <Grid item xs={12} md={6}>
+                        <TextField
+                          fullWidth
+                          label="Stock Available"
+                          type="number"
+                          value={sellerData.stock_available}
+                          onChange={(e) => setSellerData(prev => ({ ...prev, stock_available: e.target.value }))}
+                          inputProps={{ min: '0' }}
+                        />
+                      </Grid>
+                      <Grid item xs={12} md={6}>
+                        <TextField
+                          fullWidth
+                          label="Minimum Order Quantity"
+                          type="number"
+                          value={sellerData.min_order_quantity}
+                          onChange={(e) => setSellerData(prev => ({ ...prev, min_order_quantity: e.target.value }))}
+                          inputProps={{ min: '1' }}
+                        />
+                      </Grid>
+                      <Grid item xs={12} md={6}>
+                        <FormControl fullWidth>
+                          <InputLabel>Unit</InputLabel>
+                          <Select
+                            value={sellerData.unit}
+                            onChange={(e) => setSellerData(prev => ({ ...prev, unit: e.target.value }))}
+                            label="Unit"
+                          >
+                            <MenuItem value="piece">Piece</MenuItem>
+                            <MenuItem value="kg">Kilogram</MenuItem>
+                            <MenuItem value="liter">Liter</MenuItem>
+                            <MenuItem value="meter">Meter</MenuItem>
+                            <MenuItem value="box">Box</MenuItem>
+                            <MenuItem value="pack">Pack</MenuItem>
+                          </Select>
+                        </FormControl>
+                      </Grid>
+                      <Grid item xs={12}>
+                        <TextField
+                          fullWidth
+                          label="Description (Optional)"
+                          multiline
+                          rows={3}
+                          value={sellerData.description}
+                          onChange={(e) => setSellerData(prev => ({ ...prev, description: e.target.value }))}
+                        />
+                      </Grid>
+                    </Grid>
+                  </>
+                )}
+              </>
+            )}
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setMasterProductsDialogOpen(false)}>Cancel</Button>
+          <Button
+            onClick={handleAddMasterProductToSeller}
+            variant="contained"
+            disabled={!selectedMasterProduct || !sellerData.seller_id || uploading}
+            startIcon={uploading ? <CircularProgress size={20} /> : <Add />}
+          >
+            {uploading ? 'Adding...' : 'Add to Inventory'}
           </Button>
         </DialogActions>
       </Dialog>

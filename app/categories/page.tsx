@@ -48,6 +48,11 @@ import {
 } from '@mui/icons-material';
 import { adminQueries } from '@/lib/supabase';
 import toast from 'react-hot-toast';
+import { 
+  defaultCategorySubcategoryMap, 
+  generateMockCategoryData,
+  calculateCategoryStats 
+} from '@/lib/categoryUtils';
 
 interface CategoryData {
   id: string;
@@ -96,84 +101,8 @@ export default function CategoriesPage() {
     } catch (error) {
       console.error('Error loading categories:', error);
       toast.error('Failed to load categories');
-      // Fallback to mock data if Supabase fails
-      const mockCategories: CategoryData[] = [
-        {
-          id: '1',
-          name: 'Electronics',
-          description: 'Electronic devices and accessories',
-          status: 'active',
-          product_count: 450,
-          created_at: '2024-01-15T10:00:00Z',
-          subcategories: [
-            {
-              id: '1-1',
-              name: 'Smartphones',
-              description: 'Mobile phones and accessories',
-              parent_id: '1',
-              status: 'active',
-              product_count: 120,
-              created_at: '2024-01-15T10:00:00Z',
-            },
-            {
-              id: '1-2',
-              name: 'Laptops',
-              description: 'Laptops and computer accessories',
-              parent_id: '1',
-              status: 'active',
-              product_count: 85,
-              created_at: '2024-01-15T10:00:00Z',
-            },
-          ],
-        },
-        {
-          id: '2',
-          name: 'Clothing',
-          description: 'Fashion and apparel',
-          status: 'active',
-          product_count: 320,
-          created_at: '2024-01-16T10:00:00Z',
-          subcategories: [
-            {
-              id: '2-1',
-              name: "Men's Wear",
-              description: 'Clothing for men',
-              parent_id: '2',
-              status: 'active',
-              product_count: 150,
-              created_at: '2024-01-16T10:00:00Z',
-            },
-            {
-              id: '2-2',
-              name: "Women's Wear",
-              description: 'Clothing for women',
-              parent_id: '2',
-              status: 'active',
-              product_count: 170,
-              created_at: '2024-01-16T10:00:00Z',
-            },
-          ],
-        },
-        {
-          id: '3',
-          name: 'Home & Garden',
-          description: 'Home improvement and garden supplies',
-          status: 'active',
-          product_count: 280,
-          created_at: '2024-01-17T10:00:00Z',
-          subcategories: [
-            {
-              id: '3-1',
-              name: 'Furniture',
-              description: 'Home furniture',
-              parent_id: '3',
-              status: 'active',
-              product_count: 95,
-              created_at: '2024-01-17T10:00:00Z',
-            },
-          ],
-        },
-      ];
+      // Fallback to mock data if Supabase fails - use dynamic generation
+      const mockCategories = generateMockCategoryData(defaultCategorySubcategoryMap);
       setCategories(mockCategories);
     } finally {
       setLoading(false);
@@ -186,13 +115,10 @@ export default function CategoriesPage() {
       setStats(categoryStats);
     } catch (error) {
       console.error('Error loading stats:', error);
-      // Fallback to mock stats
-      setStats({
-        totalCategories: 12,
-        activeCategories: 11,
-        totalSubcategories: 45,
-        totalProducts: 1250,
-      });
+      // Fallback to calculated stats from mock data
+      const mockCategories = generateMockCategoryData(defaultCategorySubcategoryMap);
+      const calculatedStats = calculateCategoryStats(mockCategories);
+      setStats(calculatedStats);
     }
   };
 
