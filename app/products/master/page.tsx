@@ -359,8 +359,8 @@ export default function MasterProductsPage() {
         if (duplicateCheck.isDuplicate) {
           duplicateProducts.push({
             product: productData,
-            reason: duplicateCheck.reason,
-            existing: duplicateCheck.existingProduct
+            reason: duplicateCheck.reason || 'Duplicate product detected',
+            existing: duplicateCheck.existingProduct || null
           });
         } else {
           const imageUrl = row.image_filename ? imageUrlMap[row.image_filename] : undefined;
