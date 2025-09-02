@@ -122,6 +122,8 @@ export default function MasterProductsPage() {
 
   const [newProduct, setNewProduct] = useState({
     name: '',
+    description: '',
+    price: 0,
     category: '',
     subcategory: '',
     brand: '',
@@ -208,6 +210,8 @@ export default function MasterProductsPage() {
       // Add master product with image URL - only include fields that exist in database
       const productData = {
         name: newProduct.name,
+        description: newProduct.description,
+        price: newProduct.price,
         category: newProduct.category,
         subcategory: newProduct.subcategory,
         brand: newProduct.brand,
@@ -221,6 +225,8 @@ export default function MasterProductsPage() {
       // Reset form
       setNewProduct({
         name: '',
+        description: '',
+        price: 0,
         category: '',
         subcategory: '',
         brand: '',
@@ -857,6 +863,28 @@ export default function MasterProductsPage() {
                   value={newProduct.brand}
                   onChange={(e) => setNewProduct(prev => ({ ...prev, brand: e.target.value }))}
                   fullWidth
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  label="Description"
+                  value={newProduct.description}
+                  onChange={(e) => setNewProduct(prev => ({ ...prev, description: e.target.value }))}
+                  fullWidth
+                  required
+                  multiline
+                  rows={3}
+                />
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  label="Price"
+                  type="number"
+                  value={newProduct.price}
+                  onChange={(e) => setNewProduct(prev => ({ ...prev, price: parseFloat(e.target.value) || 0 }))}
+                  fullWidth
+                  required
+                  inputProps={{ min: 0, step: 0.01 }}
                 />
               </Grid>
             </Grid>
