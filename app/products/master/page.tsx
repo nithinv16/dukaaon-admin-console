@@ -378,7 +378,11 @@ export default function MasterProductsPage() {
       // Insert only non-duplicate products
       let result = { count: 0 };
       if (validatedProducts.length > 0) {
-        result = await adminQueries.addMasterProductsBulk(validatedProducts);
+        result = await adminQueries.addMasterProductsBulk(validatedProducts.map(product => ({
+          ...product,
+          description: '', // Add required description field
+          price: 0 // Add required price field with default value
+        })));
       }
       
       setBulkResults({
@@ -403,6 +407,8 @@ export default function MasterProductsPage() {
       console.error('Bulk upload error:', error);
       setBulkResults({
         success: false,
+        totalProcessed: 0,
+        totalInserted: 0,
         error: (error as Error)?.message || 'Unknown error occurred'
       });
       toast.error('Failed to process bulk upload');
