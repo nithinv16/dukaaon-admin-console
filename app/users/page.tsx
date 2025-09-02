@@ -528,7 +528,7 @@ export default function UsersPage() {
           Edit User Details
           {editingUser && (
             <Chip
-              label={editingUser.user_type || editingUser.role}
+              label={editingUser.role}
               color="primary"
               sx={{ ml: 2 }}
             />
