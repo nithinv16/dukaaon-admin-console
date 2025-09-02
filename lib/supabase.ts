@@ -1085,7 +1085,7 @@ export const adminQueries = {
             productId: null,
             imageUrl: uploadedImage.url,
             matched: false,
-            error: error.message
+            error: error instanceof Error ? error.message : 'Unknown error'
           });
         }
       }
@@ -1387,10 +1387,10 @@ export const adminQueries = {
       return {
         data: sellers?.map(seller => ({
           id: seller.user_id,
-          name: seller.business_name || seller.owner_name || seller.profiles?.phone_number || 'Unknown',
+          name: seller.business_name || seller.owner_name || (seller.profiles && Array.isArray(seller.profiles) ? (seller.profiles[0] as any)?.phone_number : (seller.profiles as any)?.phone_number) || 'Unknown',
           business_name: seller.business_name,
           seller_type: seller.seller_type,
-          phone_number: seller.profiles?.phone_number
+          phone_number: Array.isArray(seller.profiles) ? (seller.profiles[0] as any)?.phone_number || '' : (seller.profiles as any)?.phone_number || ''
         })) || [],
         error: null
       };
