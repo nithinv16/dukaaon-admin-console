@@ -33,8 +33,8 @@ export interface Profile {
   updated_at: string;
   profile_image_url?: string;
   business_details?: {
-    shopName: string;
-    address: string;
+    shopName?: string;
+    address?: string;
     latitude?: number;
     longitude?: number;
   };
