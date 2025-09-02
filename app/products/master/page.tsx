@@ -490,7 +490,7 @@ export default function MasterProductsPage() {
       return duplicateCheck;
     } catch (error) {
       console.error('Error checking duplicates:', error);
-      return { isDuplicate: false };
+      return { isDuplicate: false, reason: null, existingProduct: null };
     }
   };
 
