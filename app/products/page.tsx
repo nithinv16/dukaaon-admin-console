@@ -280,7 +280,7 @@ export default function ProductsPage() {
     try {
       setMasterProductLoading(true);
       const result = await adminQueries.getMasterProducts();
-      setMasterProducts(result || []);
+      setMasterProducts(result?.products || []);
     } catch (error) {
       console.error('Error loading master products:', error);
       toast.error('Failed to load master products');
