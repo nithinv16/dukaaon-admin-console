@@ -298,7 +298,7 @@ export default function OrdersPage() {
 
   return (
     <Box sx={{ p: { xs: 2, sm: 3 } }}>
-      <Typography variant={{ xs: 'h5', sm: 'h4' }} gutterBottom>
+      <Typography variant="h4" gutterBottom>
         Order Management
       </Typography>
 

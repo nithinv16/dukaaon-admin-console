@@ -215,18 +215,16 @@ export default function ProductsPage() {
     const testProducts: ExtractedProduct[] = [
       {
         name: 'Test Product 1',
+        price: 50.25,
         quantity: 2,
         unit: 'pcs',
-        netAmount: 100.50,
-        unitPrice: 50.25,
         confidence: 0.9
       },
       {
         name: 'Test Product 2',
+        price: 75.00,
         quantity: 1,
         unit: 'kg',
-        netAmount: 75.00,
-        unitPrice: 75.00,
         confidence: 0.8
       }
     ];
@@ -397,33 +395,31 @@ export default function ProductsPage() {
     // setExtractedProducts([]);
     
     try {
-      const result = await processReceiptImage(file);
+      // Convert File to Buffer
+      const arrayBuffer = await file.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      
+      const result = await processReceiptImage(buffer);
       
       console.log('=== RECEIPT PROCESSING RESULT ===');
       console.log('Full result:', result);
-      console.log('Products array:', result.products);
-      console.log('Products length:', result.products?.length || 0);
-      console.log('Raw text preview:', result.rawText?.substring(0, 200));
+      console.log('Products array:', result.data?.products);
+      console.log('Products length:', result.data?.products?.length || 0);
       
       // Clear previous results first
       setExtractedProducts([]);
       
       // Small delay to ensure state is cleared
       setTimeout(() => {
-        if (result.products && result.products.length > 0) {
-          console.log('Setting extracted products:', result.products);
-          setExtractedProducts(result.products);
+        if (result.data?.products && result.data.products.length > 0) {
+          console.log('Setting extracted products:', result.data.products);
+          setExtractedProducts(result.data.products);
           setReceiptScanDialogOpen(false);
           setExtractedProductEditorOpen(true);
-          toast.success(`Extracted ${result.products.length} products from receipt!`);
+          toast.success(`Extracted ${result.data.products.length} products from receipt!`);
         } else {
           console.log('No products found in result');
-          console.log('Raw text length:', result.rawText?.length || 0);
-          if (result.rawText && result.rawText.length > 0) {
-            toast.error('Receipt text extracted but no products found. Check console for parsing details.');
-          } else {
-            toast.error('Failed to extract text from receipt. Please try a clearer image.');
-          }
+          toast.error('Receipt processed but no products found. Please try again with a clearer image.');
         }
       }, 100);
     } catch (error) {
@@ -441,7 +437,7 @@ export default function ProductsPage() {
   const fillProductFromExtracted = (extractedProduct: ExtractedProduct) => {
     setNewProduct({
       name: extractedProduct.name,
-      price: extractedProduct.unitPrice.toString(),
+      price: extractedProduct.price.toString(),
       stock: extractedProduct.quantity?.toString() || '',
       unit: extractedProduct.unit || 'piece',
       description: 'Product extracted from receipt',
@@ -465,7 +461,7 @@ export default function ProductsPage() {
         const productData = {
           name: product.name,
           description: product.description,
-          price: product.unitPrice,
+          price: product.price,
           category: product.category,
           subcategory: product.subcategory,
           stock: product.quantity,
@@ -1804,11 +1800,10 @@ export default function ProductsPage() {
                  {extractedProducts.map((product, index) => {
                    console.log(`Product ${index}:`, product);
                    console.log(`Product ${index} properties:`, {
-                     name: product.name,
-                     unitPrice: product.unitPrice,
-                     quantity: product.quantity,
-                     unit: product.unit,
-                     netAmount: product.netAmount,
+                      name: product.name,
+                      price: product.price,
+                      quantity: product.quantity,
+                      unit: product.unit,
                      confidence: product.confidence
                    });
                    return (
@@ -1840,7 +1835,7 @@ export default function ProductsPage() {
                        <Grid container spacing={2}>
                          <Grid item xs={4}>
                            <Typography variant="caption" color="text.secondary">Unit Price</Typography>
-                           <Typography variant="body2">₹{product.unitPrice || 'N/A'}</Typography>
+                           <Typography variant="body2">₹{product.price || 'N/A'}</Typography>
                          </Grid>
                          <Grid item xs={4}>
                            <Typography variant="caption" color="text.secondary">Quantity</Typography>
@@ -1848,7 +1843,7 @@ export default function ProductsPage() {
                          </Grid>
                          <Grid item xs={4}>
                            <Typography variant="caption" color="text.secondary">Net Amount</Typography>
-                           <Typography variant="body2">₹{product.netAmount || 'N/A'}</Typography>
+                           <Typography variant="body2">₹{product.price || 'N/A'}</Typography>
                          </Grid>
                        </Grid>
                        <Typography variant="caption" color="primary" sx={{ mt: 1, display: 'block', fontStyle: 'italic' }}>
