@@ -252,7 +252,7 @@ export default function CategoriesPage() {
     <Box sx={{ p: { xs: 2, sm: 3 } }}>
       {/* Header */}
       <Box sx={{ mb: 3 }}>
-        <Typography variant={{ xs: 'h5', sm: 'h4' }} gutterBottom>
+        <Typography variant="h4" gutterBottom>
           Category Management
         </Typography>
         <Typography variant="body1" color="text.secondary">

@@ -374,7 +374,7 @@ const ExtractedProductEditor: React.FC<ExtractedProductEditorProps> = ({
                       <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
                         <Chip 
                           size="small" 
-                          label={`₹${product.unitPrice}`} 
+                          label={`₹${product.price}`} 
                           color="primary" 
                         />
                         <Chip 
@@ -444,8 +444,8 @@ const ExtractedProductEditor: React.FC<ExtractedProductEditorProps> = ({
                         fullWidth
                         label="Unit Price (₹)"
                         type="number"
-                        value={product.unitPrice}
-                        onChange={(e) => updateProduct(product.id, 'unitPrice', parseFloat(e.target.value) || 0)}
+                        value={product.price}
+                        onChange={(e) => updateProduct(product.id, 'price', parseFloat(e.target.value) || 0)}
                         size="small"
                       />
                     </Grid>
