@@ -574,7 +574,7 @@ export const adminQueries = {
   },
 
   // Products
-  async getProducts(page = 1, limit = 25, search = '', category = 'all', status = 'all') {
+  async getProducts(page = 1, limit = 25, search = '', category = 'all', status = 'all', seller = 'all') {
     try {
       let query = supabase
         .from('products')
@@ -601,6 +601,11 @@ export const adminQueries = {
       // Apply status filter
       if (status !== 'all') {
         query = query.eq('status', status);
+      }
+
+      // Apply seller filter
+      if (seller !== 'all') {
+        query = query.eq('seller_id', seller);
       }
 
       // Apply pagination
@@ -665,6 +670,7 @@ export const adminQueries = {
     seller_id: string;
     stock?: number;
     unit?: string;
+    min_order_quantity?: number;
     specifications?: any;
   }) {
     try {
@@ -677,6 +683,7 @@ export const adminQueries = {
         ...restProductData,
         image_url: images && images.length > 0 ? images[0] : null,
         stock_available: stock || 0,
+        min_order_quantity: productData.min_order_quantity || 1,
         status: 'active',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
@@ -1332,19 +1339,7 @@ export const adminQueries = {
         stock_available: sellerData.stock_available || 0,
         min_order_quantity: sellerData.min_order_quantity || 1,
         unit: sellerData.unit || 'piece',
-        brand: masterProduct.brand,
-        // Map additional master product fields to specifications
-        specifications: {
-          ...masterProduct.specifications,
-          sku: masterProduct.sku,
-          barcode: masterProduct.barcode,
-          weight: masterProduct.weight,
-          dimensions: masterProduct.dimensions,
-          material: masterProduct.material,
-          color: masterProduct.color,
-          size: masterProduct.size,
-          master_product_id: masterProductId
-        }
+        brand: masterProduct.brand
       };
 
       // Add product to seller inventory

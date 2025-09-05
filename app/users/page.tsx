@@ -184,6 +184,9 @@ export default function UsersPage() {
       field: 'profile_image_url',
       headerName: 'Avatar',
       width: 80,
+      minWidth: 60,
+      flex: 0,
+      hideable: false,
       renderCell: (params: GridRenderCellParams) => (
         <Avatar
           src={params.value}
@@ -197,9 +200,11 @@ export default function UsersPage() {
     {
       field: 'display_name',
       headerName: 'Business Name',
-      width: 200,
+      minWidth: 150,
+      flex: 1,
+      hideable: false,
       renderCell: (params: GridRenderCellParams) => (
-        <Typography variant="body2">
+        <Typography variant="body2" noWrap>
           {params.value || 'N/A'}
         </Typography>
       ),
@@ -208,6 +213,9 @@ export default function UsersPage() {
       field: 'user_type',
       headerName: 'User Type',
       width: 120,
+      minWidth: 100,
+      flex: 0,
+      hideable: true,
       renderCell: (params: GridRenderCellParams) => (
         <Chip
           label={params.value === 'manufacturer' ? 'Manufacturer' : 
@@ -224,11 +232,17 @@ export default function UsersPage() {
       field: 'phone_number',
       headerName: 'Phone',
       width: 150,
+      minWidth: 120,
+      flex: 0,
+      hideable: true,
     },
     {
       field: 'kyc_status',
       headerName: 'KYC Status',
       width: 120,
+      minWidth: 100,
+      flex: 0,
+      hideable: false,
       renderCell: (params: GridRenderCellParams) => (
         <Chip
           label={params.value || 'pending'}
@@ -241,6 +255,9 @@ export default function UsersPage() {
       field: 'created_at',
       headerName: 'Joined',
       width: 120,
+      minWidth: 100,
+      flex: 0,
+      hideable: true,
       renderCell: (params: GridRenderCellParams) => (
         <Typography variant="body2">
           {new Date(params.value).toLocaleDateString()}
@@ -251,6 +268,9 @@ export default function UsersPage() {
       field: 'actions',
       headerName: 'Actions',
       width: 200,
+      minWidth: 150,
+      flex: 0,
+      hideable: false,
       renderCell: (params: GridRenderCellParams) => (
         <Box>
           <IconButton
@@ -288,8 +308,8 @@ export default function UsersPage() {
   ];
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Typography variant="h4" gutterBottom>
+    <Box sx={{ p: { xs: 2, sm: 3 } }}>
+      <Typography variant={{ xs: 'h5', sm: 'h4' }} gutterBottom>
         User Management
       </Typography>
 
@@ -347,19 +367,20 @@ export default function UsersPage() {
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Grid container spacing={2} alignItems="center">
-            <Grid item xs={12} md={4}>
+            <Grid item xs={12} sm={6} md={4}>
               <TextField
                 fullWidth
                 placeholder="Search users..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
+                size="small"
                 InputProps={{
                   startAdornment: <Search sx={{ mr: 1, color: 'text.secondary' }} />,
                 }}
               />
             </Grid>
-            <Grid item xs={12} md={3}>
-              <FormControl fullWidth>
+            <Grid item xs={12} sm={6} md={3}>
+              <FormControl fullWidth size="small">
                 <InputLabel>Status Filter</InputLabel>
                 <Select
                   value={filterStatus}
@@ -373,24 +394,32 @@ export default function UsersPage() {
                 </Select>
               </FormControl>
             </Grid>
-            <Grid item xs={12} md={2}>
+            <Grid item xs={6} sm={3} md={2}>
               <Button
                 fullWidth
                 variant="outlined"
                 startIcon={<FilterList />}
+                size="small"
                 onClick={loadUsers}
+                sx={{
+                  fontSize: { xs: '0.75rem', sm: '0.875rem' },
+                }}
               >
                 Apply Filters
               </Button>
             </Grid>
-            <Grid item xs={12} md={3}>
+            <Grid item xs={6} sm={3} md={3}>
               <Button
                 fullWidth
                 variant="contained"
                 startIcon={<PersonAdd />}
+                size="small"
                 onClick={() => {
                   // Handle add user
                   toast('Add user functionality coming soon');
+                }}
+                sx={{
+                  fontSize: { xs: '0.75rem', sm: '0.875rem' },
                 }}
               >
                 Add User
@@ -422,7 +451,34 @@ export default function UsersPage() {
                 quickFilterProps: { debounceMs: 500 },
               },
             }}
-            sx={{ height: 600 }}
+            initialState={{
+              columns: {
+                columnVisibilityModel: {
+                  user_type: false,    // Hide on mobile by default
+                  phone_number: false, // Hide on mobile by default
+                  created_at: false,   // Hide on mobile by default
+                },
+              },
+            }}
+            sx={{ 
+              height: { xs: 400, sm: 500, md: 600 },
+              '& .MuiDataGrid-main': {
+                '& .MuiDataGrid-columnHeaders': {
+                  borderBottom: 1,
+                  borderColor: 'divider',
+                },
+                '& .MuiDataGrid-cell': {
+                  borderBottom: 1,
+                  borderColor: 'divider',
+                },
+              },
+              '& .MuiDataGrid-toolbarContainer': {
+                padding: { xs: 1, sm: 2 },
+                '& .MuiButton-root': {
+                  fontSize: { xs: '0.75rem', sm: '0.875rem' },
+                },
+              },
+            }}
           />
         </CardContent>
       </Card>

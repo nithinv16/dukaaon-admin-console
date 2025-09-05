@@ -141,6 +141,9 @@ export default function CategoriesPage() {
       field: 'image_url',
       headerName: 'Icon',
       width: 80,
+      minWidth: 60,
+      flex: 0,
+      hideable: false,
       renderCell: (params: GridRenderCellParams) => (
         <Avatar
           src={params.value}
@@ -154,13 +157,15 @@ export default function CategoriesPage() {
     {
       field: 'name',
       headerName: 'Category Name',
-      width: 200,
+      minWidth: 180,
+      flex: 1,
+      hideable: false,
       renderCell: (params: GridRenderCellParams) => (
         <Box>
-          <Typography variant="body2" fontWeight="medium">
+          <Typography variant="body2" fontWeight="medium" noWrap>
             {params.value}
           </Typography>
-          <Typography variant="caption" color="text.secondary">
+          <Typography variant="caption" color="text.secondary" noWrap>
             {params.row.description}
           </Typography>
         </Box>
@@ -170,6 +175,8 @@ export default function CategoriesPage() {
       field: 'product_count',
       headerName: 'Products',
       width: 120,
+      minWidth: 100,
+      flex: 0,
       renderCell: (params: GridRenderCellParams) => (
         <Chip
           label={params.value || 0}
@@ -183,6 +190,8 @@ export default function CategoriesPage() {
       field: 'status',
       headerName: 'Status',
       width: 120,
+      minWidth: 100,
+      flex: 0,
       renderCell: (params: GridRenderCellParams) => (
         <Chip
           label={params.value}
@@ -195,6 +204,9 @@ export default function CategoriesPage() {
       field: 'created_at',
       headerName: 'Created',
       width: 120,
+      minWidth: 100,
+      flex: 0,
+      hideable: true,
       renderCell: (params: GridRenderCellParams) => (
         <Typography variant="body2">
           {new Date(params.value).toLocaleDateString()}
@@ -237,10 +249,10 @@ export default function CategoriesPage() {
   }, [] as CategoryData[]) : [];
 
   return (
-    <Box sx={{ p: 3 }}>
+    <Box sx={{ p: { xs: 2, sm: 3 } }}>
       {/* Header */}
       <Box sx={{ mb: 3 }}>
-        <Typography variant="h4" gutterBottom>
+        <Typography variant={{ xs: 'h5', sm: 'h4' }} gutterBottom>
           Category Management
         </Typography>
         <Typography variant="body1" color="text.secondary">
@@ -384,19 +396,20 @@ export default function CategoriesPage() {
             <CardContent>
               {/* Filters */}
               <Grid container spacing={2} alignItems="center" sx={{ mb: 3 }}>
-                <Grid item xs={12} md={6}>
+                <Grid item xs={12} sm={6} md={6}>
                   <TextField
                     fullWidth
                     placeholder="Search categories..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
+                    size="small"
                     InputProps={{
                       startAdornment: <Search sx={{ mr: 1, color: 'text.secondary' }} />,
                     }}
                   />
                 </Grid>
-                <Grid item xs={12} md={4}>
-                  <FormControl fullWidth>
+                <Grid item xs={6} sm={3} md={4}>
+                  <FormControl fullWidth size="small">
                     <InputLabel>Status</InputLabel>
                     <Select
                       value={filterStatus}
@@ -409,12 +422,16 @@ export default function CategoriesPage() {
                     </Select>
                   </FormControl>
                 </Grid>
-                <Grid item xs={12} md={2}>
+                <Grid item xs={6} sm={3} md={2}>
                   <Button
                     fullWidth
                     variant="contained"
                     startIcon={<Add />}
+                    size="small"
                     onClick={() => toast('Add category feature coming soon!')}
+                    sx={{
+                      fontSize: { xs: '0.75rem', sm: '0.875rem' },
+                    }}
                   >
                     Add
                   </Button>
@@ -425,10 +442,15 @@ export default function CategoriesPage() {
                 rows={flattenedCategories}
                 columns={columns}
                 loading={loading}
-                pageSizeOptions={[25, 50, 100]}
+                pageSizeOptions={[10, 25, 50, 100]}
                 initialState={{
                   pagination: {
                     paginationModel: { page: 0, pageSize: 25 },
+                  },
+                  columns: {
+                    columnVisibilityModel: {
+                      created_at: false, // Hide on mobile by default
+                    },
                   },
                 }}
                 slots={{ toolbar: GridToolbar }}
@@ -438,7 +460,25 @@ export default function CategoriesPage() {
                     quickFilterProps: { debounceMs: 500 },
                   },
                 }}
-                sx={{ height: 500 }}
+                sx={{ 
+                  height: { xs: 400, sm: 500, md: 600 },
+                  '& .MuiDataGrid-main': {
+                    '& .MuiDataGrid-columnHeaders': {
+                      borderBottom: 1,
+                      borderColor: 'divider',
+                    },
+                    '& .MuiDataGrid-cell': {
+                      borderBottom: 1,
+                      borderColor: 'divider',
+                    },
+                  },
+                  '& .MuiDataGrid-toolbarContainer': {
+                    padding: { xs: 1, sm: 2 },
+                    '& .MuiButton-root': {
+                      fontSize: { xs: '0.75rem', sm: '0.875rem' },
+                    },
+                  },
+                }}
               />
             </CardContent>
           </Card>
