@@ -7,9 +7,17 @@ const AZURE_ENDPOINT = process.env.NEXT_PUBLIC_AZURE_ENDPOINT || '';
 const AZURE_API_KEY = process.env.AZURE_API_KEY || '';
 const AZURE_REGION = process.env.AZURE_REGION || 'eastus';
 
-// Initialize Computer Vision client
-const credentials = new CognitiveServicesCredentials(AZURE_API_KEY);
-const client = new ComputerVisionClient(credentials, AZURE_ENDPOINT);
+// Initialize Computer Vision client only if API key is available
+let client: ComputerVisionClient | null = null;
+
+if (AZURE_API_KEY && AZURE_API_KEY !== 'your-azure-api-key-here' && AZURE_ENDPOINT && AZURE_ENDPOINT !== 'your-azure-endpoint-here') {
+  try {
+    const credentials = new CognitiveServicesCredentials(AZURE_API_KEY);
+    client = new ComputerVisionClient(credentials, AZURE_ENDPOINT);
+  } catch (error) {
+    console.warn('Failed to initialize Azure Computer Vision client:', error);
+  }
+}
 
 export interface ExtractedProduct {
   name: string;
@@ -36,6 +44,10 @@ export interface ProcessingResult {
 
 // Helper function to extract text from image
 export async function extractTextFromImage(imageBuffer: Buffer): Promise<string[]> {
+  if (!client) {
+    throw new Error('Azure Computer Vision client is not initialized. Please check your API configuration.');
+  }
+  
   try {
     const readResult = await client.readInStream(imageBuffer);
     const operationId = readResult.operationLocation?.split('/').pop();
@@ -153,7 +165,12 @@ export async function processReceiptImage(imageBuffer: Buffer): Promise<Processi
 
 // Function to validate Azure configuration
 export function validateAzureConfig(): boolean {
-  return !!(AZURE_ENDPOINT && AZURE_API_KEY && AZURE_REGION);
+  return !!(AZURE_ENDPOINT && 
+           AZURE_API_KEY && 
+           AZURE_REGION && 
+           AZURE_ENDPOINT !== 'your-azure-endpoint-here' && 
+           AZURE_API_KEY !== 'your-azure-api-key-here' &&
+           client !== null);
 }
 
 export default {
