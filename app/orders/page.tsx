@@ -181,8 +181,11 @@ export default function OrdersPage() {
       field: 'id',
       headerName: 'Order ID',
       width: 120,
+      minWidth: 100,
+      flex: 0,
+      hideable: false,
       renderCell: (params: GridRenderCellParams) => (
-        <Typography variant="body2" fontFamily="monospace">
+        <Typography variant="body2" fontFamily="monospace" noWrap>
           #{params.value.slice(-8)}
         </Typography>
       ),
@@ -191,12 +194,15 @@ export default function OrdersPage() {
       field: 'retailer_id',
       headerName: 'Customer',
       width: 180,
+      minWidth: 150,
+      flex: 0.5,
+      hideable: true,
       renderCell: (params: GridRenderCellParams) => (
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <Avatar sx={{ width: 32, height: 32 }}>
             U
           </Avatar>
-          <Typography variant="body2">{params.value?.slice(-8) || 'N/A'}</Typography>
+          <Typography variant="body2" noWrap>{params.value?.slice(-8) || 'N/A'}</Typography>
         </Box>
       ),
     },
@@ -204,12 +210,15 @@ export default function OrdersPage() {
       field: 'seller_id',
       headerName: 'Seller',
       width: 180,
+      minWidth: 150,
+      flex: 0.5,
+      hideable: true,
       renderCell: (params: GridRenderCellParams) => (
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <Avatar sx={{ width: 32, height: 32, bgcolor: 'secondary.main' }}>
             S
           </Avatar>
-          <Typography variant="body2">{params.value?.slice(-8) || 'N/A'}</Typography>
+          <Typography variant="body2" noWrap>{params.value?.slice(-8) || 'N/A'}</Typography>
         </Box>
       ),
     },
@@ -217,6 +226,8 @@ export default function OrdersPage() {
       field: 'total_amount',
       headerName: 'Amount',
       width: 120,
+      minWidth: 100,
+      flex: 0,
       renderCell: (params: GridRenderCellParams) => (
         <Typography variant="body2" fontWeight="medium">
           ₹{params.value?.toLocaleString() || '0'}
@@ -227,6 +238,8 @@ export default function OrdersPage() {
       field: 'status',
       headerName: 'Status',
       width: 140,
+      minWidth: 120,
+      flex: 0,
       renderCell: (params: GridRenderCellParams) => (
         <Chip
           icon={getStatusIcon(params.value)}
@@ -241,6 +254,9 @@ export default function OrdersPage() {
       field: 'created_at',
       headerName: 'Order Date',
       width: 120,
+      minWidth: 100,
+      flex: 0,
+      hideable: true,
       renderCell: (params: GridRenderCellParams) => (
         <Typography variant="body2">
           {new Date(params.value).toLocaleDateString()}
@@ -251,6 +267,10 @@ export default function OrdersPage() {
       field: 'actions',
       headerName: 'Actions',
       width: 120,
+      minWidth: 100,
+      flex: 0,
+      sortable: false,
+      filterable: false,
       renderCell: (params: GridRenderCellParams) => (
         <Box>
           <IconButton
@@ -277,8 +297,8 @@ export default function OrdersPage() {
   ];
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Typography variant="h4" gutterBottom>
+    <Box sx={{ p: { xs: 2, sm: 3 } }}>
+      <Typography variant={{ xs: 'h5', sm: 'h4' }} gutterBottom>
         Order Management
       </Typography>
 
@@ -426,7 +446,34 @@ export default function OrdersPage() {
                 quickFilterProps: { debounceMs: 500 },
               },
             }}
-            sx={{ height: 600 }}
+            initialState={{
+              columns: {
+                columnVisibilityModel: {
+                  retailer_id: false, // Hide on mobile by default
+                  seller_id: false,   // Hide on mobile by default
+                  created_at: false,  // Hide on mobile by default
+                },
+              },
+            }}
+            sx={{ 
+              height: { xs: 400, sm: 500, md: 600 },
+              '& .MuiDataGrid-main': {
+                '& .MuiDataGrid-columnHeaders': {
+                  borderBottom: 1,
+                  borderColor: 'divider',
+                },
+                '& .MuiDataGrid-cell': {
+                  borderBottom: 1,
+                  borderColor: 'divider',
+                },
+              },
+              '& .MuiDataGrid-toolbarContainer': {
+                padding: { xs: 1, sm: 2 },
+                '& .MuiButton-root': {
+                  fontSize: { xs: '0.75rem', sm: '0.875rem' },
+                },
+              },
+            }}
           />
         </CardContent>
       </Card>
