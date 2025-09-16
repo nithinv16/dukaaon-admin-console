@@ -92,16 +92,24 @@ export function parseReceiptText(textLines: string[]): ReceiptData {
   let merchantName: string | undefined;
   let date: string | undefined;
 
-  // Patterns for different data extraction
-  const pricePattern = /\$?([0-9]+\.?[0-9]*)/;
+  // Enhanced patterns for different data extraction
+  const pricePattern = /\$?([0-9]+\.?[0-9]*)/g;
   const datePattern = /\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}/;
-  const totalPattern = /total|sum|amount/i;
+  const totalPattern = /total|sum|amount|grand|net/i;
+  
+  // Patterns for tabular receipt data (like the samples provided)
+  const productLinePattern = /^(.+?)\s+(\d+)\s+([0-9.]+)\s+([0-9.]+)\s+.*?([0-9.]+)$/;
+  const quantityPattern = /\b(\d+)\b/;
+  const amountPattern = /([0-9]+\.?[0-9]*)\s*$/;
 
   for (let i = 0; i < textLines.length; i++) {
     const line = textLines[i].trim();
     
-    // Extract merchant name (usually first few lines)
-    if (i < 3 && !merchantName && line.length > 3 && !pricePattern.test(line)) {
+    // Skip empty lines and headers
+    if (!line || line.length < 3) continue;
+    
+    // Extract merchant name (usually first few lines, avoid lines with numbers)
+    if (i < 5 && !merchantName && line.length > 3 && !/\d/.test(line) && !line.includes('HSN') && !line.includes('MRP')) {
       merchantName = line;
     }
 
@@ -111,36 +119,73 @@ export function parseReceiptText(textLines: string[]): ReceiptData {
       date = dateMatch[0];
     }
 
-    // Extract total amount
+    // Extract total amount (look for lines with "total", "grand", "net" etc.)
     if (totalPattern.test(line)) {
-      const priceMatch = line.match(pricePattern);
-      if (priceMatch) {
-        totalAmount = parseFloat(priceMatch[1]);
+      const amounts = line.match(pricePattern);
+      if (amounts && amounts.length > 0) {
+        // Take the last/largest amount as total
+        const lastAmount = amounts[amounts.length - 1];
+        totalAmount = parseFloat(lastAmount.replace('$', ''));
       }
     }
 
-    // Extract products (lines with prices that aren't totals)
-    const priceMatch = line.match(pricePattern);
-    if (priceMatch && !totalPattern.test(line)) {
-      const price = parseFloat(priceMatch[1]);
-      const productName = line.replace(pricePattern, '').trim();
+    // Try to extract products using tabular format pattern
+    const tabularMatch = line.match(productLinePattern);
+    if (tabularMatch) {
+      const [, productName, , , , totalPrice] = tabularMatch;
+      const price = parseFloat(totalPrice);
+      const quantityMatch = line.match(quantityPattern);
+      const quantity = quantityMatch ? parseInt(quantityMatch[1]) : 1;
       
-      if (productName.length > 0 && price > 0) {
+      if (productName && price > 0) {
         products.push({
-          name: productName,
+          name: productName.trim(),
           price: price,
-          confidence: 0.8 // Base confidence score
+          quantity: quantity,
+          confidence: 0.9
         });
+      }
+    } else {
+      // Fallback: Extract products from lines containing product names and prices
+       const amounts = Array.from(line.matchAll(pricePattern));
+      if (amounts.length > 0 && !totalPattern.test(line) && !line.includes('HSN') && !line.includes('MRP')) {
+        // Look for product name at the beginning of the line
+        const productNameMatch = line.match(/^([A-Za-z\s]+)/);
+        if (productNameMatch) {
+          const productName = productNameMatch[1].trim();
+          const price = parseFloat(amounts[amounts.length - 1][1]); // Take last price as total
+          const quantityMatch = line.match(quantityPattern);
+          const quantity = quantityMatch ? parseInt(quantityMatch[1]) : 1;
+          
+          // Filter out header lines and invalid entries
+          if (productName.length > 2 && 
+              !productName.toLowerCase().includes('name') && 
+              !productName.toLowerCase().includes('item') &&
+              !productName.toLowerCase().includes('product') &&
+              price > 0) {
+            products.push({
+              name: productName,
+              price: price,
+              quantity: quantity,
+              confidence: 0.8
+            });
+          }
+        }
       }
     }
   }
 
+  // Remove duplicate products (same name)
+  const uniqueProducts = products.filter((product, index, self) => 
+    index === self.findIndex(p => p.name.toLowerCase() === product.name.toLowerCase())
+  );
+
   return {
-    products,
+    products: uniqueProducts,
     totalAmount,
     merchantName,
     date,
-    confidence: products.length > 0 ? 0.8 : 0.3
+    confidence: uniqueProducts.length > 0 ? 0.8 : 0.3
   };
 }
 
