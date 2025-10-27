@@ -23,9 +23,11 @@ import {
   Search,
   Add,
   ArrowBack,
+  Edit,
 } from '@mui/icons-material';
 import { useRouter } from 'next/navigation';
-import { adminQueries } from '@/lib/supabase';
+import { adminQueries } from '@/lib/supabase-browser';
+import ProductImageEditor from '@/components/ProductImageEditor';
 import toast from 'react-hot-toast';
 
 export default function AddFromMasterProductsPage() {
@@ -35,6 +37,7 @@ export default function AddFromMasterProductsPage() {
   const [masterProductLoading, setMasterProductLoading] = useState(false);
   const [sellers, setSellers] = useState<any[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [imageEditorOpen, setImageEditorOpen] = useState(false);
   
   // Master products pagination and search state
   const [masterProductsPage, setMasterProductsPage] = useState(1);
@@ -141,9 +144,38 @@ export default function AddFromMasterProductsPage() {
 
   const totalMasterProductsPages = Math.ceil(masterProductsTotalCount / masterProductsPageSize);
 
+  // Image editor handlers
+  const handleOpenImageEditor = () => {
+    setImageEditorOpen(true);
+  };
+
+  const handleCloseImageEditor = () => {
+    setImageEditorOpen(false);
+  };
+
+  const handleImageUpdate = (newImageUrl: string) => {
+    if (selectedMasterProduct) {
+      setSelectedMasterProduct({
+        ...selectedMasterProduct,
+        image_url: newImageUrl,
+        images: newImageUrl ? [newImageUrl] : []
+      });
+    }
+  };
+
   const handleAddMasterProductToSeller = async () => {
     if (!selectedMasterProduct || !sellerData.seller_id) {
       toast.error('Please select a master product and seller');
+      return;
+    }
+
+    if (!sellerData.price || parseFloat(sellerData.price) <= 0) {
+      toast.error('Please enter a valid price');
+      return;
+    }
+
+    if (!sellerData.stock_available || parseInt(sellerData.stock_available) < 0) {
+      toast.error('Please enter a valid stock quantity');
       return;
     }
 
@@ -326,11 +358,30 @@ export default function AddFromMasterProductsPage() {
                   Selected Product
                 </Typography>
                 <Box sx={{ mb: 3 }}>
-                  <img
-                    src={selectedMasterProduct.images?.[0] || selectedMasterProduct.image_url || '/placeholder-image.png'}
-                    alt={selectedMasterProduct.name}
-                    style={{ width: '100%', height: 120, objectFit: 'cover', borderRadius: 8 }}
-                  />
+                  <Box sx={{ position: 'relative', display: 'inline-block', width: '100%' }}>
+                    <img
+                      src={selectedMasterProduct.images?.[0] || selectedMasterProduct.image_url || '/placeholder-image.png'}
+                      alt={selectedMasterProduct.name}
+                      style={{ width: '100%', height: 120, objectFit: 'cover', borderRadius: 8 }}
+                    />
+                    <IconButton
+                      onClick={handleOpenImageEditor}
+                      sx={{
+                        position: 'absolute',
+                        top: 8,
+                        right: 8,
+                        backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                        color: 'white',
+                        '&:hover': {
+                          backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                        },
+                        size: 'small',
+                      }}
+                      size="small"
+                    >
+                      <Edit fontSize="small" />
+                    </IconButton>
+                  </Box>
                   <Typography variant="subtitle1" sx={{ mt: 1 }}>
                     {selectedMasterProduct.name}
                   </Typography>
@@ -443,6 +494,18 @@ export default function AddFromMasterProductsPage() {
           </Paper>
         </Grid>
       </Grid>
+
+      {/* Product Image Editor Dialog */}
+      {selectedMasterProduct && (
+        <ProductImageEditor
+          open={imageEditorOpen}
+          onClose={handleCloseImageEditor}
+          currentImage={selectedMasterProduct.images?.[0] || selectedMasterProduct.image_url}
+          productName={selectedMasterProduct.name}
+          productId={selectedMasterProduct.id}
+          onImageUpdate={handleImageUpdate}
+        />
+      )}
     </Container>
   );
 }

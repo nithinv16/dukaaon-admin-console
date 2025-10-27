@@ -22,7 +22,7 @@ import {
   VisibilityOff,
   AdminPanelSettings,
 } from '@mui/icons-material';
-import { validateAdminCredentials } from '@/lib/supabase';
+import { validateAdminCredentials } from '@/lib/supabase-browser';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import toast from 'react-hot-toast';

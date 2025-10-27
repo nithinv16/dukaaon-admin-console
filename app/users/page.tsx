@@ -41,7 +41,7 @@ import {
   Block,
   CheckCircle,
 } from '@mui/icons-material';
-import { adminQueries, Profile } from '@/lib/supabase';
+import { adminQueries } from '@/lib/supabase-browser';
 import toast from 'react-hot-toast';
 
 interface UserStats {

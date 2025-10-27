@@ -45,7 +45,8 @@ import {
   Phone,
   LocationOn,
 } from '@mui/icons-material';
-import { adminQueries, Order, supabase } from '@/lib/supabase';
+import { adminQueries, getSupabaseClient } from '@/lib/supabase-browser';
+import { Order } from '@/types';
 import toast from 'react-hot-toast';
 
 interface OrderStats {
@@ -535,24 +536,24 @@ export default function OrdersPage() {
                 </Paper>
               </Grid>
 
-              {/* Customer Info */}
+              {/* Retailer Info */}
               <Grid item xs={12} md={6}>
                 <Paper sx={{ p: 2 }}>
                   <Typography variant="h6" gutterBottom>
-                    Customer Information
+                    Retailer Information
                   </Typography>
                   <Stack spacing={1}>
                     <Box>
                       <Typography variant="subtitle2">Name</Typography>
                       <Typography variant="body2">
-                        {selectedOrder.retailer_id?.slice(-8) || 'N/A'}
+                        {selectedOrder.retailer?.shopName || selectedOrder.retailer?.email || 'N/A'}
                       </Typography>
                     </Box>
                     <Box>
                       <Typography variant="subtitle2">Phone</Typography>
                       <Typography variant="body2">
                         <Phone sx={{ fontSize: 16, mr: 1 }} />
-                        {'N/A'}
+                        {selectedOrder.retailer?.phone || 'N/A'}
                       </Typography>
                     </Box>
                     <Box>
@@ -560,6 +561,30 @@ export default function OrdersPage() {
                       <Typography variant="body2">
                         <LocationOn sx={{ fontSize: 16, mr: 1 }} />
                         {selectedOrder.delivery_address || 'N/A'}
+                      </Typography>
+                    </Box>
+                  </Stack>
+                </Paper>
+              </Grid>
+
+              {/* Seller Info */}
+              <Grid item xs={12} md={6}>
+                <Paper sx={{ p: 2 }}>
+                  <Typography variant="h6" gutterBottom>
+                    Seller Information
+                  </Typography>
+                  <Stack spacing={1}>
+                    <Box>
+                      <Typography variant="subtitle2">Business Name</Typography>
+                      <Typography variant="body2">
+                        {selectedOrder.seller?.business_name || 'N/A'}
+                      </Typography>
+                    </Box>
+                    <Box>
+                      <Typography variant="subtitle2">Phone</Typography>
+                      <Typography variant="body2">
+                        <Phone sx={{ fontSize: 16, mr: 1 }} />
+                        {selectedOrder.seller?.phone || 'N/A'}
                       </Typography>
                     </Box>
                   </Stack>
@@ -588,11 +613,16 @@ export default function OrdersPage() {
                         >
                           <Box>
                             <Typography variant="body2" fontWeight="medium">
-                              {item.product_name || 'Product'}
+                              {item.product_name || item.name || item.title || 'Product'}
                             </Typography>
                             <Typography variant="caption" color="text.secondary">
                               Qty: {item.quantity || 1} × ₹{item.price || 0}
                             </Typography>
+                            {item.variant && (
+                              <Typography variant="caption" color="text.secondary" display="block">
+                                Variant: {item.variant}
+                              </Typography>
+                            )}
                           </Box>
                           <Typography variant="body2" fontWeight="medium">
                             ₹{((item.quantity || 1) * (item.price || 0)).toLocaleString()}

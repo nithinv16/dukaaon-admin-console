@@ -11,6 +11,8 @@
     "export": "next export"
   },
   "dependencies": {
+    "@aws-sdk/client-textract": "^3.893.0",
+    "@aws-sdk/credential-providers": "^3.893.0",
     "@azure/cognitiveservices-computervision": "^8.2.0",
     "@azure/ms-rest-azure-js": "^2.1.0",
     "@azure/ms-rest-js": "^2.7.0",
@@ -24,7 +26,9 @@
     "@mui/x-date-pickers": "^6.18.0",
     "@supabase/supabase-js": "^2.39.0",
     "@types/papaparse": "^5.3.16",
+    "aws-sdk": "^2.1692.0",
     "date-fns": "^2.30.0",
+    "dotenv": "^17.2.3",
     "lodash": "^4.17.21",
     "next": "14.0.4",
     "papaparse": "^5.5.3",

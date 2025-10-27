@@ -37,17 +37,20 @@ import {
   Upload,
   CloudUpload
 } from '@mui/icons-material';
-import { ExtractedProduct } from '../lib/azureOCR';
+import { UnifiedExtractedProduct as ExtractedProduct } from '../lib/unifiedOCR';
 import { searchProductImage } from '../lib/imageSearcher';
 import { toast } from 'react-hot-toast';
+import { getSupabaseClient } from '../lib/supabase-browser';
 
 interface EditableProduct extends ExtractedProduct {
   id: string;
   category: string;
   subcategory: string;
+  brand: string;
   description: string;
   seller_id: string;
   min_order_quantity: number;
+  unit_type: string;
   imageUrl?: string;
   imageSearching?: boolean;
   edited?: boolean;
@@ -75,6 +78,56 @@ const ExtractedProductEditor: React.FC<ExtractedProductEditorProps> = ({
   const [editableProducts, setEditableProducts] = useState<EditableProduct[]>([]);
   const [selectedSeller, setSelectedSeller] = useState<string>('');
   const [loading, setLoading] = useState(false);
+  const [brands, setBrands] = useState<string[]>([]);
+  const [customCategories, setCustomCategories] = useState<string[]>([]);
+  const [customSubcategories, setCustomSubcategories] = useState<string[]>([]);
+
+  // Fetch brands from master_products table
+  useEffect(() => {
+    const fetchBrands = async () => {
+      try {
+        const supabase = getSupabaseClient();
+        if (!supabase) {
+          console.error('Supabase client not available');
+          setBrands(['AudioTech', 'EcoWear', 'SecureHome', 'Samsung', 'Apple', 'Nike', 'Adidas', 'Coca-Cola', 'Pepsi']);
+          return;
+        }
+        
+        const { data, error } = await supabase
+          .from('master_products')
+          .select('brand')
+          .not('brand', 'is', null)
+          .order('brand');
+        
+        if (error) {
+          console.error('Error fetching brands:', error);
+          // Set fallback brands if database query fails
+          setBrands(['AudioTech', 'EcoWear', 'SecureHome', 'Samsung', 'Apple', 'Nike', 'Adidas', 'Coca-Cola', 'Pepsi']);
+          return;
+        }
+        
+        console.log('Fetched brands data:', data);
+        // Extract unique brand names
+        const uniqueBrands = [...new Set(data.map(item => item.brand))].filter(Boolean);
+        console.log('Unique brands:', uniqueBrands);
+        
+        // If no brands found in database, use fallback brands
+        if (uniqueBrands.length === 0) {
+          setBrands(['AudioTech', 'EcoWear', 'SecureHome', 'Samsung', 'Apple', 'Nike', 'Adidas', 'Coca-Cola', 'Pepsi']);
+        } else {
+          setBrands(uniqueBrands);
+        }
+      } catch (error) {
+        console.error('Error fetching brands:', error);
+        // Set fallback brands if there's an exception
+        setBrands(['AudioTech', 'EcoWear', 'SecureHome', 'Samsung', 'Apple', 'Nike', 'Adidas', 'Coca-Cola', 'Pepsi']);
+      }
+    };
+
+    if (open) {
+      fetchBrands();
+    }
+  }, [open]);
 
   // Initialize editable products when dialog opens
   useEffect(() => {
@@ -84,9 +137,11 @@ const ExtractedProductEditor: React.FC<ExtractedProductEditorProps> = ({
         id: `extracted_${index}`,
         category: '',
         subcategory: '',
+        brand: '',
         description: `Product extracted from receipt: ${product.name}`,
         seller_id: '',
         min_order_quantity: 1,
+        unit_type: 'pieces',
         edited: false
       }));
       setEditableProducts(products);
@@ -444,8 +499,8 @@ const ExtractedProductEditor: React.FC<ExtractedProductEditorProps> = ({
                         fullWidth
                         label="Unit Price (₹)"
                         type="number"
-                        value={product.price}
-                        onChange={(e) => updateProduct(product.id, 'price', parseFloat(e.target.value) || 0)}
+                        value={product.price || ''}
+                        onChange={(e) => updateProduct(product.id, 'price', parseFloat(e.target.value) || '')}
                         size="small"
                       />
                     </Grid>
@@ -455,59 +510,115 @@ const ExtractedProductEditor: React.FC<ExtractedProductEditorProps> = ({
                         fullWidth
                         label="Quantity"
                         type="number"
-                        value={product.quantity}
-                        onChange={(e) => updateProduct(product.id, 'quantity', parseFloat(e.target.value) || 0)}
+                        value={product.quantity || ''}
+                        onChange={(e) => updateProduct(product.id, 'quantity', parseFloat(e.target.value) || '')}
                         size="small"
                       />
                     </Grid>
 
                     <Grid item xs={6}>
-                      <FormControl fullWidth size="small">
-                        <InputLabel>Category</InputLabel>
-                        <Select
-                          value={product.category}
-                          onChange={(e) => {
-                            updateProduct(product.id, 'category', e.target.value);
-                            updateProduct(product.id, 'subcategory', ''); // Reset subcategory
-                          }}
-                          label="Category"
-                        >
-                          {categories.map((category) => (
-                            <MenuItem key={category} value={category}>
-                              {category}
-                            </MenuItem>
-                          ))}
-                        </Select>
-                      </FormControl>
+                      <Autocomplete
+                        fullWidth
+                        size="small"
+                        options={[...categories, ...customCategories]}
+                        value={product.category}
+                        onChange={(event, newValue) => {
+                          updateProduct(product.id, 'category', newValue || '');
+                          updateProduct(product.id, 'subcategory', ''); // Reset subcategory
+                        }}
+                        freeSolo
+                        onInputChange={(event, newInputValue) => {
+                          if (newInputValue && !categories.includes(newInputValue) && !customCategories.includes(newInputValue)) {
+                            setCustomCategories(prev => [...prev, newInputValue]);
+                          }
+                        }}
+                        renderInput={(params) => (
+                          <TextField
+                            {...params}
+                            label="Category"
+                            placeholder="Select or enter category"
+                          />
+                        )}
+                      />
                     </Grid>
 
                     <Grid item xs={6}>
-                      <FormControl fullWidth size="small">
-                        <InputLabel>Subcategory</InputLabel>
-                        <Select
-                          value={product.subcategory}
-                          onChange={(e) => updateProduct(product.id, 'subcategory', e.target.value)}
-                          label="Subcategory"
-                          disabled={!product.category}
-                        >
-                          {getAvailableSubcategories(product.category).map((subcategory) => (
-                            <MenuItem key={subcategory} value={subcategory}>
-                              {subcategory}
-                            </MenuItem>
-                          ))}
-                        </Select>
-                      </FormControl>
+                      <Autocomplete
+                        fullWidth
+                        size="small"
+                        options={[...getAvailableSubcategories(product.category), ...customSubcategories]}
+                        value={product.subcategory}
+                        onChange={(event, newValue) => {
+                          updateProduct(product.id, 'subcategory', newValue || '');
+                        }}
+                        freeSolo
+                        disabled={!product.category}
+                        onInputChange={(event, newInputValue) => {
+                          if (newInputValue && !getAvailableSubcategories(product.category).includes(newInputValue) && !customSubcategories.includes(newInputValue)) {
+                            setCustomSubcategories(prev => [...prev, newInputValue]);
+                          }
+                        }}
+                        renderInput={(params) => (
+                          <TextField
+                            {...params}
+                            label="Subcategory"
+                            placeholder="Select or enter subcategory"
+                          />
+                        )}
+                      />
                     </Grid>
 
                     <Grid item xs={6}>
+                      <Autocomplete
+                        fullWidth
+                        size="small"
+                        options={brands}
+                        value={product.brand}
+                        onChange={(event, newValue) => {
+                          updateProduct(product.id, 'brand', newValue || '');
+                        }}
+                        freeSolo
+                        renderInput={(params) => (
+                          <TextField
+                            {...params}
+                            label="Brand"
+                            placeholder="Select or enter brand"
+                          />
+                        )}
+                      />
+                    </Grid>
+
+                    <Grid item xs={4}>
                       <TextField
                         fullWidth
                         label="Min Order Quantity"
                         type="number"
-                        value={product.min_order_quantity}
-                        onChange={(e) => updateProduct(product.id, 'min_order_quantity', parseInt(e.target.value) || 1)}
+                        value={product.min_order_quantity || ''}
+                        onChange={(e) => updateProduct(product.id, 'min_order_quantity', parseInt(e.target.value) || '')}
                         size="small"
                       />
+                    </Grid>
+
+                    <Grid item xs={2}>
+                      <FormControl fullWidth size="small">
+                        <InputLabel>Unit</InputLabel>
+                        <Select
+                          value={product.unit_type}
+                          onChange={(e) => updateProduct(product.id, 'unit_type', e.target.value)}
+                          label="Unit"
+                        >
+                          <MenuItem value="pieces">Pieces</MenuItem>
+                          <MenuItem value="g">g</MenuItem>
+                          <MenuItem value="kg">kg</MenuItem>
+                          <MenuItem value="ml">ml</MenuItem>
+                          <MenuItem value="l">L</MenuItem>
+                          <MenuItem value="box">Box</MenuItem>
+                          <MenuItem value="carton">Carton</MenuItem>
+                          <MenuItem value="pack">Pack</MenuItem>
+                          <MenuItem value="bottle">Bottle</MenuItem>
+                          <MenuItem value="can">Can</MenuItem>
+                        </Select>
+                      </FormControl>
                     </Grid>
 
 
