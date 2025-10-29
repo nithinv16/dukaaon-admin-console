@@ -16,8 +16,8 @@ export async function POST(request: NextRequest) {
 
     // Call the admin credentials validation RPC function
     const { data, error } = await supabase.rpc('validate_admin_credentials', {
-      email_param: email,
-      password_param: password
+      input_email: email,
+      input_password: password
     });
 
     if (error) {
