@@ -94,9 +94,9 @@ export const adminQueries = {
     // If we have orders, fetch the associated profiles and seller details
     let ordersWithDetails = orders || [];
     if (orders && orders.length > 0) {
-      const userIds = orders.map(order => order.user_id).filter(Boolean);
-      const retailerIds = orders.map(order => order.retailer_id).filter(Boolean);
-      const sellerIds = orders.map(order => order.seller_id).filter(Boolean);
+      const userIds = orders.map((order: any) => order.user_id).filter(Boolean);
+      const retailerIds = orders.map((order: any) => order.retailer_id).filter(Boolean);
+      const sellerIds = orders.map((order: any) => order.seller_id).filter(Boolean);
       console.log('User IDs from orders:', userIds);
       console.log('Retailer IDs from orders:', retailerIds);
       console.log('Seller IDs from orders:', sellerIds);
@@ -153,10 +153,10 @@ export const adminQueries = {
       }
 
       // Map profiles and seller details to orders
-      ordersWithDetails = orders.map(order => {
-        const userProfile = userProfiles.find(p => p.id === order.user_id);
-        const retailerProfile = retailerProfiles.find(p => p.id === order.retailer_id);
-        const seller = sellerDetails.find(s => s.user_id === order.seller_id);
+      ordersWithDetails = orders.map((order: any) => {
+        const userProfile = userProfiles.find((p: any) => p.id === order.user_id);
+        const retailerProfile = retailerProfiles.find((p: any) => p.id === order.retailer_id);
+        const seller = sellerDetails.find((s: any) => s.user_id === order.seller_id);
         
         // Helper function to safely parse business_details
         const parseBusinessDetails = (businessDetails: any) => {
@@ -234,7 +234,7 @@ export const adminQueries = {
       .select('total_amount')
       .eq('status', 'completed');
 
-    const totalRevenue = revenueData?.reduce((sum, order) => sum + (order.total_amount || 0), 0) || 0;
+    const totalRevenue = revenueData?.reduce((sum: number, order: any) => sum + (order.total_amount || 0), 0) || 0;
 
     // Get total users
     const { count: totalUsers } = await supabase

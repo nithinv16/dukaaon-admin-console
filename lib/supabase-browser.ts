@@ -148,20 +148,23 @@ export const queries = {
 
 // Admin credentials validation function
 export async function validateAdminCredentials(email: string, password: string) {
-  const supabase = getAdminSupabaseClient();
-  if (!supabase) {
-    throw new Error('Admin Supabase client not initialized');
-  }
-
   try {
-    // Call the admin credentials validation RPC function
-    const { data, error } = await supabase.rpc('validate_admin_credentials', {
-      email_param: email,
-      password_param: password
+    const response = await fetch('/api/admin/validate-credentials', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        email,
+        password
+      }),
     });
 
-    if (error) throw error;
-    return data;
+    if (!response.ok) {
+      throw new Error('Failed to validate admin credentials');
+    }
+
+    return response.json();
   } catch (error) {
     console.error('Admin credentials validation error:', error);
     throw error;

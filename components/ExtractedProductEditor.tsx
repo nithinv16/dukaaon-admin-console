@@ -108,7 +108,7 @@ const ExtractedProductEditor: React.FC<ExtractedProductEditorProps> = ({
         
         console.log('Fetched brands data:', data);
         // Extract unique brand names
-        const uniqueBrands = [...new Set(data.map(item => item.brand))].filter(Boolean);
+        const uniqueBrands = Array.from(new Set(data.map((item: any) => item.brand))).filter(Boolean) as string[];
         console.log('Unique brands:', uniqueBrands);
         
         // If no brands found in database, use fallback brands

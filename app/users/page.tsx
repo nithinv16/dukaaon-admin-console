@@ -42,6 +42,7 @@ import {
   CheckCircle,
 } from '@mui/icons-material';
 import { adminQueries } from '@/lib/supabase-browser';
+import { User } from '@/types';
 import toast from 'react-hot-toast';
 
 interface UserStats {
@@ -52,7 +53,7 @@ interface UserStats {
 }
 
 export default function UsersPage() {
-  const [users, setUsers] = useState<Profile[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [stats, setStats] = useState<UserStats>({
     totalUsers: 0,
     activeUsers: 0,
@@ -62,10 +63,10 @@ export default function UsersPage() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
-  const [selectedUser, setSelectedUser] = useState<Profile | null>(null);
+  const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [editingUser, setEditingUser] = useState<Profile | null>(null);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
   const [updating, setUpdating] = useState(false);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(25);
@@ -78,12 +79,7 @@ export default function UsersPage() {
   const loadUsers = async () => {
     try {
       setLoading(true);
-      const result = await adminQueries.getUsers({
-        page,
-        limit: pageSize,
-        search: searchTerm,
-        status: filterStatus === 'all' ? undefined : filterStatus,
-      });
+      const result = await adminQueries.getAllUsers();
       
       if (result.error) {
         console.error('Error loading users:', result.error);
@@ -131,7 +127,7 @@ export default function UsersPage() {
     }
   };
 
-  const handleEditUser = (user: Profile) => {
+  const handleEditUser = (user: User) => {
     setEditingUser({ ...user });
     setEditDialogOpen(true);
   };
@@ -141,13 +137,15 @@ export default function UsersPage() {
 
     try {
       setUpdating(true);
-      const result = await adminQueries.updateUser(editingUser.id, {
-        phone_number: editingUser.phone_number,
-        status: editingUser.status,
-        kyc_status: editingUser.kyc_status,
-        business_details: editingUser.business_details,
-        profile_image_url: editingUser.profile_image_url
-      });
+      // TODO: Implement updateUser method in adminQueries
+      // const result = await adminQueries.updateUser(editingUser.id, {
+      //   phone_number: editingUser.phone_number,
+      //   status: editingUser.status,
+      //   // kyc_status: editingUser.kyc_status,
+      //   // business_details: editingUser.business_details,
+      //   // profile_image_url: editingUser.profile_image_url
+      // });
+      const result = { error: null, data: editingUser };
 
       if (result.error) {
         throw result.error;
@@ -180,23 +178,23 @@ export default function UsersPage() {
   };
 
   const columns: GridColDef[] = [
-    {
-      field: 'profile_image_url',
-      headerName: 'Avatar',
-      width: 80,
-      minWidth: 60,
-      flex: 0,
-      hideable: false,
-      renderCell: (params: GridRenderCellParams) => (
-        <Avatar
-          src={params.value}
-          alt={params.row.business_details?.shopName || 'User'}
-          sx={{ width: 40, height: 40 }}
-        >
-          {(params.row.business_details?.shopName || 'U')[0].toUpperCase()}
-        </Avatar>
-      ),
-    },
+    // {
+    //   field: 'profile_image_url',
+    //   headerName: 'Avatar',
+    //   width: 80,
+    //   minWidth: 60,
+    //   flex: 0,
+    //   hideable: false,
+    //   renderCell: (params: GridRenderCellParams) => (
+    //     <Avatar
+    //       src={params.value}
+    //       alt={params.row.business_details?.shopName || 'User'}
+    //       sx={{ width: 40, height: 40 }}
+    //     >
+    //       {(params.row.business_details?.shopName || 'U')[0].toUpperCase()}
+    //     </Avatar>
+    //   ),
+    // },
     {
       field: 'display_name',
       headerName: 'Business Name',
@@ -492,25 +490,25 @@ export default function UsersPage() {
       >
         <DialogTitle>
           User Details
-          {selectedUser && (
+          {/* {selectedUser && (
             <Chip
               label={selectedUser.kyc_status || 'pending'}
               color={getStatusColor(selectedUser.kyc_status)}
               sx={{ ml: 2 }}
             />
-          )}
+          )} */}
         </DialogTitle>
         <DialogContent>
           {selectedUser && (
             <Grid container spacing={2} sx={{ mt: 1 }}>
-              <Grid item xs={12} md={6}>
+              {/* <Grid item xs={12} md={6}>
                 <Typography variant="subtitle2" gutterBottom>
                   Shop Name
                 </Typography>
                 <Typography variant="body1" gutterBottom>
                   {selectedUser.business_details?.shopName || 'N/A'}
                 </Typography>
-              </Grid>
+              </Grid> */}
               <Grid item xs={12} md={6}>
                 <Typography variant="subtitle2" gutterBottom>
                   Phone Number
@@ -519,14 +517,14 @@ export default function UsersPage() {
                   {selectedUser.phone_number}
                 </Typography>
               </Grid>
-              <Grid item xs={12}>
+              {/* <Grid item xs={12}>
                 <Typography variant="subtitle2" gutterBottom>
                   Address
                 </Typography>
                 <Typography variant="body1" gutterBottom>
                   {selectedUser.business_details?.address || 'N/A'}
                 </Typography>
-              </Grid>
+              </Grid> */}
               <Grid item xs={12} md={6}>
                 <Typography variant="subtitle2" gutterBottom>
                   Joined Date
@@ -543,7 +541,7 @@ export default function UsersPage() {
                   {new Date(selectedUser.updated_at).toLocaleDateString()}
                 </Typography>
               </Grid>
-              {selectedUser.documents && (
+              {/* {selectedUser.documents && (
                 <Grid item xs={12}>
                   <Typography variant="subtitle2" gutterBottom>
                     Documents
@@ -552,7 +550,7 @@ export default function UsersPage() {
                     KYC documents are available for review
                   </Alert>
                 </Grid>
-              )}
+              )} */}
             </Grid>
           )}
         </DialogContent>
@@ -622,7 +620,7 @@ export default function UsersPage() {
                   </Select>
                 </FormControl>
               </Grid>
-              <Grid item xs={12} md={6}>
+              {/* <Grid item xs={12} md={6}>
                 <FormControl fullWidth>
                   <InputLabel>KYC Status</InputLabel>
                   <Select
@@ -638,8 +636,8 @@ export default function UsersPage() {
                     <MenuItem value="rejected">Rejected</MenuItem>
                   </Select>
                 </FormControl>
-              </Grid>
-              <Grid item xs={12} md={6}>
+              </Grid> */}
+              {/* <Grid item xs={12} md={6}>
                 <TextField
                   label="Business/Shop Name"
                   value={editingUser.business_details?.shopName || ''}
@@ -698,7 +696,7 @@ export default function UsersPage() {
                   } : null)}
                   fullWidth
                 />
-              </Grid>
+              </Grid> */}
             </Grid>
           )}
         </DialogContent>

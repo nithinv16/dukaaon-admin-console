@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAdminSupabaseClient } from '@/lib/supabase-browser';
+import { getAdminSupabaseClient } from '@/lib/supabase-admin';
 
 export async function POST(request: NextRequest) {
   try {
@@ -115,7 +115,7 @@ export async function POST(request: NextRequest) {
         // Update images array - replace or add the new image URL
         const currentImages = currentProduct?.images || [];
         const updatedImages = currentImages.length > 0 
-          ? [imageUrl, ...currentImages.filter(img => img !== imageUrl)] // Replace first image or add new one
+          ? [imageUrl, ...currentImages.filter((img: string) => img !== imageUrl)] // Replace first image or add new one
           : [imageUrl];
 
         // Update master_products table

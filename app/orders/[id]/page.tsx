@@ -32,6 +32,7 @@ import {
 } from '@mui/icons-material';
 import { useRouter, useParams } from 'next/navigation';
 import { adminQueries } from '@/lib/supabase-browser';
+import { Order } from '@/types';
 import toast from 'react-hot-toast';
 
 export default function OrderDetailsPage() {
@@ -61,7 +62,7 @@ export default function OrderDetailsPage() {
       });
       
       if (result && result.orders && result.orders.length > 0) {
-        const foundOrder = result.orders.find(o => o.id === orderId);
+        const foundOrder = result.orders.find((o: Order) => o.id === orderId);
         if (foundOrder) {
           setOrder(foundOrder);
         } else {

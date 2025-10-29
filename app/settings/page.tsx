@@ -45,7 +45,6 @@ import {
   Add,
   Visibility,
   VisibilityOff,
-  Database,
   Settings as SettingsIcon,
 } from '@mui/icons-material';
 import { adminQueries } from '@/lib/supabase-browser';
@@ -215,10 +214,7 @@ export default function SettingsPage() {
   const handleOCRSettingChange = (provider: 'azure' | 'aws', field: string, value: string) => {
     setOcrSettings(prev => ({
       ...prev,
-      [provider]: {
-        ...prev[provider],
-        [field]: value
-      }
+      [field]: value
     }));
   };
 
@@ -814,9 +810,9 @@ export default function SettingsPage() {
                         <TextField
                           fullWidth
                           label="Azure Endpoint"
-                          value={ocrSettings.azure.endpoint}
+                          value={ocrSettings.azureEndpoint}
                           onChange={(e) =>
-                            handleOCRSettingChange('azure', 'endpoint', e.target.value)
+                            handleOCRSettingChange('azure', 'azureEndpoint', e.target.value)
                           }
                           placeholder="https://your-resource.cognitiveservices.azure.com/"
                         />
@@ -824,9 +820,9 @@ export default function SettingsPage() {
                           fullWidth
                           label="Azure API Key"
                           type={showPasswords ? 'text' : 'password'}
-                          value={ocrSettings.azure.apiKey}
+                          value={ocrSettings.azureApiKey}
                           onChange={(e) =>
-                            handleOCRSettingChange('azure', 'apiKey', e.target.value)
+                            handleOCRSettingChange('azure', 'azureApiKey', e.target.value)
                           }
                           InputProps={{
                             endAdornment: (
@@ -842,9 +838,9 @@ export default function SettingsPage() {
                         <TextField
                           fullWidth
                           label="Azure Region"
-                          value={ocrSettings.azure.region}
+                          value={ocrSettings.azureRegion}
                           onChange={(e) =>
-                            handleOCRSettingChange('azure', 'region', e.target.value)
+                            handleOCRSettingChange('azure', 'azureRegion', e.target.value)
                           }
                           placeholder="eastus"
                         />
@@ -856,18 +852,18 @@ export default function SettingsPage() {
                         <TextField
                           fullWidth
                           label="AWS Access Key ID"
-                          value={ocrSettings.aws.accessKeyId}
+                          value={ocrSettings.awsAccessKeyId}
                           onChange={(e) =>
-                            handleOCRSettingChange('aws', 'accessKeyId', e.target.value)
+                            handleOCRSettingChange('aws', 'awsAccessKeyId', e.target.value)
                           }
                         />
                         <TextField
                           fullWidth
                           label="AWS Secret Access Key"
                           type={showPasswords ? 'text' : 'password'}
-                          value={ocrSettings.aws.secretAccessKey}
+                          value={ocrSettings.awsSecretAccessKey}
                           onChange={(e) =>
-                            handleOCRSettingChange('aws', 'secretAccessKey', e.target.value)
+                            handleOCRSettingChange('aws', 'awsSecretAccessKey', e.target.value)
                           }
                           InputProps={{
                             endAdornment: (
@@ -883,9 +879,9 @@ export default function SettingsPage() {
                         <TextField
                           fullWidth
                           label="AWS Region"
-                          value={ocrSettings.aws.region}
+                          value={ocrSettings.awsRegion}
                           onChange={(e) =>
-                            handleOCRSettingChange('aws', 'region', e.target.value)
+                            handleOCRSettingChange('aws', 'awsRegion', e.target.value)
                           }
                           placeholder="us-east-1"
                         />

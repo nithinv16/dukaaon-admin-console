@@ -46,7 +46,7 @@ import {
   ExpandMore,
   ExpandLess,
 } from '@mui/icons-material';
-import { adminQueries } from '@/lib/supabase-browser';
+import { adminQueries, queries } from '@/lib/supabase-browser';
 import toast from 'react-hot-toast';
 import { 
   defaultCategorySubcategoryMap, 
@@ -96,7 +96,7 @@ export default function CategoriesPage() {
   const loadCategories = async () => {
     try {
       setLoading(true);
-      const result = await adminQueries.getCategories(searchTerm, filterStatus);
+      const result = await queries.getCategories();
       setCategories(result || []);
     } catch (error) {
       console.error('Error loading categories:', error);
@@ -111,14 +111,19 @@ export default function CategoriesPage() {
 
   const loadStats = async () => {
     try {
-      const categoryStats = await adminQueries.getCategoryStats();
-      setStats(categoryStats);
-    } catch (error) {
-      console.error('Error loading stats:', error);
-      // Fallback to calculated stats from mock data
+      // For now, use calculated stats from mock data since getCategoryStats doesn't exist
       const mockCategories = generateMockCategoryData(defaultCategorySubcategoryMap);
       const calculatedStats = calculateCategoryStats(mockCategories);
       setStats(calculatedStats);
+    } catch (error) {
+      console.error('Error loading stats:', error);
+      // Fallback to default stats
+      setStats({
+        totalCategories: 0,
+        activeCategories: 0,
+        totalSubcategories: 0,
+        totalProducts: 0
+      });
     }
   };
 

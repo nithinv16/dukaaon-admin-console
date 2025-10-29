@@ -88,7 +88,7 @@ export default function NotificationBell({ onNotificationReceived }: Notificatio
           schema: 'public',
           table: 'orders'
         },
-        async (payload) => {
+        async (payload: any) => {
           console.log('New order received:', payload);
           await handleNewOrder(payload.new);
         }
@@ -105,7 +105,7 @@ export default function NotificationBell({ onNotificationReceived }: Notificatio
           schema: 'public',
           table: 'master_orders'
         },
-        async (payload) => {
+        async (payload: any) => {
           console.log('New master order received:', payload);
           await handleNewMasterOrder(payload.new);
         }
@@ -122,7 +122,7 @@ export default function NotificationBell({ onNotificationReceived }: Notificatio
           schema: 'public',
           table: 'order_batches'
         },
-        async (payload) => {
+        async (payload: any) => {
           console.log('New order batch received:', payload);
           await handleNewOrderBatch(payload.new);
         }
