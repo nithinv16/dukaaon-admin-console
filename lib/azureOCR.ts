@@ -4,8 +4,8 @@ import { ReadResult } from '@azure/cognitiveservices-computervision/esm/models';
 
 // Azure Computer Vision configuration
 const AZURE_ENDPOINT = process.env.NEXT_PUBLIC_AZURE_ENDPOINT || '';
-const AZURE_API_KEY = process.env.AZURE_API_KEY || '';
-const AZURE_REGION = process.env.AZURE_REGION || 'eastus';
+const AZURE_API_KEY = process.env.NEXT_PUBLIC_AZURE_API_KEY || '';
+const AZURE_REGION = process.env.NEXT_PUBLIC_AZURE_REGION || 'eastus';
 
 // Initialize Computer Vision client only if API key is available
 let client: ComputerVisionClient | null = null;
@@ -92,24 +92,28 @@ export function parseReceiptText(textLines: string[]): ReceiptData {
   let merchantName: string | undefined;
   let date: string | undefined;
 
-  // Enhanced patterns for different data extraction
-  const pricePattern = /\$?([0-9]+\.?[0-9]*)/g;
+  // Enhanced patterns for tabular data extraction
+  const pricePattern = /\$?([0-9]+[,.]?[0-9]*\.?[0-9]{0,2})/g;
+  const quantityPattern = /\b([0-9]+(?:\.[0-9]+)?)\s*(?:pcs?|pc|pieces?|qty|x|units?)?\b/i;
   const datePattern = /\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}/;
-  const totalPattern = /total|sum|amount|grand|net/i;
+  const totalPattern = /(?:total|sum|amount|net\s*amount|grand\s*total|final\s*total)\s*:?\s*\$?([0-9]+[,.]?[0-9]*\.?[0-9]{0,2})/i;
   
-  // Patterns for tabular receipt data (like the samples provided)
-  const productLinePattern = /^(.+?)\s+(\d+)\s+([0-9.]+)\s+([0-9.]+)\s+.*?([0-9.]+)$/;
-  const quantityPattern = /\b(\d+)\b/;
-  const amountPattern = /([0-9]+\.?[0-9]*)\s*$/;
+  // Patterns to identify table headers or product lines
+  const productLinePattern = /^\s*\d+\s+/; // Lines starting with numbers (item numbers)
+  const skipPatterns = [
+    /^\s*(?:receipt|invoice|bill|store|shop|market)/i,
+    /^\s*(?:date|time|cashier|clerk|thank\s*you)/i,
+    /^\s*(?:subtotal|tax|discount|change|tender)/i,
+    /^\s*(?:card|cash|payment|method)/i
+  ];
 
   for (let i = 0; i < textLines.length; i++) {
     const line = textLines[i].trim();
+    if (!line) continue;
     
-    // Skip empty lines and headers
-    if (!line || line.length < 3) continue;
-    
-    // Extract merchant name (usually first few lines, avoid lines with numbers)
-    if (i < 5 && !merchantName && line.length > 3 && !/\d/.test(line) && !line.includes('HSN') && !line.includes('MRP')) {
+    // Extract merchant name (usually first few lines)
+    if (i < 3 && !merchantName && line.length > 3 && !pricePattern.test(line) && 
+        !skipPatterns.some(pattern => pattern.test(line))) {
       merchantName = line;
     }
 
@@ -119,63 +123,65 @@ export function parseReceiptText(textLines: string[]): ReceiptData {
       date = dateMatch[0];
     }
 
-    // Extract total amount (look for lines with "total", "grand", "net" etc.)
-    if (totalPattern.test(line)) {
-      const amounts = line.match(pricePattern);
-      if (amounts && amounts.length > 0) {
-        // Take the last/largest amount as total
-        const lastAmount = amounts[amounts.length - 1];
-        totalAmount = parseFloat(lastAmount.replace('$', ''));
-      }
+    // Extract total amount with enhanced pattern
+    const totalMatch = line.match(totalPattern);
+    if (totalMatch) {
+      totalAmount = parseFloat(totalMatch[1].replace(/,/g, ''));
+      continue;
     }
 
-    // Try to extract products using tabular format pattern
-    const tabularMatch = line.match(productLinePattern);
-    if (tabularMatch) {
-      const [, productName, , , , totalPrice] = tabularMatch;
-      const price = parseFloat(totalPrice);
+    // Skip lines that are clearly not product lines
+    if (skipPatterns.some(pattern => pattern.test(line))) {
+      continue;
+    }
+
+    // Enhanced product extraction for tabular data
+    const prices = Array.from(line.matchAll(pricePattern)).map(match => 
+      parseFloat(match[1].replace(/,/g, ''))
+    ).filter(price => price > 0);
+    
+    if (prices.length > 0) {
+      // Try to extract quantity
       const quantityMatch = line.match(quantityPattern);
-      const quantity = quantityMatch ? parseInt(quantityMatch[1]) : 1;
+      const quantity = quantityMatch ? parseFloat(quantityMatch[1]) : 1;
       
-      if (productName && price > 0) {
-        products.push({
-          name: productName.trim(),
-          price: price,
-          quantity: quantity,
-          confidence: 0.9
-        });
+      // Extract product name by removing prices and quantities
+      let productName = line;
+      
+      // Remove all price matches
+      productName = productName.replace(pricePattern, '');
+      
+      // Remove quantity if found
+      if (quantityMatch) {
+        productName = productName.replace(quantityMatch[0], '');
       }
-    } else {
-      // Fallback: Extract products from lines containing product names and prices
-       const amounts = Array.from(line.matchAll(pricePattern));
-      if (amounts.length > 0 && !totalPattern.test(line) && !line.includes('HSN') && !line.includes('MRP')) {
-        // Look for product name at the beginning of the line
-        const productNameMatch = line.match(/^([A-Za-z\s]+)/);
-        if (productNameMatch) {
-          const productName = productNameMatch[1].trim();
-          const price = parseFloat(amounts[amounts.length - 1][1]); // Take last price as total
-          const quantityMatch = line.match(quantityPattern);
-          const quantity = quantityMatch ? parseInt(quantityMatch[1]) : 1;
-          
-          // Filter out header lines and invalid entries
-          if (productName.length > 2 && 
-              !productName.toLowerCase().includes('name') && 
-              !productName.toLowerCase().includes('item') &&
-              !productName.toLowerCase().includes('product') &&
-              price > 0) {
-            products.push({
-              name: productName,
-              price: price,
-              quantity: quantity,
-              confidence: 0.8
-            });
-          }
-        }
+      
+      // Remove common prefixes like item numbers
+      productName = productName.replace(/^\s*\d+\s*/, '');
+      
+      // Clean up the product name
+      productName = productName.replace(/\s+/g, ' ').trim();
+      
+      // Remove trailing/leading special characters
+      productName = productName.replace(/^[^a-zA-Z0-9]+|[^a-zA-Z0-9]+$/g, '');
+      
+      if (productName.length > 2) {
+        // Use the last price as the total amount for this item
+        const itemTotal = prices[prices.length - 1];
+        // If we have multiple prices, the first might be unit price
+        const unitPrice = prices.length > 1 ? prices[0] : itemTotal / quantity;
+        
+        products.push({
+          name: productName,
+          price: unitPrice,
+          quantity: quantity,
+          confidence: 0.85
+        });
       }
     }
   }
 
-  // Remove duplicate products (same name)
+  // Post-processing: remove duplicates and clean up
   const uniqueProducts = products.filter((product, index, self) => 
     index === self.findIndex(p => p.name.toLowerCase() === product.name.toLowerCase())
   );
@@ -185,7 +191,7 @@ export function parseReceiptText(textLines: string[]): ReceiptData {
     totalAmount,
     merchantName,
     date,
-    confidence: uniqueProducts.length > 0 ? 0.8 : 0.3
+    confidence: uniqueProducts.length > 0 ? 0.85 : 0.3
   };
 }
 

@@ -28,3 +28,21 @@ export interface TableColumn {
   sortable?: boolean;
   width?: string;
 }
+
+export interface Order {
+  id: string;
+  user_id: string;
+  retailer_id?: string;
+  status: 'pending' | 'processing' | 'shipped' | 'delivered' | 'cancelled' | 'failed';
+  total_amount: number;
+  created_at: string;
+  updated_at: string;
+  shipping_address?: string;
+  payment_method?: string;
+  payment_status?: string;
+  notes?: string;
+  profiles?: {
+    full_name?: string;
+    email?: string;
+  };
+}

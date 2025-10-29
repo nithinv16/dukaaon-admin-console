@@ -26,7 +26,7 @@ import {
   Settings,
   Campaign,
 } from '@mui/icons-material';
-import { supabase } from '@/lib/supabase';
+import { getSupabaseClient } from '@/lib/supabase-browser';
 import { formatDistanceToNow } from 'date-fns';
 import { useRouter } from 'next/navigation';
 
@@ -67,6 +67,12 @@ export default function NotificationBell({ onNotificationReceived }: Notificatio
   };
 
   useEffect(() => {
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      console.error('Supabase client not available');
+      return;
+    }
+
     // Register callback for external notifications
     if (onNotificationReceived) {
       onNotificationReceived(addNotification);

@@ -65,7 +65,7 @@ import {
   Warning,
 } from '@mui/icons-material';
 import { useRouter } from 'next/navigation';
-import { adminQueries, MasterProduct } from '@/lib/supabase';
+import { adminQueries } from '@/lib/supabase-browser';
 import toast from 'react-hot-toast';
 import Papa from 'papaparse';
 import { 

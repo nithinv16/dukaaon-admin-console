@@ -34,7 +34,7 @@ import {
 } from '@mui/icons-material';
 import { useRouter } from 'next/navigation';
 import { toast } from 'react-hot-toast';
-import { adminQueries } from '../../../lib/supabase';
+import { adminQueries } from '../../../lib/supabase-browser';
 
 interface Seller {
   id: string;
@@ -59,6 +59,7 @@ interface Product {
   stock_available?: number;
   unit?: string;
   min_order_quantity?: number;
+  min_quantity?: number;
   status: string;
 }
 
@@ -181,7 +182,7 @@ export default function CloneInventoryPage() {
             seller_id: toSeller,
             stock: product.stock_available || 0,
             unit: product.unit || 'piece',
-            min_order_quantity: product.min_order_quantity || 1
+            min_order_quantity: product.min_quantity || product.min_order_quantity || 1
           };
 
           const result = await adminQueries.addProduct(productData);

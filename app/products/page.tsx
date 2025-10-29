@@ -49,11 +49,13 @@ import {
   Receipt,
   ContentCopy,
 } from '@mui/icons-material';
-import { adminQueries, Product } from '@/lib/supabase';
+import { adminQueries } from '@/lib/supabase-browser';
 import toast from 'react-hot-toast';
-import { processReceiptImage, ExtractedProduct } from '@/lib/azureOCR';
+import { processReceiptImage, UnifiedExtractedProduct as ExtractedProduct } from '@/lib/unifiedOCR';
 import ExtractedProductEditor from '@/components/ExtractedProductEditor';
+import ProductImageEditor from '@/components/ProductImageEditor';
 import { useRouter } from 'next/navigation';
+import { defaultCategorySubcategoryMap } from '@/lib/categoryUtils';
 
 interface ProductStats {
   totalProducts: number;
@@ -82,6 +84,8 @@ export default function ProductsPage() {
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [imageEditorOpen, setImageEditorOpen] = useState(false);
+  const [editingProductForImage, setEditingProductForImage] = useState<Product | null>(null);
   const [newProduct, setNewProduct] = useState({
     name: '',
     description: '',
@@ -115,7 +119,7 @@ export default function ProductsPage() {
   const [subcategoriesByCategory, setSubcategoriesByCategory] = useState<{ [key: string]: string[] }>({
     'Electronics': ['Smartphones', 'Laptops', 'Tablets', 'Accessories', 'Audio', 'Gaming'],
     'Clothing': ['Men\'s Wear', 'Women\'s Wear', 'Kids Wear', 'Shoes', 'Accessories'],
-    'Food & Beverages': ['Fresh Produce', 'Packaged Foods', 'Beverages', 'Snacks', 'Dairy'],
+    'Food & Beverages': ['Fresh Produce', 'Packaged Foods', 'Beverages', 'Snacks', 'Dairy', 'Biscuit & Cookies'],
     'Home & Garden': ['Furniture', 'Decor', 'Kitchen', 'Garden Tools', 'Lighting'],
     'Health & Beauty': ['Skincare', 'Makeup', 'Hair Care', 'Health Supplements', 'Personal Care'],
     'Sports & Outdoors': ['Fitness Equipment', 'Outdoor Gear', 'Sports Apparel', 'Team Sports'],
@@ -304,6 +308,36 @@ export default function ProductsPage() {
       toast.error('Failed to update product');
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleOpenImageEditor = (product: Product) => {
+    setEditingProductForImage(product);
+    setImageEditorOpen(true);
+  };
+
+  const handleCloseImageEditor = () => {
+    setImageEditorOpen(false);
+    setEditingProductForImage(null);
+  };
+
+  const handleImageUpdate = (newImageUrl: string) => {
+    if (editingProductForImage) {
+      // Update the product in the local state
+      setProducts(prevProducts => 
+        prevProducts.map(product => 
+          product.id === editingProductForImage.id 
+            ? { ...product, image_url: newImageUrl, images: [newImageUrl] }
+            : product
+        )
+      );
+      
+      // Also update editingProduct if it's the same product
+      if (editingProduct && editingProduct.id === editingProductForImage.id) {
+        setEditingProduct(prev => prev ? { ...prev, image_url: newImageUrl, images: [newImageUrl] } : null);
+      }
+      
+      toast.success('Product image updated successfully!');
     }
   };
 
@@ -1421,6 +1455,37 @@ export default function ProductsPage() {
                   <MenuItem value="out_of_stock">Out of Stock</MenuItem>
                 </Select>
               </FormControl>
+              
+              {/* Product Image Section */}
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 2 }}>
+                <Typography variant="subtitle1">Product Image:</Typography>
+                {editingProduct.image_url ? (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <img 
+                      src={editingProduct.image_url} 
+                      alt={editingProduct.name}
+                      style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 4 }}
+                    />
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      onClick={() => handleOpenImageEditor(editingProduct)}
+                      startIcon={<Edit />}
+                    >
+                      Edit Image
+                    </Button>
+                  </Box>
+                ) : (
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    onClick={() => handleOpenImageEditor(editingProduct)}
+                    startIcon={<Add />}
+                  >
+                    Add Image
+                  </Button>
+                )}
+              </Box>
             </Box>
           )}
         </DialogContent>
@@ -1436,6 +1501,18 @@ export default function ProductsPage() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Product Image Editor Dialog */}
+      {imageEditorOpen && editingProductForImage && (
+        <ProductImageEditor
+          open={imageEditorOpen}
+          onClose={handleCloseImageEditor}
+          currentImage={editingProductForImage.image_url || ''}
+          productName={editingProductForImage.name}
+          productId={editingProductForImage.id}
+          onImageUpdate={handleImageUpdate}
+        />
+      )}
 
       {/* Master Products Dialog */}
       <Dialog

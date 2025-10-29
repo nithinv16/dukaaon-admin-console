@@ -31,7 +31,7 @@ import {
   ShoppingCart,
 } from '@mui/icons-material';
 import { useRouter, useParams } from 'next/navigation';
-import { adminQueries, Order } from '@/lib/supabase';
+import { adminQueries } from '@/lib/supabase-browser';
 import toast from 'react-hot-toast';
 
 export default function OrderDetailsPage() {
@@ -177,9 +177,33 @@ export default function OrderDetailsPage() {
                 <Grid item xs={12} sm={6}>
                   <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                     <Person sx={{ mr: 1, color: 'text.secondary' }} />
-                    <Typography variant="subtitle2">Customer</Typography>
+                    <Typography variant="subtitle2">Retailer</Typography>
                   </Box>
-                  <Typography variant="body1">{order.retailer_id?.slice(-8) || 'N/A'}</Typography>
+                  <Typography variant="body1">
+                    {order.retailer?.shopName || order.retailer?.email || 'N/A'}
+                  </Typography>
+                  {order.retailer?.phone && (
+                    <Typography variant="body2" color="text.secondary">
+                      <Phone sx={{ fontSize: 14, mr: 0.5 }} />
+                      {order.retailer.phone}
+                    </Typography>
+                  )}
+                </Grid>
+                
+                <Grid item xs={12} sm={6}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                    <Person sx={{ mr: 1, color: 'text.secondary' }} />
+                    <Typography variant="subtitle2">Seller</Typography>
+                  </Box>
+                  <Typography variant="body1">
+                    {order.seller?.business_name || 'N/A'}
+                  </Typography>
+                  {order.seller?.phone && (
+                    <Typography variant="body2" color="text.secondary">
+                      <Phone sx={{ fontSize: 14, mr: 0.5 }} />
+                      {order.seller.phone}
+                    </Typography>
+                  )}
                 </Grid>
                 
                 <Grid item xs={12} sm={6}>
@@ -193,7 +217,7 @@ export default function OrderDetailsPage() {
                 </Grid>
                 
                 {order.delivery_address && (
-                  <Grid item xs={12}>
+                  <Grid item xs={12} sm={6}>
                     <Box sx={{ display: 'flex', alignItems: 'flex-start', mb: 1 }}>
                       <LocationOn sx={{ mr: 1, color: 'text.secondary', mt: 0.5 }} />
                       <Typography variant="subtitle2">Delivery Address</Typography>
@@ -222,15 +246,20 @@ export default function OrderDetailsPage() {
                           <ShoppingCart sx={{ mr: 2, color: 'text.secondary' }} />
                           <Box>
                             <Typography variant="subtitle2">
-                              {item.name || item.product_name || 'Product'}
+                              {item.product_name || item.name || item.title || 'Product'}
                             </Typography>
                             <Typography variant="body2" color="text.secondary">
-                              Quantity: {item.quantity} × ₹{item.price}
+                              Quantity: {item.quantity || 1} × ₹{item.price || 0}
                             </Typography>
+                            {item.variant && (
+                              <Typography variant="caption" color="text.secondary">
+                                Variant: {item.variant}
+                              </Typography>
+                            )}
                           </Box>
                         </Box>
                         <Typography variant="subtitle1" fontWeight="bold">
-                          ₹{(item.quantity * item.price).toLocaleString()}
+                          ₹{((item.quantity || 1) * (item.price || 0)).toLocaleString()}
                         </Typography>
                       </Box>
                     </Paper>

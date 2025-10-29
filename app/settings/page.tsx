@@ -27,6 +27,7 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  SelectChangeEvent,
 } from '@mui/material';
 import {
   Save,
@@ -44,8 +45,11 @@ import {
   Add,
   Visibility,
   VisibilityOff,
+  Database,
+  Settings as SettingsIcon,
 } from '@mui/icons-material';
-import { adminQueries } from '@/lib/supabase';
+import { adminQueries } from '@/lib/supabase-browser';
+import { getOCRProviderStatus } from '@/lib/unifiedOCR';
 import toast from 'react-hot-toast';
 
 interface TabPanelProps {
@@ -132,6 +136,19 @@ export default function SettingsPage() {
     apiTimeout: 30, // seconds
   });
 
+  // OCR Settings
+  const [ocrSettings, setOcrSettings] = useState({
+    provider: process.env.NEXT_PUBLIC_OCR_PROVIDER || 'azure',
+    azureEndpoint: process.env.NEXT_PUBLIC_AZURE_ENDPOINT || '',
+    azureApiKey: process.env.NEXT_PUBLIC_AZURE_API_KEY || '',
+    azureRegion: process.env.NEXT_PUBLIC_AZURE_REGION || 'eastus',
+    awsAccessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
+    awsSecretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
+    awsRegion: process.env.AWS_REGION || 'us-east-1',
+  });
+
+  const [ocrStatus, setOcrStatus] = useState(getOCRProviderStatus());
+
   useEffect(() => {
     loadSettings();
   }, []);
@@ -153,8 +170,23 @@ export default function SettingsPage() {
   const saveSettings = async (settingsType: string, settings: any) => {
     try {
       setLoading(true);
-      // Save settings to Supabase
-      // This would be implemented based on your settings table structure
+      
+      if (settingsType === 'OCR') {
+        // Save OCR settings to environment variables or configuration
+        // In a real implementation, you would save these to your backend/database
+        // For now, we'll just show success and update local state
+        console.log('OCR Settings to save:', settings);
+        
+        // Update OCR status after saving
+        setTimeout(() => {
+          setOcrStatus(getOCRProviderStatus());
+        }, 500);
+      } else {
+        // Save other settings to Supabase
+        // This would be implemented based on your settings table structure
+        console.log(`${settingsType} Settings to save:`, settings);
+      }
+      
       toast.success(`${settingsType} settings saved successfully`);
     } catch (error) {
       console.error('Error saving settings:', error);
@@ -166,6 +198,28 @@ export default function SettingsPage() {
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
+  };
+
+  const handleOCRProviderChange = (event: SelectChangeEvent) => {
+    const provider = event.target.value as 'azure' | 'aws';
+    setOcrSettings(prev => ({
+      ...prev,
+      provider
+    }));
+    // Update status when provider changes
+    setTimeout(() => {
+      setOcrStatus(getOCRProviderStatus());
+    }, 100);
+  };
+
+  const handleOCRSettingChange = (provider: 'azure' | 'aws', field: string, value: string) => {
+    setOcrSettings(prev => ({
+      ...prev,
+      [provider]: {
+        ...prev[provider],
+        [field]: value
+      }
+    }));
   };
 
   return (
@@ -721,15 +775,130 @@ export default function SettingsPage() {
                         setApiSettings({ ...apiSettings, googleMapsApiKey: e.target.value })
                       }
                     />
-                    <TextField
-                      fullWidth
-                      label="Azure API Key"
-                      type={showPasswords ? 'text' : 'password'}
-                      value={apiSettings.azureApiKey}
-                      onChange={(e) =>
-                        setApiSettings({ ...apiSettings, azureApiKey: e.target.value })
-                      }
-                    />
+                  </Stack>
+                </CardContent>
+              </Card>
+            </Grid>
+
+            <Grid item xs={12}>
+              <Card>
+                <CardContent>
+                  <Typography variant="h6" gutterBottom>
+                    OCR Configuration
+                  </Typography>
+                  <Stack spacing={2}>
+                    <FormControl fullWidth>
+                      <InputLabel>OCR Provider</InputLabel>
+                      <Select
+                        value={ocrSettings.provider}
+                        label="OCR Provider"
+                        onChange={handleOCRProviderChange}
+                      >
+                        <MenuItem value="azure">
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            Azure Computer Vision
+                            {ocrStatus.azure.available && <Chip label="Available" color="success" size="small" />}
+                          </Box>
+                        </MenuItem>
+                        <MenuItem value="aws">
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            AWS Textract
+                            {ocrStatus.aws.available && <Chip label="Available" color="success" size="small" />}
+                          </Box>
+                        </MenuItem>
+                      </Select>
+                    </FormControl>
+
+                    {ocrSettings.provider === 'azure' && (
+                      <>
+                        <TextField
+                          fullWidth
+                          label="Azure Endpoint"
+                          value={ocrSettings.azure.endpoint}
+                          onChange={(e) =>
+                            handleOCRSettingChange('azure', 'endpoint', e.target.value)
+                          }
+                          placeholder="https://your-resource.cognitiveservices.azure.com/"
+                        />
+                        <TextField
+                          fullWidth
+                          label="Azure API Key"
+                          type={showPasswords ? 'text' : 'password'}
+                          value={ocrSettings.azure.apiKey}
+                          onChange={(e) =>
+                            handleOCRSettingChange('azure', 'apiKey', e.target.value)
+                          }
+                          InputProps={{
+                            endAdornment: (
+                              <IconButton
+                                onClick={() => setShowPasswords(!showPasswords)}
+                                edge="end"
+                              >
+                                {showPasswords ? <VisibilityOff /> : <Visibility />}
+                              </IconButton>
+                            ),
+                          }}
+                        />
+                        <TextField
+                          fullWidth
+                          label="Azure Region"
+                          value={ocrSettings.azure.region}
+                          onChange={(e) =>
+                            handleOCRSettingChange('azure', 'region', e.target.value)
+                          }
+                          placeholder="eastus"
+                        />
+                      </>
+                    )}
+
+                    {ocrSettings.provider === 'aws' && (
+                      <>
+                        <TextField
+                          fullWidth
+                          label="AWS Access Key ID"
+                          value={ocrSettings.aws.accessKeyId}
+                          onChange={(e) =>
+                            handleOCRSettingChange('aws', 'accessKeyId', e.target.value)
+                          }
+                        />
+                        <TextField
+                          fullWidth
+                          label="AWS Secret Access Key"
+                          type={showPasswords ? 'text' : 'password'}
+                          value={ocrSettings.aws.secretAccessKey}
+                          onChange={(e) =>
+                            handleOCRSettingChange('aws', 'secretAccessKey', e.target.value)
+                          }
+                          InputProps={{
+                            endAdornment: (
+                              <IconButton
+                                onClick={() => setShowPasswords(!showPasswords)}
+                                edge="end"
+                              >
+                                {showPasswords ? <VisibilityOff /> : <Visibility />}
+                              </IconButton>
+                            ),
+                          }}
+                        />
+                        <TextField
+                          fullWidth
+                          label="AWS Region"
+                          value={ocrSettings.aws.region}
+                          onChange={(e) =>
+                            handleOCRSettingChange('aws', 'region', e.target.value)
+                          }
+                          placeholder="us-east-1"
+                        />
+                      </>
+                    )}
+
+                    <Alert severity="info">
+                      <Typography variant="body2">
+                        Current Status: {ocrStatus.available.length > 0 
+                          ? `${ocrStatus.available.join(', ')} provider(s) available` 
+                          : 'No OCR providers configured'}
+                      </Typography>
+                    </Alert>
                   </Stack>
                 </CardContent>
               </Card>
@@ -766,14 +935,35 @@ export default function SettingsPage() {
             </Grid>
 
             <Grid item xs={12}>
-              <Button
-                variant="contained"
-                startIcon={<Save />}
-                onClick={() => saveSettings('API', apiSettings)}
-                disabled={loading}
-              >
-                Save API Settings
-              </Button>
+              <Stack direction="row" spacing={2}>
+                <Button
+                  variant="contained"
+                  startIcon={<Save />}
+                  onClick={() => saveSettings('API', apiSettings)}
+                  disabled={loading}
+                >
+                  Save API Settings
+                </Button>
+                <Button
+                  variant="contained"
+                  color="secondary"
+                  startIcon={<Save />}
+                  onClick={() => saveSettings('OCR', ocrSettings)}
+                  disabled={loading}
+                >
+                  Save OCR Settings
+                </Button>
+                <Button
+                  variant="outlined"
+                  startIcon={<Refresh />}
+                  onClick={() => {
+                    setOcrStatus(getOCRProviderStatus());
+                    toast.success('OCR status refreshed');
+                  }}
+                >
+                  Refresh OCR Status
+                </Button>
+              </Stack>
             </Grid>
           </Grid>
         </TabPanel>

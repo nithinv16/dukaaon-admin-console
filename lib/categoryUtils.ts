@@ -53,7 +53,8 @@ export const defaultCategorySubcategoryMap: CategorySubcategoryMap = {
     'meat',
     'seafood',
     'fruits',
-    'vegetables'
+    'vegetables',
+    'biscuit & cookies'
   ]
 };
 

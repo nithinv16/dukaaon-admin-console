@@ -46,7 +46,7 @@ import {
   ExpandMore,
   ExpandLess,
 } from '@mui/icons-material';
-import { adminQueries } from '@/lib/supabase';
+import { adminQueries } from '@/lib/supabase-browser';
 import toast from 'react-hot-toast';
 import { 
   defaultCategorySubcategoryMap, 
