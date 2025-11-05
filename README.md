@@ -111,31 +111,85 @@ Ensure your Supabase service role has appropriate permissions for:
 
 ## Deployment
 
-### AWS Deployment (Recommended)
+### AWS Amplify Deployment (Recommended)
+
+This project is configured for AWS Amplify deployment through GitHub integration.
+
+#### Prerequisites
+- AWS Account
+- GitHub repository connected to AWS Amplify
+- Supabase project with admin credentials configured
+
+#### Required Environment Variables
+
+**CRITICAL**: Set these in AWS Amplify Console → App Settings → Environment Variables
+
+```env
+# Public variables (accessible on client and server)
+NEXT_PUBLIC_SUPABASE_URL=https://xcpznnkpjgyrpbvpnvit.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+
+# Server-only variable (NO NEXT_PUBLIC_ prefix!)
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+```
+
+⚠️ **IMPORTANT**: The `SUPABASE_SERVICE_ROLE_KEY` must NOT have the `NEXT_PUBLIC_` prefix as it's server-side only.
+
+#### Quick Deployment Steps
+
+1. **Push code to GitHub** (triggers auto-deploy)
+2. **Set environment variables** in AWS Amplify Console
+3. **Redeploy** after setting variables (critical!)
+4. **Test** the deployment
+
+📚 **Detailed Guides**:
+- [QUICK_FIX_GUIDE.md](./QUICK_FIX_GUIDE.md) - 5-minute setup guide
+- [AMPLIFY_ENV_SETUP.md](./AMPLIFY_ENV_SETUP.md) - Complete environment setup
+- [AMPLIFY_DEPLOYMENT_FIX.md](./AMPLIFY_DEPLOYMENT_FIX.md) - Troubleshooting
+
+#### Deployment Configuration
+
+The `amplify.yml` file is pre-configured with:
+- Node.js 20
+- Next.js build optimization
+- Caching for faster builds
+- Proper artifact configuration
+
+#### Post-Deployment Verification
+
+1. Visit: `https://your-app.amplifyapp.com/api/test-env` to verify environment variables
+2. Test login with admin credentials
+3. Delete `app/api/test-env/route.ts` after verification (security)
+
+### Other Deployment Options
+
+#### EC2 with PM2
 
 1. **Build the application**:
    ```bash
    npm run build
    ```
 
-2. **Deploy to AWS**:
-   - Use AWS Amplify for easy deployment
-   - Or deploy to EC2 with PM2
-   - Configure CloudFront for CDN
+2. **Deploy to EC2**:
+   - Upload build files to EC2 instance
+   - Use PM2 for process management
+   - Configure Nginx as reverse proxy
 
 3. **Domain Configuration**:
    - Point `admin.dukaaon.in` to your deployment
-   - Configure SSL certificate
+   - Configure SSL certificate with Let's Encrypt
    - Update CORS settings in Supabase
 
-### Environment Variables for Production
+### Environment Variables Reference
 
 ```env
-NEXT_PUBLIC_ENVIRONMENT=production
+# Required for all deployments
 NEXT_PUBLIC_SUPABASE_URL=your_production_supabase_url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_production_supabase_key
-NEXTAUTH_URL=https://admin.dukaaon.in
-NEXTAUTH_SECRET=your_secure_secret
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_production_supabase_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_production_service_role_key
+
+# Optional
+NEXT_PUBLIC_APP_ENV=production
 ```
 
 ## Security Considerations
@@ -220,20 +274,67 @@ admin-console/
 
 ## Troubleshooting
 
-### Common Issues
+### AWS Amplify Deployment Issues
+
+**Error: "Admin credentials validation error"**
+
+This error occurs when `SUPABASE_SERVICE_ROLE_KEY` is not set in AWS Amplify.
+
+**Quick Fix**:
+1. Add `SUPABASE_SERVICE_ROLE_KEY` in AWS Amplify Console → Environment Variables
+2. Redeploy the application
+3. Test login
+
+📚 **See**: [QUICK_FIX_GUIDE.md](./QUICK_FIX_GUIDE.md) for detailed steps
+
+**Error: Environment variables not accessible**
+
+- Ensure variables are set in AWS Amplify Console (not just in `.env` files)
+- Variables need to be added BEFORE or redeployed AFTER adding them
+- Check variable names are exactly correct (case-sensitive)
+
+**Build fails on Amplify**
+
+- Check build logs in AWS Amplify Console
+- Verify Node.js version compatibility (using Node 20)
+- Ensure all dependencies are in `package.json`
+
+### Common Development Issues
 
 1. **Environment Variables Not Loading**:
    - Restart development server after changing `.env`
    - Ensure variables start with `NEXT_PUBLIC_` for client-side access
+   - Server-only variables should NOT have `NEXT_PUBLIC_` prefix
 
 2. **Supabase Connection Issues**:
    - Verify URL and API key in environment variables
    - Check network connectivity
    - Ensure RLS policies allow admin access
+   - For admin operations, ensure `SUPABASE_SERVICE_ROLE_KEY` is set
 
 3. **Build Errors**:
    - Run `npm install --legacy-peer-deps` to resolve dependency conflicts
    - Clear `.next` folder and rebuild
+   - Check TypeScript errors with `npm run lint`
+
+### Diagnostic Tools
+
+**Environment Variable Checker**:
+```bash
+# Visit this endpoint after deployment
+https://your-app.amplifyapp.com/api/test-env
+```
+⚠️ Delete `app/api/test-env/route.ts` after verification!
+
+**Check CloudWatch Logs**:
+- AWS Amplify Console → Monitoring → Logging
+- Look for errors related to environment variables or Supabase
+
+### Additional Resources
+
+- [AMPLIFY_DEPLOYMENT_FIX.md](./AMPLIFY_DEPLOYMENT_FIX.md) - Comprehensive troubleshooting
+- [AMPLIFY_ENV_SETUP.md](./AMPLIFY_ENV_SETUP.md) - Environment setup guide
+- [DEPLOYMENT_STATUS.md](./DEPLOYMENT_STATUS.md) - Current deployment status
 
 ### Performance Optimization
 

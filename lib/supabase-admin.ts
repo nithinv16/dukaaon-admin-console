@@ -11,11 +11,15 @@ export function getAdminSupabaseClient() {
   const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!supabaseUrl || !supabaseServiceRoleKey) {
-    console.error('Missing admin Supabase environment variables:', {
+    const errorDetails = {
       url: !!supabaseUrl,
-      serviceKey: !!supabaseServiceRoleKey
-    });
-    throw new Error('Admin Supabase client not configured');
+      serviceKey: !!supabaseServiceRoleKey,
+      urlPreview: supabaseUrl ? supabaseUrl.substring(0, 30) + '...' : 'NOT SET',
+      nodeEnv: process.env.NODE_ENV,
+    };
+    console.error('❌ Missing admin Supabase environment variables:', errorDetails);
+    console.error('💡 Fix: Set SUPABASE_SERVICE_ROLE_KEY in AWS Amplify Console → Environment Variables');
+    throw new Error('Admin Supabase client not configured - Check SUPABASE_SERVICE_ROLE_KEY in Amplify');
   }
 
   adminSupabaseClient = createClient(supabaseUrl, supabaseServiceRoleKey, {
@@ -25,6 +29,7 @@ export function getAdminSupabaseClient() {
     }
   });
 
+  console.log('✅ Admin Supabase client initialized successfully');
   return adminSupabaseClient;
 }
 
