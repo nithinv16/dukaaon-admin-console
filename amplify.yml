@@ -9,10 +9,16 @@ applications:
             - nvm use 20
             - node --version
             - npm --version
+            - echo "Environment variables status:"
+            - echo "NEXT_PUBLIC_SUPABASE_URL is set: $([[ -n "$NEXT_PUBLIC_SUPABASE_URL" ]] && echo 'YES' || echo 'NO')"
+            - echo "NEXT_PUBLIC_SUPABASE_ANON_KEY is set: $([[ -n "$NEXT_PUBLIC_SUPABASE_ANON_KEY" ]] && echo 'YES' || echo 'NO')"
+            - echo "SUPABASE_SERVICE_ROLE_KEY is set: $([[ -n "$SUPABASE_SERVICE_ROLE_KEY" ]] && echo 'YES' || echo 'NO')"
             - npm ci
         build:
           commands:
             - echo "Building Next.js app with API routes support..."
+            - echo "Verifying runtime environment variables..."
+            - echo "SUPABASE_SERVICE_ROLE_KEY length: ${#SUPABASE_SERVICE_ROLE_KEY}"
             - npm run build
       artifacts:
         baseDirectory: .next
