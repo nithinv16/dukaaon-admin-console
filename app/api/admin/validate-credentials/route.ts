@@ -38,7 +38,18 @@ export async function POST(request: NextRequest) {
     }
 
     console.log('✅ Admin credentials validated successfully for:', email);
-    return NextResponse.json(data);
+    console.log('📤 Returning data to frontend:', JSON.stringify(data, null, 2));
+    
+    // Ensure we're returning the correct format
+    if (!data) {
+      console.error('❌ RPC returned null/undefined data');
+      return NextResponse.json(
+        { success: false, message: 'No data returned from authentication' },
+        { status: 500 }
+      );
+    }
+    
+    return NextResponse.json(data, { status: 200 });
   } catch (error: any) {
     console.error('❌ Admin credentials validation error:', {
       message: error?.message,
