@@ -149,6 +149,8 @@ export const queries = {
 // Admin credentials validation function
 export async function validateAdminCredentials(email: string, password: string) {
   try {
+    console.log('🔐 validateAdminCredentials called with:', email);
+    
     const response = await fetch('/api/admin/validate-credentials', {
       method: 'POST',
       headers: {
@@ -160,13 +162,24 @@ export async function validateAdminCredentials(email: string, password: string) 
       }),
     });
 
+    console.log('📡 API Response status:', response.status);
+    console.log('📡 API Response ok:', response.ok);
+
     if (!response.ok) {
-      throw new Error('Failed to validate admin credentials');
+      console.error('❌ Response not OK:', response.status, response.statusText);
+      const errorData = await response.json().catch(() => ({}));
+      console.error('❌ Error data:', errorData);
+      throw new Error(`Failed to validate admin credentials: ${response.status} ${response.statusText}`);
     }
 
-    return response.json();
+    const data = await response.json();
+    console.log('✅ Response data received:', data);
+    console.log('✅ data.success:', data?.success);
+    console.log('✅ data.admin:', data?.admin);
+    
+    return data;
   } catch (error) {
-    console.error('Admin credentials validation error:', error);
+    console.error('❌ Admin credentials validation error:', error);
     throw error;
   }
 }
