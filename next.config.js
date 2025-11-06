@@ -10,8 +10,8 @@ const nextConfig = {
     NEXT_PUBLIC_APP_ENV: process.env.NEXT_PUBLIC_APP_ENV || 'production',
   },
   
-  // Configure proper output for AWS Amplify
-  output: 'standalone',
+  // Note: Removed 'output: standalone' as it may conflict with AWS Amplify's deployment model
+  // AWS Amplify handles Next.js deployment differently
   
   async headers() {
     return [

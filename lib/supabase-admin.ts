@@ -3,12 +3,17 @@ import { createClient } from '@supabase/supabase-js';
 let adminSupabaseClient: any = null;
 
 export function getAdminSupabaseClient() {
-  if (adminSupabaseClient) {
-    return adminSupabaseClient;
-  }
-
+  // Don't use cached client in production to avoid stale connections
+  // Create fresh client each time
+  
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  console.log('🔧 Creating Supabase admin client...');
+  console.log('🔧 URL exists:', !!supabaseUrl);
+  console.log('🔧 Service key exists:', !!supabaseServiceRoleKey);
+  console.log('🔧 URL preview:', supabaseUrl?.substring(0, 30) + '...');
+  console.log('🔧 Service key length:', supabaseServiceRoleKey?.length);
 
   if (!supabaseUrl || !supabaseServiceRoleKey) {
     const errorDetails = {
@@ -22,15 +27,20 @@ export function getAdminSupabaseClient() {
     throw new Error('Admin Supabase client not configured - Check SUPABASE_SERVICE_ROLE_KEY in Amplify');
   }
 
-  adminSupabaseClient = createClient(supabaseUrl, supabaseServiceRoleKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
-    }
-  });
+  try {
+    const client = createClient(supabaseUrl, supabaseServiceRoleKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
+      }
+    });
 
-  console.log('✅ Admin Supabase client initialized successfully');
-  return adminSupabaseClient;
+    console.log('✅ Admin Supabase client created successfully');
+    return client;
+  } catch (error: any) {
+    console.error('❌ Error creating Supabase client:', error);
+    throw error;
+  }
 }
 
 // Admin queries for server-side use

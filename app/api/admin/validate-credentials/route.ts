@@ -38,16 +38,31 @@ export async function POST(request: NextRequest) {
     }
 
     console.log('✅ Admin credentials validated successfully for:', email);
-    console.log('📤 Returning data to frontend:', JSON.stringify(data, null, 2));
+    console.log('📤 Data received from RPC:', JSON.stringify(data, null, 2));
+    console.log('📤 Data type:', typeof data);
+    console.log('📤 Data is null?', data === null);
+    console.log('📤 Data is undefined?', data === undefined);
     
-    // Ensure we're returning the correct format
-    if (!data) {
+    // Check if data exists
+    if (data === null || data === undefined) {
       console.error('❌ RPC returned null/undefined data');
       return NextResponse.json(
-        { success: false, message: 'No data returned from authentication' },
+        { 
+          success: false, 
+          message: 'No data returned from authentication',
+          debug: {
+            dataWasNull: data === null,
+            dataWasUndefined: data === undefined,
+          }
+        },
         { status: 500 }
       );
     }
+    
+    console.log('📤 Data keys:', Object.keys(data));
+    console.log('📤 data.success:', data.success);
+    console.log('📤 data.admin:', data.admin);
+    console.log('📤 Returning response...');
     
     return NextResponse.json(data, { status: 200 });
   } catch (error: any) {
