@@ -4,10 +4,14 @@ const nextConfig = {
   swcMinify: true,
   
   // Ensure environment variables are properly exposed
+  // Note: SUPABASE_SERVICE_ROLE_KEY should be automatically available to API routes
+  // but we're explicitly including it here as a test for AWS Amplify
   env: {
     NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
     NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
     NEXT_PUBLIC_APP_ENV: process.env.NEXT_PUBLIC_APP_ENV || 'production',
+    // Explicitly pass service role key to runtime (for AWS Amplify compatibility)
+    SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
   },
   
   // Note: Removed 'output: standalone' as it may conflict with AWS Amplify's deployment model
