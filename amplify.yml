@@ -9,10 +9,10 @@ applications:
             - nvm use 20
             - node --version
             - npm --version
-            - pwd
             - npm ci
         build:
           commands:
+            - echo "Building Next.js app with API routes support..."
             - npm run build
       artifacts:
         baseDirectory: .next
@@ -22,8 +22,3 @@ applications:
         paths:
           - node_modules/**/*
           - .next/cache/**/*
-      env:
-        variables:
-          NEXT_PRIVATE_STANDALONE: 'false'
-          NODE_ENV: 'production'
-          _LIVE_UPDATES: '[{"pkg":"next","type":"internal","origins":[],"files":["next.config.js"]}]'
