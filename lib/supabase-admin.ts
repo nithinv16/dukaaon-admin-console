@@ -117,7 +117,7 @@ export const adminQueries = {
       console.log('Seller IDs from orders:', sellerIds);
       
       // Fetch user profiles (customer details)
-      let userProfiles = [];
+      let userProfiles: any[] = [];
       if (userIds.length > 0) {
         const { data: profilesData, error: profilesError } = await supabase
           .from('profiles')
@@ -134,7 +134,7 @@ export const adminQueries = {
       }
 
       // Fetch retailer profiles
-      let retailerProfiles = [];
+      let retailerProfiles: any[] = [];
       if (retailerIds.length > 0) {
         const { data: retailerData, error: retailerError } = await supabase
           .from('profiles')
@@ -151,7 +151,7 @@ export const adminQueries = {
       }
 
       // Fetch seller details
-      let sellerDetails = [];
+      let sellerDetails: any[] = [];
       if (sellerIds.length > 0) {
         const { data: sellersData, error: sellersError } = await supabase
           .from('seller_details')
