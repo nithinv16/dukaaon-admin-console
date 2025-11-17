@@ -181,12 +181,25 @@ export default function OrderDetailsPage() {
                     <Typography variant="subtitle2">Retailer</Typography>
                   </Box>
                   <Typography variant="body1">
-                    {order.retailer?.shopName || order.retailer?.email || 'N/A'}
+                    {order.retailer?.shopName || 
+                     order.retailer?.phone_number || 
+                     'N/A'}
                   </Typography>
+                  {order.retailer?.owner_name && (
+                    <Typography variant="body2" color="text.secondary">
+                      Owner: {order.retailer.owner_name}
+                    </Typography>
+                  )}
                   {order.retailer?.phone && (
                     <Typography variant="body2" color="text.secondary">
                       <Phone sx={{ fontSize: 14, mr: 0.5 }} />
                       {order.retailer.phone}
+                    </Typography>
+                  )}
+                  {order.retailer?.phone_number && !order.retailer?.phone && (
+                    <Typography variant="body2" color="text.secondary">
+                      <Phone sx={{ fontSize: 14, mr: 0.5 }} />
+                      {order.retailer.phone_number}
                     </Typography>
                   )}
                 </Grid>
@@ -197,12 +210,17 @@ export default function OrderDetailsPage() {
                     <Typography variant="subtitle2">Seller</Typography>
                   </Box>
                   <Typography variant="body1">
-                    {order.seller?.business_name || 'N/A'}
+                    {order.seller?.business_name || order.seller?.owner_name || 'N/A'}
                   </Typography>
                   {order.seller?.phone && (
                     <Typography variant="body2" color="text.secondary">
                       <Phone sx={{ fontSize: 14, mr: 0.5 }} />
                       {order.seller.phone}
+                    </Typography>
+                  )}
+                  {order.seller?.seller_type && (
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      Type: {order.seller.seller_type}
                     </Typography>
                   )}
                 </Grid>
@@ -224,8 +242,61 @@ export default function OrderDetailsPage() {
                       <Typography variant="subtitle2">Delivery Address</Typography>
                     </Box>
                     <Typography variant="body2" color="text.secondary">
-                      {order.delivery_address}
+                      {(() => {
+                        if (!order.delivery_address) return 'N/A';
+                        
+                        // Check if delivery_address contains shopName (data issue from root app)
+                        // Sometimes delivery_address is set to "shopName, address" format
+                        const deliveryAddr = order.delivery_address;
+                        const retailerShopName = order.retailer?.shopName;
+                        
+                        // If delivery_address starts with or equals shopName, extract the address part
+                        if (typeof deliveryAddr === 'string' && retailerShopName) {
+                          // Check if delivery_address starts with shopName
+                          if (deliveryAddr.startsWith(retailerShopName)) {
+                            // Extract address part after shopName and comma
+                            const addressPart = deliveryAddr.substring(retailerShopName.length).trim();
+                            if (addressPart.startsWith(',')) {
+                              // Return the address part (after comma)
+                              const cleanAddress = addressPart.substring(1).trim();
+                              return cleanAddress || order.retailer?.address || deliveryAddr;
+                            }
+                          }
+                          // If delivery_address is exactly the shopName (no address), show retailer address
+                          if (deliveryAddr === retailerShopName) {
+                            return order.retailer?.address || 
+                                   order.retailer?.shopName || 
+                                   'N/A';
+                          }
+                        }
+                        
+                        // Handle JSONB delivery_address
+                        if (typeof deliveryAddr === 'object') {
+                          const addr = deliveryAddr;
+                          const parts = [];
+                          if (addr.address) parts.push(addr.address);
+                          if (addr.city) parts.push(addr.city);
+                          if (addr.state) parts.push(addr.state);
+                          if (addr.pincode) parts.push(addr.pincode);
+                          if (addr.landmark) parts.push(`Landmark: ${addr.landmark}`);
+                          return parts.length > 0 ? parts.join(', ') : JSON.stringify(addr);
+                        }
+                        
+                        // Handle string delivery_address
+                        return deliveryAddr;
+                      })()}
                     </Typography>
+                    {order.delivery_contact_name && (
+                      <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+                        Contact: {order.delivery_contact_name}
+                        {order.delivery_contact_phone && ` - ${order.delivery_contact_phone}`}
+                      </Typography>
+                    )}
+                    {order.delivery_instructions && (
+                      <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+                        Instructions: {order.delivery_instructions}
+                      </Typography>
+                    )}
                   </Grid>
                 )}
               </Grid>

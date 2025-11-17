@@ -40,10 +40,13 @@ import {
   Visibility,
   Block,
   CheckCircle,
+  Download,
 } from '@mui/icons-material';
 import { adminQueries } from '@/lib/supabase-browser';
 import { User } from '@/types';
 import toast from 'react-hot-toast';
+import { useRouter } from 'next/navigation';
+import { exportToCSV, prepareDataForExport } from '@/lib/export-utils';
 
 interface UserStats {
   totalUsers: number;
@@ -53,6 +56,7 @@ interface UserStats {
 }
 
 export default function UsersPage() {
+  const router = useRouter();
   const [users, setUsers] = useState<User[]>([]);
   const [stats, setStats] = useState<UserStats>({
     totalUsers: 0,
@@ -81,14 +85,44 @@ export default function UsersPage() {
       setLoading(true);
       const result = await adminQueries.getAllUsers();
       
+      // Handle both response formats: { data: [...] } or direct array
+      let usersData = [];
       if (result.error) {
         console.error('Error loading users:', result.error);
         toast.error('Failed to load users');
-        setUsers([]);
-      } else {
-        setUsers(result.data || []);
-        console.log('Loaded users:', result.data); // Debug log
+        usersData = [];
+      } else if (Array.isArray(result)) {
+        // Direct array response
+        usersData = result;
+      } else if (result.data) {
+        // Wrapped in data property
+        usersData = result.data;
+      } else if (Array.isArray(result)) {
+        usersData = result;
       }
+      
+      // Apply client-side filtering if needed
+      let filteredUsers = usersData;
+      
+      if (searchTerm) {
+        filteredUsers = filteredUsers.filter((user: any) => 
+          user.phone_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          user.business_details?.shopName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          user.business_details?.business_name?.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+      }
+      
+      if (filterStatus !== 'all') {
+        filteredUsers = filteredUsers.filter((user: any) => {
+          if (filterStatus === 'verified') return user.kyc_status === 'verified';
+          if (filterStatus === 'pending') return user.kyc_status === 'pending' || !user.kyc_status;
+          if (filterStatus === 'rejected') return user.kyc_status === 'rejected';
+          return true;
+        });
+      }
+      
+      setUsers(filteredUsers);
+      console.log('Loaded users:', filteredUsers.length); // Debug log
     } catch (error) {
       console.error('Error loading users:', error);
       toast.error('Failed to load users');
@@ -116,14 +150,22 @@ export default function UsersPage() {
 
   const handleUserAction = async (userId: string, action: 'block' | 'unblock' | 'delete') => {
     try {
-      // Implementation would depend on your Supabase schema
-      // This is a placeholder for the actual implementation
-      toast.success(`User ${action}ed successfully`);
+      if (action === 'delete') {
+        if (!confirm('Are you sure you want to delete this user? This action cannot be undone.')) {
+          return;
+        }
+        await adminQueries.deleteUser(userId);
+        toast.success('User deleted successfully');
+      } else {
+        const status = action === 'block' ? 'suspended' : 'active';
+        await adminQueries.updateUser(userId, { status });
+        toast.success(`User ${action === 'block' ? 'blocked' : 'unblocked'} successfully`);
+      }
       loadUsers();
       loadStats();
-    } catch (error) {
+    } catch (error: any) {
       console.error(`Error ${action}ing user:`, error);
-      toast.error(`Failed to ${action} user`);
+      toast.error(error.message || `Failed to ${action} user`);
     }
   };
 
@@ -137,18 +179,15 @@ export default function UsersPage() {
 
     try {
       setUpdating(true);
-      // TODO: Implement updateUser method in adminQueries
-      // const result = await adminQueries.updateUser(editingUser.id, {
-      //   phone_number: editingUser.phone_number,
-      //   status: editingUser.status,
-      //   // kyc_status: editingUser.kyc_status,
-      //   // business_details: editingUser.business_details,
-      //   // profile_image_url: editingUser.profile_image_url
-      // });
-      const result = { error: null, data: editingUser };
+      const result = await adminQueries.updateUser(editingUser.id, {
+        phone_number: editingUser.phone_number,
+        status: editingUser.status,
+        // kyc_status: editingUser.kyc_status, // Uncomment if kyc_status field exists
+        // business_details: editingUser.business_details, // Uncomment if needed
+      });
 
       if (result.error) {
-        throw result.error;
+        throw new Error(result.error);
       }
 
       toast.success('User updated successfully!');
@@ -156,9 +195,9 @@ export default function UsersPage() {
       setEditingUser(null);
       loadUsers();
       loadStats();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error updating user:', error);
-      toast.error('Failed to update user');
+      toast.error(error.message || 'Failed to update user');
     } finally {
       setUpdating(false);
     }
@@ -196,20 +235,32 @@ export default function UsersPage() {
     //   ),
     // },
     {
-      field: 'display_name',
+      field: 'business_name',
       headerName: 'Business Name',
       minWidth: 150,
       flex: 1,
       hideable: false,
-      renderCell: (params: GridRenderCellParams) => (
-        <Typography variant="body2" noWrap>
-          {params.value || 'N/A'}
-        </Typography>
-      ),
+      valueGetter: (params: any) => {
+        const businessDetails = typeof params.row.business_details === 'string'
+          ? JSON.parse(params.row.business_details || '{}')
+          : params.row.business_details || {};
+        return businessDetails.shopName || businessDetails.business_name || params.row.phone_number || 'N/A';
+      },
+      renderCell: (params: GridRenderCellParams) => {
+        const businessDetails = typeof params.row.business_details === 'string'
+          ? JSON.parse(params.row.business_details || '{}')
+          : params.row.business_details || {};
+        const name = businessDetails.shopName || businessDetails.business_name || params.row.phone_number || 'N/A';
+        return (
+          <Typography variant="body2" noWrap>
+            {name}
+          </Typography>
+        );
+      },
     },
     {
-      field: 'user_type',
-      headerName: 'User Type',
+      field: 'role',
+      headerName: 'Role',
       width: 120,
       minWidth: 100,
       flex: 0,
@@ -218,7 +269,8 @@ export default function UsersPage() {
         <Chip
           label={params.value === 'manufacturer' ? 'Manufacturer' : 
                  params.value === 'wholesaler' ? 'Wholesaler' : 
-                 params.value === 'retailer' ? 'Retailer' : 'Unknown'}
+                 params.value === 'retailer' ? 'Retailer' : 
+                 params.value || 'Unknown'}
           color={params.value === 'manufacturer' ? 'primary' : 
                  params.value === 'wholesaler' ? 'secondary' : 
                  params.value === 'retailer' ? 'info' : 'default'}
@@ -273,10 +325,7 @@ export default function UsersPage() {
         <Box>
           <IconButton
             size="small"
-            onClick={() => {
-              setSelectedUser(params.row);
-              setDialogOpen(true);
-            }}
+            onClick={() => router.push(`/users/${params.row.id}`)}
           >
             <Visibility />
           </IconButton>
@@ -406,7 +455,31 @@ export default function UsersPage() {
                 Apply Filters
               </Button>
             </Grid>
-            <Grid item xs={6} sm={3} md={3}>
+            <Grid item xs={6} sm={3} md={2}>
+              <Button
+                fullWidth
+                variant="outlined"
+                startIcon={<Download />}
+                size="small"
+                onClick={() => {
+                  const exportData = prepareDataForExport(users, [
+                    { field: 'id', headerName: 'ID' },
+                    { field: 'phone_number', headerName: 'Phone Number' },
+                    { field: 'role', headerName: 'Role' },
+                    { field: 'status', headerName: 'Status' },
+                    { field: 'created_at', headerName: 'Created At' },
+                  ]);
+                  exportToCSV(exportData, `users-export-${new Date().toISOString().split('T')[0]}`);
+                  toast.success('Users exported to CSV');
+                }}
+                sx={{
+                  fontSize: { xs: '0.75rem', sm: '0.875rem' },
+                }}
+              >
+                Export
+              </Button>
+            </Grid>
+            <Grid item xs={6} sm={3} md={2}>
               <Button
                 fullWidth
                 variant="contained"
@@ -452,7 +525,7 @@ export default function UsersPage() {
             initialState={{
               columns: {
                 columnVisibilityModel: {
-                  user_type: false,    // Hide on mobile by default
+                  role: false,         // Hide on mobile by default
                   phone_number: false, // Hide on mobile by default
                   created_at: false,   // Hide on mobile by default
                 },

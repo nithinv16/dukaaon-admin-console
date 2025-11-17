@@ -52,7 +52,7 @@ import toast from 'react-hot-toast';
 interface OrderStats {
   totalOrders: number;
   pendingOrders: number;
-  completedOrders: number;
+  deliveredOrders: number;
   cancelledOrders: number;
   totalRevenue: number;
 }
@@ -62,7 +62,7 @@ export default function OrdersPage() {
   const [stats, setStats] = useState<OrderStats>({
     totalOrders: 0,
     pendingOrders: 0,
-    completedOrders: 0,
+    deliveredOrders: 0,
     cancelledOrders: 0,
     totalRevenue: 0,
   });
@@ -113,29 +113,53 @@ export default function OrdersPage() {
       console.log('Analytics result:', analytics);
       if (analytics) {
         setStats({
-          totalOrders: analytics.totalOrders,
+          totalOrders: analytics.totalOrders || 0,
           pendingOrders: analytics.pendingOrders || 0,
-          completedOrders: analytics.completedOrders || 0,
+          deliveredOrders: analytics.deliveredOrders || 0,
           cancelledOrders: analytics.cancelledOrders || 0,
-          totalRevenue: analytics.totalRevenue,
+          totalRevenue: analytics.totalRevenue || 0,
         });
-        console.log('Stats set successfully');
+        console.log('Stats set successfully:', {
+          totalOrders: analytics.totalOrders || 0,
+          pendingOrders: analytics.pendingOrders || 0,
+          deliveredOrders: analytics.deliveredOrders || 0,
+          cancelledOrders: analytics.cancelledOrders || 0,
+          totalRevenue: analytics.totalRevenue || 0,
+        });
+      } else {
+        console.warn('Analytics returned null or undefined');
+        // Set default values if analytics is null
+        setStats({
+          totalOrders: 0,
+          pendingOrders: 0,
+          deliveredOrders: 0,
+          cancelledOrders: 0,
+          totalRevenue: 0,
+        });
       }
     } catch (error) {
       console.error('Error loading stats:', error);
+      toast.error(`Failed to load order statistics: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      // Set default values on error
+      setStats({
+        totalOrders: 0,
+        pendingOrders: 0,
+        deliveredOrders: 0,
+        cancelledOrders: 0,
+        totalRevenue: 0,
+      });
     }
   };
 
   const handleOrderStatusUpdate = async (orderId: string, newStatus: string) => {
     try {
-      // Implementation would depend on your Supabase schema
-      // This is a placeholder for the actual implementation
+      await adminQueries.updateOrderStatus(orderId, newStatus);
       toast.success(`Order status updated to ${newStatus}`);
       loadOrders();
       loadStats();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error updating order status:', error);
-      toast.error('Failed to update order status');
+      toast.error(error.message || 'Failed to update order status');
     }
   };
 
@@ -192,36 +216,82 @@ export default function OrdersPage() {
       ),
     },
     {
-      field: 'retailer_id',
-      headerName: 'Customer',
-      width: 180,
-      minWidth: 150,
-      flex: 0.5,
+      field: 'retailer',
+      headerName: 'Retailer',
+      width: 200,
+      minWidth: 180,
+      flex: 0.6,
       hideable: true,
-      renderCell: (params: GridRenderCellParams) => (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Avatar sx={{ width: 32, height: 32 }}>
-            U
-          </Avatar>
-          <Typography variant="body2" noWrap>{params.value?.slice(-8) || 'N/A'}</Typography>
-        </Box>
-      ),
+      valueGetter: (params: any) => {
+        // Prioritize shopName as requested
+        return params.row.retailer?.shopName || 
+               params.row.retailer?.phone_number || 
+               params.row.retailer_id || 
+               'N/A';
+      },
+      renderCell: (params: GridRenderCellParams) => {
+        const retailer = params.row.retailer;
+        // Use shopName as primary display (as requested)
+        const displayName = retailer?.shopName || 
+                           retailer?.phone_number || 
+                           params.row.retailer_id?.slice(-8) || 
+                           'N/A';
+        return (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Avatar sx={{ width: 32, height: 32, bgcolor: 'primary.light' }}>
+              {displayName[0]?.toUpperCase() || 'R'}
+            </Avatar>
+            <Box>
+              <Typography variant="body2" fontWeight="medium" noWrap title={displayName}>
+                {displayName}
+              </Typography>
+              {retailer?.phone_number && displayName !== retailer.phone_number && (
+                <Typography variant="caption" color="text.secondary" noWrap>
+                  {retailer.phone_number}
+                </Typography>
+              )}
+            </Box>
+          </Box>
+        );
+      },
     },
     {
-      field: 'seller_id',
+      field: 'seller',
       headerName: 'Seller',
-      width: 180,
-      minWidth: 150,
-      flex: 0.5,
+      width: 200,
+      minWidth: 180,
+      flex: 0.6,
       hideable: true,
-      renderCell: (params: GridRenderCellParams) => (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Avatar sx={{ width: 32, height: 32, bgcolor: 'secondary.main' }}>
-            S
-          </Avatar>
-          <Typography variant="body2" noWrap>{params.value?.slice(-8) || 'N/A'}</Typography>
-        </Box>
-      ),
+      valueGetter: (params: any) => {
+        return params.row.seller?.business_name || 
+               params.row.seller?.owner_name || 
+               params.row.seller_id || 
+               'N/A';
+      },
+      renderCell: (params: GridRenderCellParams) => {
+        const seller = params.row.seller;
+        const displayName = seller?.business_name || 
+                           seller?.owner_name || 
+                           params.row.seller_id?.slice(-8) || 
+                           'N/A';
+        return (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Avatar sx={{ width: 32, height: 32, bgcolor: 'secondary.main' }}>
+              {displayName[0]?.toUpperCase() || 'S'}
+            </Avatar>
+            <Box>
+              <Typography variant="body2" fontWeight="medium" noWrap title={displayName}>
+                {displayName}
+              </Typography>
+              {seller?.phone && (
+                <Typography variant="caption" color="text.secondary" noWrap>
+                  {seller.phone}
+                </Typography>
+              )}
+            </Box>
+          </Box>
+        );
+      },
     },
     {
       field: 'total_amount',
@@ -333,10 +403,10 @@ export default function OrdersPage() {
           <Card>
             <CardContent>
               <Typography color="textSecondary" gutterBottom>
-                Completed
+                Delivered
               </Typography>
               <Typography variant="h4" color="success.main">
-                {stats.completedOrders}
+                {stats.deliveredOrders}
               </Typography>
             </CardContent>
           </Card>
@@ -360,7 +430,7 @@ export default function OrdersPage() {
                 Total Revenue
               </Typography>
               <Typography variant="h4" color="primary.main">
-                ₹{stats.totalRevenue.toLocaleString()}
+                ₹{(stats.totalRevenue || 0).toLocaleString('en-IN')}
               </Typography>
             </CardContent>
           </Card>
@@ -450,8 +520,7 @@ export default function OrdersPage() {
             initialState={{
               columns: {
                 columnVisibilityModel: {
-                  retailer_id: false, // Hide on mobile by default
-                  seller_id: false,   // Hide on mobile by default
+                  // Keep retailer and seller visible by default to show shop names
                   created_at: false,  // Hide on mobile by default
                 },
               },
@@ -544,24 +613,100 @@ export default function OrdersPage() {
                   </Typography>
                   <Stack spacing={1}>
                     <Box>
-                      <Typography variant="subtitle2">Name</Typography>
+                      <Typography variant="subtitle2">Business Name</Typography>
                       <Typography variant="body2">
-                        {selectedOrder.retailer?.shopName || selectedOrder.retailer?.email || 'N/A'}
+                        {selectedOrder.retailer?.shopName || 
+                         selectedOrder.retailer?.phone_number || 
+                         'N/A'}
                       </Typography>
                     </Box>
+                    {selectedOrder.retailer?.owner_name && (
+                      <Box>
+                        <Typography variant="subtitle2">Owner Name</Typography>
+                        <Typography variant="body2">
+                          {selectedOrder.retailer.owner_name}
+                        </Typography>
+                      </Box>
+                    )}
                     <Box>
                       <Typography variant="subtitle2">Phone</Typography>
                       <Typography variant="body2">
                         <Phone sx={{ fontSize: 16, mr: 1 }} />
-                        {selectedOrder.retailer?.phone || 'N/A'}
+                        {selectedOrder.retailer?.phone || 
+                         selectedOrder.retailer?.phone_number || 
+                         'N/A'}
                       </Typography>
                     </Box>
+                    {selectedOrder.retailer?.address && (
+                      <Box>
+                        <Typography variant="subtitle2">Retailer Address</Typography>
+                        <Typography variant="body2">
+                          <LocationOn sx={{ fontSize: 16, mr: 1 }} />
+                          {typeof selectedOrder.retailer.address === 'string' 
+                            ? selectedOrder.retailer.address 
+                            : JSON.stringify(selectedOrder.retailer.address)}
+                        </Typography>
+                      </Box>
+                    )}
                     <Box>
                       <Typography variant="subtitle2">Delivery Address</Typography>
                       <Typography variant="body2">
                         <LocationOn sx={{ fontSize: 16, mr: 1 }} />
-                        {selectedOrder.delivery_address || 'N/A'}
+                        {(() => {
+                          if (!selectedOrder.delivery_address) return 'N/A';
+                          
+                          // Check if delivery_address contains shopName (data issue from root app)
+                          // Sometimes delivery_address is set to "shopName, address" format
+                          const deliveryAddr = selectedOrder.delivery_address;
+                          const retailerShopName = selectedOrder.retailer?.shopName;
+                          
+                          // If delivery_address starts with or equals shopName, extract the address part
+                          if (typeof deliveryAddr === 'string' && retailerShopName) {
+                            // Check if delivery_address starts with shopName
+                            if (deliveryAddr.startsWith(retailerShopName)) {
+                              // Extract address part after shopName and comma
+                              const addressPart = deliveryAddr.substring(retailerShopName.length).trim();
+                              if (addressPart.startsWith(',')) {
+                                // Return the address part (after comma)
+                                const cleanAddress = addressPart.substring(1).trim();
+                                return cleanAddress || selectedOrder.retailer?.address || deliveryAddr;
+                              }
+                            }
+                            // If delivery_address is exactly the shopName (no address), show retailer address
+                            if (deliveryAddr === retailerShopName) {
+                              return selectedOrder.retailer?.address || 
+                                     selectedOrder.retailer?.shopName || 
+                                     'N/A';
+                            }
+                          }
+                          
+                          // Handle JSONB delivery_address
+                          if (typeof deliveryAddr === 'object') {
+                            const addr = deliveryAddr;
+                            const parts = [];
+                            if (addr.address) parts.push(addr.address);
+                            if (addr.city) parts.push(addr.city);
+                            if (addr.state) parts.push(addr.state);
+                            if (addr.pincode) parts.push(addr.pincode);
+                            if (addr.landmark) parts.push(`Landmark: ${addr.landmark}`);
+                            return parts.length > 0 ? parts.join(', ') : JSON.stringify(addr);
+                          }
+                          
+                          // Handle string delivery_address
+                          return deliveryAddr;
+                        })()}
                       </Typography>
+                      {selectedOrder.delivery_contact_name && (
+                        <Typography variant="caption" color="text.secondary" display="block">
+                          Contact: {selectedOrder.delivery_contact_name}
+                          {selectedOrder.delivery_contact_phone && ` - ${selectedOrder.delivery_contact_phone}`}
+                        </Typography>
+                      )}
+                      {selectedOrder.delivery_instructions && (
+                        <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+                          Instructions: {selectedOrder.delivery_instructions}
+                        </Typography>
+                      )}
                     </Box>
                   </Stack>
                 </Paper>
@@ -577,9 +722,17 @@ export default function OrdersPage() {
                     <Box>
                       <Typography variant="subtitle2">Business Name</Typography>
                       <Typography variant="body2">
-                        {selectedOrder.seller?.business_name || 'N/A'}
+                        {selectedOrder.seller?.business_name || selectedOrder.seller?.owner_name || 'N/A'}
                       </Typography>
                     </Box>
+                    {selectedOrder.seller?.owner_name && (
+                      <Box>
+                        <Typography variant="subtitle2">Owner Name</Typography>
+                        <Typography variant="body2">
+                          {selectedOrder.seller.owner_name}
+                        </Typography>
+                      </Box>
+                    )}
                     <Box>
                       <Typography variant="subtitle2">Phone</Typography>
                       <Typography variant="body2">
@@ -587,6 +740,14 @@ export default function OrdersPage() {
                         {selectedOrder.seller?.phone || 'N/A'}
                       </Typography>
                     </Box>
+                    {selectedOrder.seller?.seller_type && (
+                      <Box>
+                        <Typography variant="subtitle2">Type</Typography>
+                        <Typography variant="body2">
+                          {selectedOrder.seller.seller_type}
+                        </Typography>
+                      </Box>
+                    )}
                   </Stack>
                 </Paper>
               </Grid>

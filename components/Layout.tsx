@@ -26,6 +26,7 @@ import {
   Menu as MenuIcon,
   Dashboard,
   People,
+  Person,
   ShoppingCart,
   Inventory,
   Payment,
@@ -36,6 +37,13 @@ import {
   AccountCircle,
   WhatsApp,
   Category,
+  Campaign,
+  Warning,
+  Storage,
+  History,
+  Store,
+  Security,
+  Send,
 } from '@mui/icons-material';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
@@ -53,10 +61,20 @@ const menuItems = [
   { text: 'Orders', icon: <ShoppingCart />, path: '/orders' },
   { text: 'Products', icon: <Inventory />, path: '/products' },
   { text: 'Categories', icon: <Category />, path: '/categories' },
+  { text: 'Dynamic Content', icon: <Campaign />, path: '/dynamic-content' },
+  { text: 'Warnings', icon: <Warning />, path: '/warnings' },
   { text: 'Payments', icon: <Payment />, path: '/payments' },
   { text: 'WhatsApp', icon: <WhatsApp />, path: '/whatsapp' },
   { text: 'Notifications', icon: <Notifications />, path: '/notifications' },
   { text: 'Analytics', icon: <Analytics />, path: '/analytics' },
+  { text: 'Database Tools', icon: <Storage />, path: '/database-tools' },
+  { text: 'Audit Log', icon: <History />, path: '/audit-log' },
+  { text: 'Seller Inventory', icon: <Store />, path: '/seller-inventory' },
+  { text: 'Bulk Operations', icon: <People />, path: '/bulk-operations' },
+  { text: 'Templates', icon: <Campaign />, path: '/templates' },
+  { text: 'Send Messages', icon: <Send />, path: '/send-message' },
+  { text: 'Roles & Permissions', icon: <Security />, path: '/roles-permissions' },
+  { text: 'Admin Users', icon: <Person />, path: '/admin-users' },
   { text: 'Settings', icon: <Settings />, path: '/settings' },
 ];
 

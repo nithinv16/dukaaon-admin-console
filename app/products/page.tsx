@@ -292,21 +292,21 @@ export default function ProductsPage() {
     
     try {
       setUploading(true);
-      // Temporary fallback since updateProduct doesn't exist in adminQueries
-      // TODO: Implement proper updateProduct API endpoint
-      // await adminQueries.updateProduct(editingProduct.id, {
-      //   name: editingProduct.name,
-      //   description: editingProduct.description,
-      //   price: editingProduct.price,
-      //   category: editingProduct.category,
-      //   subcategory: editingProduct.subcategory,
-      //   stock_available: editingProduct.stock_quantity,
-      //   status: editingProduct.status
-      // });
+      await adminQueries.updateProduct(editingProduct.id, {
+        name: editingProduct.name,
+        description: editingProduct.description,
+        price: editingProduct.price,
+        category: editingProduct.category,
+        subcategory: editingProduct.subcategory,
+        stock_quantity: editingProduct.stock_available,
+        status: editingProduct.status,
+        is_active: editingProduct.status === 'active'
+      });
       
       setEditDialogOpen(false);
       setEditingProduct(null);
       loadProducts();
+      loadStats();
       toast.success('Product updated successfully!');
     } catch (error) {
       console.error('Error updating product:', error);
@@ -357,26 +357,38 @@ export default function ProductsPage() {
       // Upload images first
       const imageUrls: string[] = [];
       for (const file of imageFiles) {
-        // Temporary fallback since uploadProductImage doesn't exist in adminQueries
-        // TODO: Implement proper uploadProductImage API endpoint
-        const result = { success: false, url: '' };
-        if (result.success) {
-          imageUrls.push(result.url);
+        const formData = new FormData();
+        formData.append('file', file);
+        
+        const response = await fetch('/api/admin/upload-product-image', {
+          method: 'POST',
+          body: formData,
+        });
+        
+        if (response.ok) {
+          const result = await response.json();
+          if (result.success && result.url) {
+            imageUrls.push(result.url);
+          }
         }
       }
 
       // Add product with image URLs
       const productData = {
-        ...newProduct,
+        name: newProduct.name,
+        description: newProduct.description,
         price: parseFloat(newProduct.price) || 0,
-        stock: parseInt(newProduct.stock) || 0,
+        category: newProduct.category,
+        subcategory: newProduct.subcategory,
+        seller_id: newProduct.seller_id,
+        stock_quantity: parseInt(newProduct.stock) || 0,
+        unit_of_measure: newProduct.unit,
         min_order_quantity: parseInt(newProduct.min_order_quantity) || 1,
-        images: imageUrls
+        images: imageUrls,
+        status: 'available'
       };
 
-      // Temporary fallback since addProduct doesn't exist in adminQueries
-      // TODO: Implement proper addProduct API endpoint
-      // await adminQueries.addProduct(productData);
+      await adminQueries.addProduct(productData);
       
       // Reset form
       setNewProduct({
@@ -396,11 +408,12 @@ export default function ProductsPage() {
       
       // Refresh products list
       loadProducts();
+      loadStats();
       
       toast.success('Product added successfully!');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error adding product:', error);
-      toast.error('Failed to add product. Please try again.');
+      toast.error(error.message || 'Failed to add product. Please try again.');
     } finally {
       setUploading(false);
     }
@@ -503,20 +516,19 @@ export default function ProductsPage() {
       const addPromises = editedProducts.map(async (product) => {
         const productData = {
           name: product.name,
-          description: product.description,
+          description: product.description || 'Product extracted from receipt',
           price: product.price,
           category: product.category,
           subcategory: product.subcategory,
-          stock: product.quantity,
-          unit: product.unit,
           seller_id: product.seller_id,
-          min_order_quantity: product.min_order_quantity,
-          images: product.imageUrl ? [product.imageUrl] : []
+          stock_quantity: product.quantity || 0,
+          unit_of_measure: product.unit || 'piece',
+          min_order_quantity: product.min_order_quantity || 1,
+          images: product.imageUrl ? [product.imageUrl] : [],
+          status: 'available'
         };
         
-        // Temporary fallback since addProduct doesn't exist in adminQueries
-        // TODO: Implement proper addProduct API endpoint
-        return Promise.resolve();
+        return adminQueries.addProduct(productData);
       });
       
       await Promise.all(addPromises);
@@ -525,9 +537,10 @@ export default function ProductsPage() {
       setExtractedProductEditorOpen(false);
       setExtractedProducts([]);
       loadProducts(); // Refresh the products list
-    } catch (error) {
+      loadStats();
+    } catch (error: any) {
       console.error('Error adding extracted products:', error);
-      toast.error('Failed to add some products. Please try again.');
+      toast.error(error.message || 'Failed to add some products. Please try again.');
       throw error;
     }
   };
@@ -535,9 +548,14 @@ export default function ProductsPage() {
   const loadProducts = async () => {
     try {
       setLoading(true);
-      // Temporary fallback since getProducts doesn't exist in adminQueries
-      // TODO: Implement proper getProducts API endpoint
-      const result = { products: [] as Product[], total: 0 };
+      const result = await adminQueries.getProducts({
+        page: page + 1,
+        limit: pageSize,
+        search: searchTerm,
+        category: filterCategory === 'all' ? undefined : filterCategory,
+        status: filterStatus === 'all' ? undefined : filterStatus,
+        seller_id: filterSeller === 'all' ? undefined : filterSeller,
+      });
       setProducts(result.products || []);
       setTotalProducts(result.total || 0);
     } catch (error) {
@@ -551,13 +569,14 @@ export default function ProductsPage() {
   const loadStats = async () => {
     try {
       // Get all products without pagination to calculate accurate stats
-      // Temporary fallback since getProducts doesn't exist in adminQueries
-      // TODO: Implement proper getProducts API endpoint
-      const result = { products: [] as Product[] };
+      const result = await adminQueries.getProducts({
+        page: 1,
+        limit: 10000, // Get all for stats
+      });
       const allProducts = result.products || [];
       
       const totalProducts = allProducts.length;
-      const activeProducts = allProducts.filter(p => p.status === 'active').length;
+      const activeProducts = allProducts.filter(p => p.is_active && p.status !== 'out_of_stock').length;
       const outOfStock = allProducts.filter(p => (p.stock_available || 0) === 0).length;
       const lowStock = allProducts.filter(p => {
         const stock = p.stock_available || 0;
@@ -601,12 +620,12 @@ export default function ProductsPage() {
         setMasterProductsPage(1);
       }
       
-      // Temporary fallback since getMasterProducts doesn't exist in adminQueries
-      // TODO: Implement proper getMasterProducts API endpoint
-      const result = {
-        products: [],
-        total: 0
-      };
+      const result = await adminQueries.getMasterProducts({
+        page: currentPage,
+        limit: masterProductsPageSize,
+        search: masterProductsSearchTerm || undefined,
+        category: masterProductsFilterCategory === 'all' ? undefined : masterProductsFilterCategory,
+      });
       
       setMasterProducts(result?.products || []);
       setMasterProductsTotalCount(result?.total || 0);
@@ -627,18 +646,15 @@ export default function ProductsPage() {
     try {
       setUploading(true);
       
-      // Temporary fallback since addMasterProductToSeller doesn't exist in adminQueries
-      // TODO: Implement proper addMasterProductToSeller API endpoint
-      const result = {
-        success: true,
-        error: null
-      };
-      
-      if (result.error) {
-        console.error('Error adding master product to seller:', result.error);
-        toast.error('Failed to add product to seller inventory');
-        return;
-      }
+      await adminQueries.addMasterProductToSeller({
+        master_product_id: selectedMasterProduct.id,
+        seller_id: sellerData.seller_id,
+        price: parseFloat(sellerData.price) || 0,
+        stock_available: parseInt(sellerData.stock_available) || 0,
+        min_order_quantity: parseInt(sellerData.min_order_quantity) || 1,
+        unit: sellerData.unit,
+        description: sellerData.description
+      });
       
       toast.success('Product added to seller inventory successfully!');
       setMasterProductsDialogOpen(false);
@@ -652,9 +668,10 @@ export default function ProductsPage() {
         description: ''
       });
       loadProducts(); // Refresh the products list
-    } catch (error) {
+      loadStats();
+    } catch (error: any) {
       console.error('Error adding master product to seller:', error);
-      toast.error('Failed to add product to seller inventory');
+      toast.error(error.message || 'Failed to add product to seller inventory');
     } finally {
       setUploading(false);
     }

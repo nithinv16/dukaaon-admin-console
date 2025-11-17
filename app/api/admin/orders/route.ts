@@ -22,3 +22,25 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
+export async function PATCH(request: NextRequest) {
+  try {
+    const { orderId, status, notes } = await request.json();
+    
+    if (!orderId || !status) {
+      return NextResponse.json(
+        { error: 'Order ID and status are required' },
+        { status: 400 }
+      );
+    }
+
+    const order = await adminQueries.updateOrderStatus(orderId, status, notes);
+    return NextResponse.json({ data: order, success: true });
+  } catch (error: any) {
+    console.error('Error updating order status:', error);
+    return NextResponse.json(
+      { error: error.message || 'Failed to update order status' },
+      { status: 500 }
+    );
+  }
+}
