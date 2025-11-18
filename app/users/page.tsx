@@ -244,13 +244,13 @@ export default function UsersPage() {
         const businessDetails = typeof params.row.business_details === 'string'
           ? JSON.parse(params.row.business_details || '{}')
           : params.row.business_details || {};
-        return businessDetails.shopName || businessDetails.business_name || params.row.phone_number || 'N/A';
+        return businessDetails.shopName || businessDetails.business_name || 'N/A';
       },
       renderCell: (params: GridRenderCellParams) => {
         const businessDetails = typeof params.row.business_details === 'string'
           ? JSON.parse(params.row.business_details || '{}')
           : params.row.business_details || {};
-        const name = businessDetails.shopName || businessDetails.business_name || params.row.phone_number || 'N/A';
+        const name = businessDetails.shopName || businessDetails.business_name || 'N/A';
         return (
           <Typography variant="body2" noWrap>
             {name}
@@ -525,7 +525,6 @@ export default function UsersPage() {
             initialState={{
               columns: {
                 columnVisibilityModel: {
-                  role: false,         // Hide on mobile by default
                   phone_number: false, // Hide on mobile by default
                   created_at: false,   // Hide on mobile by default
                 },
