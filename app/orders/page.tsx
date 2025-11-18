@@ -225,7 +225,7 @@ export default function OrdersPage() {
       valueGetter: (params: any) => {
         // Prioritize shopName as requested
         return params.row.retailer?.shopName || 
-               params.row.retailer?.phone_number || 
+               params.row.retailer?.phone || 
                params.row.retailer_id || 
                'N/A';
       },
@@ -233,7 +233,7 @@ export default function OrdersPage() {
         const retailer = params.row.retailer;
         // Use shopName as primary display (as requested)
         const displayName = retailer?.shopName || 
-                           retailer?.phone_number || 
+                           retailer?.phone || 
                            params.row.retailer_id?.slice(-8) || 
                            'N/A';
         return (
@@ -245,9 +245,9 @@ export default function OrdersPage() {
               <Typography variant="body2" fontWeight="medium" noWrap title={displayName}>
                 {displayName}
               </Typography>
-              {retailer?.phone_number && displayName !== retailer.phone_number && (
+              {retailer?.phone && displayName !== retailer.phone && (
                 <Typography variant="caption" color="text.secondary" noWrap>
-                  {retailer.phone_number}
+                  {retailer.phone}
                 </Typography>
               )}
             </Box>
@@ -616,7 +616,7 @@ export default function OrdersPage() {
                       <Typography variant="subtitle2">Business Name</Typography>
                       <Typography variant="body2">
                         {selectedOrder.retailer?.shopName || 
-                         selectedOrder.retailer?.phone_number || 
+                         selectedOrder.retailer?.phone || 
                          'N/A'}
                       </Typography>
                     </Box>
@@ -633,7 +633,6 @@ export default function OrdersPage() {
                       <Typography variant="body2">
                         <Phone sx={{ fontSize: 16, mr: 1 }} />
                         {selectedOrder.retailer?.phone || 
-                         selectedOrder.retailer?.phone_number || 
                          'N/A'}
                       </Typography>
                     </Box>
