@@ -576,9 +576,9 @@ export default function ProductsPage() {
       const allProducts = result.products || [];
       
       const totalProducts = allProducts.length;
-      const activeProducts = allProducts.filter(p => p.is_active && p.status !== 'out_of_stock').length;
-      const outOfStock = allProducts.filter(p => (p.stock_available || 0) === 0).length;
-      const lowStock = allProducts.filter(p => {
+      const activeProducts = allProducts.filter((p: Product & { is_active?: boolean }) => p.is_active && p.status !== 'out_of_stock').length;
+      const outOfStock = allProducts.filter((p: Product) => (p.stock_available || 0) === 0).length;
+      const lowStock = allProducts.filter((p: Product) => {
         const stock = p.stock_available || 0;
         return stock > 0 && stock <= 10; // Consider stock <= 10 as low stock
       }).length;
