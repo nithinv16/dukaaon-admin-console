@@ -182,7 +182,7 @@ export default function OrderDetailsPage() {
                   </Box>
                   <Typography variant="body1">
                     {order.retailer?.shopName || 
-                     order.retailer?.phone_number || 
+                     order.retailer?.phone || 
                      'N/A'}
                   </Typography>
                   {order.retailer?.owner_name && (
@@ -194,12 +194,6 @@ export default function OrderDetailsPage() {
                     <Typography variant="body2" color="text.secondary">
                       <Phone sx={{ fontSize: 14, mr: 0.5 }} />
                       {order.retailer.phone}
-                    </Typography>
-                  )}
-                  {order.retailer?.phone_number && !order.retailer?.phone && (
-                    <Typography variant="body2" color="text.secondary">
-                      <Phone sx={{ fontSize: 14, mr: 0.5 }} />
-                      {order.retailer.phone_number}
                     </Typography>
                   )}
                 </Grid>
