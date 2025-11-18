@@ -194,7 +194,7 @@ export default function TemplatesPage() {
     setPreviewTemplate(template);
     // Extract variables from template content
     const variableRegex = /\{\{(\w+)\}\}/g;
-    const matches = template.content.matchAll(variableRegex);
+    const matches = Array.from(template.content.matchAll(variableRegex));
     const vars: Record<string, string> = {};
     for (const match of matches) {
       vars[match[1]] = `Sample ${match[1]}`;
@@ -213,7 +213,7 @@ export default function TemplatesPage() {
 
   const extractVariables = (content: string): string[] => {
     const variableRegex = /\{\{(\w+)\}\}/g;
-    const matches = content.matchAll(variableRegex);
+    const matches = Array.from(content.matchAll(variableRegex));
     const variables = new Set<string>();
     for (const match of matches) {
       variables.add(match[1]);

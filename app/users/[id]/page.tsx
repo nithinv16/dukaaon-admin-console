@@ -169,7 +169,16 @@ export default function UserProfilePage() {
       setProfile(user);
 
       // Parse business_details if it's a string
-      let businessDetails = {};
+      let businessDetails: {
+        shopName?: string;
+        business_name?: string;
+        address?: string;
+        ownerName?: string;
+        owner_name?: string;
+        gstin?: string;
+        panNumber?: string;
+        pan_number?: string;
+      } = {};
       if (user.business_details) {
         businessDetails = typeof user.business_details === 'string'
           ? JSON.parse(user.business_details)
