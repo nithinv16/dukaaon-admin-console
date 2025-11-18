@@ -60,6 +60,7 @@ export interface Order {
     business_name?: string;
     phone?: string;
     owner_name?: string;
+    seller_type?: string;
   };
   customer?: {
     id: string;
