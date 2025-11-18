@@ -186,6 +186,27 @@ export const adminQueries = {
         }
       }
 
+      // Fetch seller_details FIRST for all seller_ids (primary source for seller business_name)
+      const sellerIds = orders
+        .map((order: any) => order.seller_id)
+        .filter(Boolean)
+        .filter((id: string, index: number, self: string[]) => self.indexOf(id) === index); // unique IDs
+
+      let sellersDetailsMap: Record<string, any> = {};
+      if (sellerIds.length > 0) {
+        const { data: sellersData, error: sellersError } = await supabase
+          .from('seller_details')
+          .select('user_id, business_name, owner_name, seller_type')
+          .in('user_id', sellerIds);
+
+        if (!sellersError && sellersData) {
+          // Create a map for quick lookup
+          sellersData.forEach((seller: any) => {
+            sellersDetailsMap[seller.user_id] = seller;
+          });
+        }
+      }
+
       ordersWithDetails = orders.map((order: any) => {
         // Format retailer data - prefer from direct retailer_id, fallback to master_order user_id
         let retailerData = null;
@@ -227,66 +248,45 @@ export const adminQueries = {
         }
 
         // Format seller data from seller join
+        // PRIORITY: seller_details.business_name > business_details fields
         let sellerData = null;
         if (order.seller) {
-          const businessDetails = order.seller.business_details || {};
-          // Extract business name from multiple possible fields
-          const businessName = businessDetails.business_name || 
-                               businessDetails.shopName || 
-                               businessDetails.shop_name ||
-                               businessDetails.name ||
-                               null;
+          // First, check if we have seller_details for this seller (PRIMARY SOURCE)
+          const sellerDetail = sellersDetailsMap[order.seller_id || order.seller.id];
+          
+          // Use seller_details.business_name as PRIMARY source
+          let businessName = null;
+          let ownerName = null;
+          
+          if (sellerDetail && sellerDetail.business_name) {
+            businessName = sellerDetail.business_name;
+            ownerName = sellerDetail.owner_name || null;
+          } else {
+            // Fallback to business_details if seller_details doesn't have business_name
+            const businessDetails = order.seller.business_details || {};
+            businessName = businessDetails.business_name || 
+                          businessDetails.shopName || 
+                          businessDetails.shop_name ||
+                          businessDetails.name ||
+                          null;
+            ownerName = businessDetails.ownerName || businessDetails.owner_name || null;
+          }
+          
           sellerData = {
             user_id: order.seller.id,
             business_name: businessName,
-            owner_name: businessDetails.ownerName || businessDetails.owner_name || null,
-            phone: order.seller.phone_number || null
+            owner_name: ownerName,
+            phone: order.seller.phone_number || null,
+            seller_type: sellerDetail?.seller_type || null
           };
-          
-          // Also try to get seller_details for additional info
-          // This will be done separately if needed
         }
 
-        // Fetch seller_details if seller_id exists for additional seller info
-        // Note: This is done in a separate step to avoid blocking
         return {
           ...order,
           retailer: retailerData,
           seller: sellerData
         };
       });
-
-      // Fetch seller_details for orders that have seller_id
-      const sellerIds = orders
-        .map((order: any) => order.seller_id)
-        .filter(Boolean)
-        .filter((id: string, index: number, self: string[]) => self.indexOf(id) === index); // unique IDs
-
-      if (sellerIds.length > 0) {
-        const { data: sellersData, error: sellersError } = await supabase
-          .from('seller_details')
-          .select('user_id, business_name, owner_name, seller_type')
-          .in('user_id', sellerIds);
-
-        if (!sellersError && sellersData) {
-          // Merge seller_details into the orders
-          ordersWithDetails = ordersWithDetails.map((order: any) => {
-            if (order.seller_id && order.seller) {
-              const sellerDetail = sellersData.find((s: any) => s.user_id === order.seller_id);
-              if (sellerDetail) {
-                // Enhance seller data with seller_details
-                order.seller = {
-                  ...order.seller,
-                  business_name: sellerDetail.business_name || order.seller.business_name,
-                  owner_name: sellerDetail.owner_name || order.seller.owner_name,
-                  seller_type: sellerDetail.seller_type
-                };
-              }
-            }
-            return order;
-          });
-        }
-      }
 
       console.log('Orders with details processed:', ordersWithDetails.length);
     }
