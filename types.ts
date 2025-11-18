@@ -29,6 +29,14 @@ export interface TableColumn {
   width?: string;
 }
 
+export interface DeliveryAddress {
+  address?: string;
+  city?: string;
+  state?: string;
+  pincode?: string;
+  landmark?: string;
+}
+
 export interface Order {
   id: string;
   user_id: string;
@@ -39,7 +47,10 @@ export interface Order {
   created_at: string;
   updated_at: string;
   shipping_address?: string;
-  delivery_address?: string;
+  delivery_address?: string | DeliveryAddress;
+  delivery_contact_name?: string;
+  delivery_contact_phone?: string;
+  delivery_instructions?: string;
   payment_method?: string;
   payment_status?: string;
   notes?: string;

@@ -265,8 +265,8 @@ export default function OrderDetailsPage() {
                         }
                         
                         // Handle JSONB delivery_address
-                        if (typeof deliveryAddr === 'object') {
-                          const addr = deliveryAddr;
+                        if (typeof deliveryAddr === 'object' && deliveryAddr !== null && !Array.isArray(deliveryAddr)) {
+                          const addr = deliveryAddr as { address?: string; city?: string; state?: string; pincode?: string; landmark?: string };
                           const parts = [];
                           if (addr.address) parts.push(addr.address);
                           if (addr.city) parts.push(addr.city);
