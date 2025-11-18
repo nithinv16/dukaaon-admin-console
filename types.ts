@@ -80,6 +80,44 @@ export interface Order {
     shopName?: string;
     address?: string;
   };
+  master_order?: {
+    id?: string;
+    order_number?: string;
+    user_id?: string;
+    total_amount?: number;
+    delivery_fee?: number;
+    grand_total?: number;
+    status?: string;
+    payment_status?: string;
+    payment_method?: string;
+    delivery_address?: string | DeliveryAddress;
+    delivery_instructions?: string;
+    estimated_delivery_time?: string;
+    actual_delivery_time?: string;
+    created_at?: string;
+    updated_at?: string;
+    delivery_batches?: Array<{
+      id?: string;
+      batch_number?: string;
+      master_order_id?: string;
+      delivery_partner_id?: string;
+      status?: string;
+      pickup_locations?: any;
+      delivery_address?: string;
+      total_amount?: number;
+      delivery_fee?: number;
+      distance_km?: number;
+      estimated_pickup_time?: string;
+      estimated_delivery_time?: string;
+      actual_pickup_time?: string;
+      actual_delivery_time?: string;
+      assigned_at?: string;
+      accepted_at?: string;
+      notes?: string;
+      created_at?: string;
+      updated_at?: string;
+    }>;
+  };
   items?: any[];
 }
 

@@ -230,9 +230,15 @@ export const adminQueries = {
         let sellerData = null;
         if (order.seller) {
           const businessDetails = order.seller.business_details || {};
+          // Extract business name from multiple possible fields
+          const businessName = businessDetails.business_name || 
+                               businessDetails.shopName || 
+                               businessDetails.shop_name ||
+                               businessDetails.name ||
+                               null;
           sellerData = {
             user_id: order.seller.id,
-            business_name: businessDetails.business_name || businessDetails.shopName || null,
+            business_name: businessName,
             owner_name: businessDetails.ownerName || businessDetails.owner_name || null,
             phone: order.seller.phone_number || null
           };

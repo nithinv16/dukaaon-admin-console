@@ -263,15 +263,20 @@ export default function OrdersPage() {
       flex: 0.6,
       hideable: true,
       valueGetter: (params: any) => {
-        return params.row.seller?.business_name || 
-               params.row.seller?.owner_name || 
-               params.row.seller_id || 
+        const seller = params.row.seller;
+        // Try multiple fallbacks for seller name
+        return seller?.business_name || 
+               seller?.owner_name || 
+               seller?.phone ||
+               params.row.seller_id?.slice(-8) || 
                'N/A';
       },
       renderCell: (params: GridRenderCellParams) => {
         const seller = params.row.seller;
+        // Try multiple fallbacks for seller name
         const displayName = seller?.business_name || 
                            seller?.owner_name || 
+                           seller?.phone ||
                            params.row.seller_id?.slice(-8) || 
                            'N/A';
         return (
@@ -750,6 +755,79 @@ export default function OrdersPage() {
                   </Stack>
                 </Paper>
               </Grid>
+
+              {/* Delivery Partner Info */}
+              {selectedOrder.master_order?.delivery_batches && 
+               selectedOrder.master_order.delivery_batches.length > 0 && (
+                <Grid item xs={12} md={6}>
+                  <Paper sx={{ p: 2 }}>
+                    <Typography variant="h6" gutterBottom>
+                      Delivery Partner Information
+                    </Typography>
+                    <Stack spacing={1}>
+                      {selectedOrder.master_order.delivery_batches.map((batch: any, index: number) => (
+                        <Box key={batch.id || index} sx={{ mb: 2 }}>
+                          {batch.batch_number && (
+                            <Box>
+                              <Typography variant="subtitle2">Batch Number</Typography>
+                              <Typography variant="body2">
+                                {batch.batch_number}
+                              </Typography>
+                            </Box>
+                          )}
+                          {batch.delivery_partner_id && (
+                            <Box>
+                              <Typography variant="subtitle2">Partner ID</Typography>
+                              <Typography variant="body2" fontFamily="monospace">
+                                {batch.delivery_partner_id}
+                              </Typography>
+                            </Box>
+                          )}
+                          {batch.status && (
+                            <Box>
+                              <Typography variant="subtitle2">Status</Typography>
+                              <Chip
+                                label={batch.status}
+                                color={batch.status === 'delivered' ? 'success' : 
+                                       batch.status === 'in_transit' ? 'info' : 
+                                       batch.status === 'cancelled' ? 'error' : 'default'}
+                                size="small"
+                              />
+                            </Box>
+                          )}
+                          {batch.distance_km && (
+                            <Box>
+                              <Typography variant="subtitle2">Distance</Typography>
+                              <Typography variant="body2">
+                                {batch.distance_km} km
+                              </Typography>
+                            </Box>
+                          )}
+                          {batch.estimated_delivery_time && (
+                            <Box>
+                              <Typography variant="subtitle2">Estimated Delivery</Typography>
+                              <Typography variant="body2">
+                                {new Date(batch.estimated_delivery_time).toLocaleString()}
+                              </Typography>
+                            </Box>
+                          )}
+                          {batch.actual_delivery_time && (
+                            <Box>
+                              <Typography variant="subtitle2">Actual Delivery</Typography>
+                              <Typography variant="body2">
+                                {new Date(batch.actual_delivery_time).toLocaleString()}
+                              </Typography>
+                            </Box>
+                          )}
+                          {index < (selectedOrder.master_order?.delivery_batches?.length || 0) - 1 && (
+                            <Divider sx={{ my: 1 }} />
+                          )}
+                        </Box>
+                      ))}
+                    </Stack>
+                  </Paper>
+                </Grid>
+              )}
 
               {/* Order Items */}
               <Grid item xs={12}>
