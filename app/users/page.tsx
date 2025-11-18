@@ -101,12 +101,42 @@ export default function UsersPage() {
         usersData = result;
       }
       
+      // Process users to extract business details (similar to orders page)
+      const processedUsers = usersData.map((user: any) => {
+        let businessDetails: any = {};
+        if (user.business_details) {
+          if (typeof user.business_details === 'string') {
+            try {
+              businessDetails = JSON.parse(user.business_details);
+            } catch (e) {
+              businessDetails = {};
+            }
+          } else {
+            businessDetails = user.business_details;
+          }
+        }
+        
+        // Extract business name similar to orders page
+        const shopName = businessDetails.shopName || 
+                         businessDetails.business_name || 
+                         businessDetails.shop_name ||
+                         businessDetails.name ||
+                         null;
+        
+        return {
+          ...user,
+          business_details: businessDetails,
+          shopName: shopName, // Add shopName property for easy access
+        };
+      });
+      
       // Apply client-side filtering if needed
-      let filteredUsers = usersData;
+      let filteredUsers = processedUsers;
       
       if (searchTerm) {
         filteredUsers = filteredUsers.filter((user: any) => 
           user.phone_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          user.shopName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
           user.business_details?.shopName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
           user.business_details?.business_name?.toLowerCase().includes(searchTerm.toLowerCase())
         );
@@ -241,16 +271,12 @@ export default function UsersPage() {
       flex: 1,
       hideable: false,
       valueGetter: (params: any) => {
-        const businessDetails = typeof params.row.business_details === 'string'
-          ? JSON.parse(params.row.business_details || '{}')
-          : params.row.business_details || {};
-        return businessDetails.shopName || businessDetails.business_name || 'N/A';
+        // Use the processed shopName property (similar to orders page)
+        return params.row.shopName || 'N/A';
       },
       renderCell: (params: GridRenderCellParams) => {
-        const businessDetails = typeof params.row.business_details === 'string'
-          ? JSON.parse(params.row.business_details || '{}')
-          : params.row.business_details || {};
-        const name = businessDetails.shopName || businessDetails.business_name || 'N/A';
+        // Use the processed shopName property (similar to orders page)
+        const name = params.row.shopName || 'N/A';
         return (
           <Typography variant="body2" noWrap>
             {name}
