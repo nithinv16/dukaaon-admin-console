@@ -445,7 +445,7 @@ export const adminQueries = {
 
     // Fetch seller names for products
     if (data && data.length > 0) {
-      const sellerIds = [...new Set(data.map((p: any) => p.seller_id).filter(Boolean))];
+      const sellerIds = Array.from(new Set(data.map((p: any) => p.seller_id).filter(Boolean)));
       if (sellerIds.length > 0) {
         const { data: sellers } = await supabase
           .from('profiles')
@@ -1052,9 +1052,9 @@ export const adminQueries = {
     if (error) throw error;
 
     // Batch fetch admin credentials for all messages
-    const adminIds = [...new Set((messages || [])
+    const adminIds = Array.from(new Set((messages || [])
       .map((m: any) => m.created_by)
-      .filter(Boolean))];
+      .filter(Boolean)));
 
     let adminMap: Record<string, any> = {};
     if (adminIds.length > 0) {
