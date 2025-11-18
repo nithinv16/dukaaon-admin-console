@@ -53,11 +53,13 @@ export interface Order {
     phone?: string;
     shopName?: string;
     address?: string;
+    owner_name?: string;
   };
   seller?: {
     user_id: string;
     business_name?: string;
     phone?: string;
+    owner_name?: string;
   };
   customer?: {
     id: string;
