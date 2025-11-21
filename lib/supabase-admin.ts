@@ -69,7 +69,7 @@ export const adminQueries = {
     console.log('getAllUsers - Profiles:', {
       total: profiles.length,
       sellers: sellerProfiles.length,
-      sellerRoles: [...new Set(sellerProfiles.map((p: any) => p.role))]
+      sellerRoles: Array.from(new Set(sellerProfiles.map((p: any) => p.role)))
     });
     
     // Step 3: Fetch seller_details for those sellers using user_id (foreign key)
@@ -188,14 +188,14 @@ export const adminQueries = {
     console.log('getSellersWithDetails - Profiles:', {
       total: profiles.length,
       sellers: sellerProfiles.length,
-      sellerRoles: [...new Set(sellerProfiles.map((p: any) => p.role))],
-      allRoles: [...new Set(profiles.map((p: any) => p.role))],
+      sellerRoles: Array.from(new Set(sellerProfiles.map((p: any) => p.role))),
+      allRoles: Array.from(new Set(profiles.map((p: any) => p.role))),
       sampleProfile: profiles[0] ? { id: profiles[0].id, role: profiles[0].role } : null
     });
     
     if (sellerProfiles.length === 0) {
       console.warn('No sellers found with roles: seller, wholesaler, or manufacturer');
-      console.log('Available roles in profiles:', [...new Set(profiles.map((p: any) => p.role))]);
+      console.log('Available roles in profiles:', Array.from(new Set(profiles.map((p: any) => p.role))));
       return [];
     }
     
@@ -993,7 +993,7 @@ export const adminQueries = {
         stock_available: productData.stock_available || 0,
         unit: productData.unit || 'piece',
         min_quantity: productData.min_order_quantity || 1,
-        image_url: productData.images?.[0] || productData.image_url || null,
+        image_url: productData.images?.[0] || null,
         status: productData.status || 'available'
       })
       .select()
@@ -1037,7 +1037,6 @@ export const adminQueries = {
       // If images is an array, take the first one; otherwise use the value directly
       updateData.image_url = Array.isArray(updates.images) ? updates.images[0] || null : updates.images;
     }
-    if (updates.image_url !== undefined) updateData.image_url = updates.image_url;
     if (updates.status !== undefined) updateData.status = updates.status;
 
     const { data, error } = await supabase
@@ -1126,7 +1125,7 @@ export const adminQueries = {
         stock_available: payload.stock_available,
         unit: payload.unit,
         min_quantity: payload.min_order_quantity,
-        image_url: masterProduct.images?.[0] || masterProduct.image_url || null,
+        image_url: masterProduct.images?.[0] || null,
         status: 'available',
         sku: masterProduct.sku,
         barcode: masterProduct.barcode

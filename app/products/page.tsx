@@ -341,7 +341,6 @@ export default function ProductsPage() {
         category: editingProduct.category,
         subcategory: editingProduct.subcategory,
         stock_available: editingProduct.stock_available,
-        status: editingProduct.status,
         status: editingProduct.status || 'available'
       });
       
@@ -618,7 +617,7 @@ export default function ProductsPage() {
       const allProducts = result.products || [];
       
       const totalProducts = allProducts.length;
-      const activeProducts = allProducts.filter((p: Product) => p.status === 'available' && p.status !== 'out_of_stock').length;
+      const activeProducts = allProducts.filter((p: Product) => p.status === 'available').length;
       const outOfStock = allProducts.filter((p: Product) => (p.stock_available || 0) === 0).length;
       const lowStock = allProducts.filter((p: Product) => {
         const stock = p.stock_available || 0;

@@ -178,7 +178,7 @@ export default function CloneInventoryPage() {
       setProducts(cloneProducts);
       
       if (cloneProducts.length === 0) {
-        toast.info('No products found for this seller');
+        toast('No products found for this seller', { icon: 'ℹ️' });
       }
     } catch (error) {
       console.error('Error loading products:', error);
