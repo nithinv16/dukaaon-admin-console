@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -200,10 +200,68 @@ export default function ProductsPage() {
     loadStats();
   }, [page, pageSize, searchTerm, filterCategory, filterStatus, filterSeller]);
 
+  // Define loadSellers before useEffect hooks that use it
+  const loadSellers = useCallback(async () => {
+    try {
+      setLoadingSellers(true);
+      const sellers = await adminQueries.getSellersWithDetails();
+      console.log('Loaded sellers in products page:', sellers);
+      console.log('Sellers count:', sellers?.length || 0);
+      console.log('Sellers sample:', sellers?.[0]);
+      
+      if (sellers && Array.isArray(sellers)) {
+        // Only filter out sellers without an id - don't require business_name
+        const validSellers = sellers.filter(seller => {
+          if (!seller || !seller.id) {
+            console.warn('Invalid seller (no id):', seller);
+            return false;
+          }
+          // Ensure business_name is set - if not, log a warning but don't filter out
+          if (!seller.business_name) {
+            console.warn('Seller missing business_name:', {
+              id: seller.id,
+              display_name: seller.display_name,
+              phone_number: seller.phone_number,
+              fullSeller: seller
+            });
+          }
+          return true;
+        });
+        
+        console.log('Loaded sellers - Total:', sellers.length, 'Valid:', validSellers.length);
+        console.log('Sellers with business_name:', validSellers.filter(s => s.business_name).length);
+        console.log('All sellers:', validSellers.map(s => ({
+          id: s.id,
+          business_name: s.business_name,
+          display_name: s.display_name,
+          phone_number: s.phone_number
+        })));
+        
+        setSellers(validSellers);
+        if (validSellers.length === 0) {
+          console.error('No sellers found after filtering');
+          toast.error('No sellers available. Please check if sellers exist in the database.');
+        } else {
+          console.log('Sellers set in state:', validSellers.length);
+        }
+      } else {
+        console.error('Sellers data is not an array:', sellers);
+        setSellers([]);
+        toast.error('Invalid sellers data received from server');
+      }
+    } catch (error) {
+      console.error('Error loading sellers:', error);
+      setSellers([]);
+      toast.error('Failed to load sellers');
+    } finally {
+      setLoadingSellers(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadSellers();
     loadProductSuggestions();
-  }, []);
+  }, [loadSellers]);
 
   // Always reload sellers when Quick Add dialog opens to ensure fresh data
   useEffect(() => {
@@ -216,22 +274,29 @@ export default function ProductsPage() {
       console.log('Reloading sellers for Quick Add dialog...');
       loadSellers();
     }
-  }, [masterProductsDialogOpen]);
+  }, [masterProductsDialogOpen, loadSellers]);
 
-  // Debug: Log when a product is selected in Quick Add
+  // Ensure sellers are loaded when a product is selected in Quick Add
   useEffect(() => {
     if (selectedMasterProduct && masterProductsDialogOpen) {
-      console.log('Product selected in Quick Add, sellers available:', {
+      console.log('Product selected in Quick Add, checking sellers:', {
         productId: selectedMasterProduct.id,
         productName: selectedMasterProduct.name,
         sellersCount: sellers.length,
+        loadingSellers: loadingSellers,
         sellers: sellers.map(s => ({
           id: s.id,
-          name: s.display_name || s.business_name || s.phone_number
+          name: s.business_name || s.display_name || s.phone_number
         }))
       });
+      
+      // If no sellers are loaded, reload them
+      if (sellers.length === 0 && !loadingSellers) {
+        console.log('No sellers found when product selected, reloading sellers...');
+        loadSellers();
+      }
     }
-  }, [selectedMasterProduct, masterProductsDialogOpen, sellers]);
+  }, [selectedMasterProduct, masterProductsDialogOpen, sellers.length, loadingSellers, loadSellers]);
 
   // Debug: Log whenever sellers state changes
   useEffect(() => {
@@ -635,62 +700,6 @@ export default function ProductsPage() {
     }
   };
 
-  const loadSellers = async () => {
-    try {
-      setLoadingSellers(true);
-      const sellers = await adminQueries.getSellersWithDetails();
-      console.log('Loaded sellers in products page:', sellers);
-      console.log('Sellers count:', sellers?.length || 0);
-      console.log('Sellers sample:', sellers?.[0]);
-      
-      if (sellers && Array.isArray(sellers)) {
-        // Only filter out sellers without an id - don't require business_name
-        const validSellers = sellers.filter(seller => {
-          if (!seller || !seller.id) {
-            console.warn('Invalid seller (no id):', seller);
-            return false;
-          }
-          // Ensure business_name is set - if not, log a warning but don't filter out
-          if (!seller.business_name) {
-            console.warn('Seller missing business_name:', {
-              id: seller.id,
-              display_name: seller.display_name,
-              phone_number: seller.phone_number,
-              fullSeller: seller
-            });
-          }
-          return true;
-        });
-        
-        console.log('Loaded sellers - Total:', sellers.length, 'Valid:', validSellers.length);
-        console.log('Sellers with business_name:', validSellers.filter(s => s.business_name).length);
-        console.log('All sellers:', validSellers.map(s => ({
-          id: s.id,
-          business_name: s.business_name,
-          display_name: s.display_name,
-          phone_number: s.phone_number
-        })));
-        
-        setSellers(validSellers);
-        if (validSellers.length === 0) {
-          console.error('No sellers found after filtering');
-          toast.error('No sellers available. Please check if sellers exist in the database.');
-        } else {
-          console.log('Sellers set in state:', validSellers.length);
-        }
-      } else {
-        console.error('Sellers data is not an array:', sellers);
-        setSellers([]);
-        toast.error('Invalid sellers data received from server');
-      }
-    } catch (error) {
-      console.error('Error loading sellers:', error);
-      setSellers([]);
-    } finally {
-      setLoadingSellers(false);
-    }
-  };
-
   const loadMasterProducts = async (resetPage = false) => {
     try {
       setMasterProductLoading(true);
@@ -762,7 +771,10 @@ export default function ProductsPage() {
     setMasterProductsDialogOpen(true);
     loadMasterProducts();
     // Always reload sellers when dialog opens to ensure fresh data
-    loadSellers();
+    if (sellers.length === 0) {
+      console.log('No sellers in state, loading sellers...');
+      loadSellers();
+    }
   };
 
   // Helper functions for master products pagination
@@ -1715,7 +1727,10 @@ export default function ProductsPage() {
                         }}
                         onClick={() => {
                           console.log('Product clicked in Quick Add:', product.id, product.name);
-                          console.log('Current sellers before selection:', sellers.length);
+                          console.log('Current sellers before selection:', {
+                            count: sellers.length,
+                            sellers: sellers.map(s => ({ id: s.id, name: s.business_name || s.display_name }))
+                          });
                           setSelectedMasterProduct(product);
                           setSellerData(prev => ({
                             ...prev,
@@ -1723,9 +1738,9 @@ export default function ProductsPage() {
                             price: product.price?.toString() || '',
                             description: product.description || ''
                           }));
-                          // Ensure sellers are loaded
-                          if (sellers.length === 0 && !loadingSellers) {
-                            console.log('No sellers found, reloading...');
+                          // Always ensure sellers are loaded when product is selected
+                          if (sellers.length === 0) {
+                            console.log('No sellers found, reloading sellers...');
                             loadSellers();
                           }
                         }}
@@ -1799,11 +1814,9 @@ export default function ProductsPage() {
                       <Grid item xs={12} md={6}>
                         <FormControl 
                           fullWidth 
-                          disabled={loadingSellers} 
                           error={sellers.length === 0 && !loadingSellers}
-                          key={`seller-form-${sellers.length}-${loadingSellers}`}
                         >
-                          <InputLabel id="quick-add-seller-select-label" shrink={!!sellerData.seller_id}>
+                          <InputLabel id="quick-add-seller-select-label">
                             Select Seller
                           </InputLabel>
                           <Select
@@ -1813,15 +1826,31 @@ export default function ProductsPage() {
                               console.log('Seller selected in Quick Add:', e.target.value);
                               setSellerData(prev => ({ ...prev, seller_id: e.target.value }));
                             }}
+                            onOpen={() => {
+                              console.log('Select dropdown opened, sellers count:', sellers.length);
+                              if (sellers.length === 0 && !loadingSellers) {
+                                console.log('No sellers when dropdown opened, loading sellers...');
+                                loadSellers();
+                              }
+                            }}
                             label="Select Seller"
                             disabled={loadingSellers}
-                            notched={!!sellerData.seller_id}
                             MenuProps={{
                               PaperProps: {
-                                style: {
+                                sx: {
                                   maxHeight: 300,
+                                  zIndex: 1301,
                                 },
                               },
+                              anchorOrigin: {
+                                vertical: 'bottom',
+                                horizontal: 'left',
+                              },
+                              transformOrigin: {
+                                vertical: 'top',
+                                horizontal: 'left',
+                              },
+                              disablePortal: false,
                             }}
                           >
                             {loadingSellers ? (
@@ -1832,24 +1861,23 @@ export default function ProductsPage() {
                             ) : sellers.length === 0 ? (
                               <MenuItem disabled>No sellers available</MenuItem>
                             ) : (
-                              <>
-                                {/* Test item to verify Select works */}
-                                <MenuItem value="test-1">Test Seller 1</MenuItem>
-                                <MenuItem value="test-2">Test Seller 2</MenuItem>
-                                {/* Actual sellers */}
-                                {sellers.map((seller) => {
-                                  if (!seller || !seller.id) {
-                                    return null;
-                                  }
-                                  const businessName = seller.business_name || seller.display_name || seller.phone_number || `Seller ${seller.id}`;
-                                  console.log('Rendering MenuItem for:', seller.id, businessName);
-                                  return (
-                                    <MenuItem key={seller.id} value={seller.id}>
-                                      {businessName}
-                                    </MenuItem>
-                                  );
-                                }).filter(Boolean)}
-                              </>
+                              sellers.map((seller) => {
+                                if (!seller || !seller.id) {
+                                  console.warn('Skipping invalid seller:', seller);
+                                  return null;
+                                }
+                                const businessName = seller.business_name || seller.display_name || seller.phone_number || `Seller ${seller.id}`;
+                                console.log('Rendering MenuItem for seller:', { id: seller.id, name: businessName });
+                                return (
+                                  <MenuItem 
+                                    key={seller.id} 
+                                    value={seller.id}
+                                    sx={{ py: 1.5 }}
+                                  >
+                                    {businessName}
+                                  </MenuItem>
+                                );
+                              }).filter(Boolean)
                             )}
                           </Select>
                         </FormControl>
