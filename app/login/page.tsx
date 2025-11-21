@@ -58,7 +58,10 @@ export default function LoginPage() {
       refreshAuth();
       
       toast.success('Login successful!');
-      router.push('/');
+      
+      // Use window.location for a hard navigation to ensure auth state is recognized
+      // This ensures the ProtectedRoute sees the updated auth state
+      window.location.href = '/';
     } catch (err: any) {
       setError(err.message || 'Login failed');
       toast.error(err.message || 'Login failed');
