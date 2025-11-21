@@ -150,13 +150,15 @@ export default function MasterProductsPage() {
     try {
       setLoading(true);
       
-      // Temporary fallback since getMasterProducts doesn't exist in adminQueries
-      // TODO: Implement proper getMasterProducts API endpoint
-      const result = {
-        products: []
-      };
+      const result = await adminQueries.getMasterProducts({
+        page: page + 1,
+        limit: pageSize,
+        search: searchTerm || undefined,
+        category: filterCategory !== 'all' ? filterCategory : undefined,
+      });
       
-      setProducts(result.products);
+      setProducts(result.products || []);
+      setStats(prev => ({ ...prev, totalProducts: result.total || 0 }));
     } catch (error: unknown) {
       console.error('Error loading master products:', error);
       toast.error('Failed to load master products');

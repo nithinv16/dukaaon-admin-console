@@ -332,41 +332,56 @@ const ExtractedProductEditor: React.FC<ExtractedProductEditorProps> = ({
               Select a seller for all products in this batch
             </Typography>
             <FormControl fullWidth size="medium">
-              <InputLabel>Select Seller for All Products *</InputLabel>
+              <InputLabel id="extracted-product-seller-select-label">Select Seller for All Products *</InputLabel>
               <Select
+                labelId="extracted-product-seller-select-label"
                 value={selectedSeller}
-                onChange={(e) => setSelectedSeller(e.target.value)}
+                onChange={(e) => {
+                  console.log('Seller selected in ExtractedProductEditor:', e.target.value);
+                  setSelectedSeller(e.target.value);
+                }}
                 label="Select Seller for All Products *"
                 required
                 sx={{ minHeight: 56 }}
+                MenuProps={{
+                  PaperProps: {
+                    style: {
+                      maxHeight: 300,
+                    },
+                  },
+                }}
               >
-                {sellers.map((seller) => (
-                  <MenuItem 
-                    key={seller.id} 
-                    value={seller.id}
-                    sx={{ 
-                      minHeight: 48,
-                      whiteSpace: 'normal',
-                      wordWrap: 'break-word'
-                    }}
-                  >
-                    <Box>
-                      <Typography variant="body1" sx={{ fontWeight: 500 }}>
-                        {seller.business_info?.business_name || seller.display_name || seller.phone_number || 'Unknown Seller'}
-                      </Typography>
-                      {seller.business_info?.owner_name && (
-                        <Typography variant="body2" color="text.secondary">
-                          {seller.business_info.owner_name}
+                {sellers.length === 0 ? (
+                  <MenuItem disabled>No sellers available</MenuItem>
+                ) : (
+                  sellers.map((seller) => (
+                    <MenuItem 
+                      key={seller.id} 
+                      value={seller.id}
+                      sx={{ 
+                        minHeight: 48,
+                        whiteSpace: 'normal',
+                        wordWrap: 'break-word'
+                      }}
+                    >
+                      <Box>
+                        <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                          {seller.display_name || seller.business_info?.business_name || seller.business_name || seller.phone_number || 'Unknown Seller'}
                         </Typography>
-                      )}
-                      {seller.phone_number && (
-                        <Typography variant="body2" color="text.secondary">
-                          {seller.phone_number}
-                        </Typography>
-                      )}
-                    </Box>
-                  </MenuItem>
-                ))}
+                        {(seller.business_info?.owner_name || seller.owner_name) && (
+                          <Typography variant="body2" color="text.secondary">
+                            {seller.business_info?.owner_name || seller.owner_name}
+                          </Typography>
+                        )}
+                        {seller.phone_number && (
+                          <Typography variant="body2" color="text.secondary">
+                            {seller.phone_number}
+                          </Typography>
+                        )}
+                      </Box>
+                    </MenuItem>
+                  ))
+                )}
               </Select>
             </FormControl>
           </CardContent>

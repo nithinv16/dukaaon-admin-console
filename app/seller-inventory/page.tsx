@@ -48,6 +48,7 @@ export default function SellerInventoryPage() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCategory, setFilterCategory] = useState('all');
+  const [categories, setCategories] = useState<string[]>([]);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(25);
   const [totalProducts, setTotalProducts] = useState(0);
@@ -56,6 +57,7 @@ export default function SellerInventoryPage() {
 
   useEffect(() => {
     loadSellers();
+    loadCategories();
   }, []);
 
   useEffect(() => {
@@ -64,22 +66,43 @@ export default function SellerInventoryPage() {
     }
   }, [selectedSeller, page, pageSize, searchTerm, filterCategory]);
 
+  const loadCategories = async () => {
+    try {
+      // Fetch unique categories from products
+      const result = await adminQueries.getProducts({ limit: 1000 });
+      const allProducts = result.products || [];
+      const uniqueCategories = Array.from(new Set(
+        allProducts
+          .map((p: any) => p.category)
+          .filter(Boolean)
+      )).sort() as string[];
+      setCategories(uniqueCategories);
+    } catch (error) {
+      console.error('Error loading categories:', error);
+    }
+  };
+
   const loadSellers = async () => {
     try {
       setLoading(true);
-      const result = await adminQueries.getAllUsers();
-      const users = result.data || result;
-      const sellerUsers = Array.isArray(users)
-        ? users.filter((u: any) => u.role === 'wholesaler' || u.role === 'manufacturer')
-        : [];
-      setSellers(sellerUsers);
+      const sellers = await adminQueries.getSellersWithDetails();
+      console.log('Loaded sellers in seller-inventory:', sellers);
       
-      // Auto-select first seller if available
-      if (sellerUsers.length > 0 && !selectedSeller) {
-        setSelectedSeller(sellerUsers[0].id);
+      if (sellers && Array.isArray(sellers)) {
+        const validSellers = sellers.filter(seller => seller && seller.id);
+        setSellers(validSellers);
+        
+        // Auto-select first seller if available
+        if (validSellers.length > 0 && !selectedSeller) {
+          setSelectedSeller(validSellers[0].id);
+        }
+      } else {
+        setSellers([]);
+        toast.error('Invalid sellers data received');
       }
     } catch (error) {
       console.error('Error loading sellers:', error);
+      setSellers([]);
       toast.error('Failed to load sellers');
     } finally {
       setLoading(false);
@@ -130,17 +153,60 @@ export default function SellerInventoryPage() {
 
   const columns: GridColDef[] = [
     {
+      field: 'image_url',
+      headerName: 'Image',
+      width: 80,
+      minWidth: 60,
+      flex: 0,
+      renderCell: (params: GridRenderCellParams) => (
+        <Box
+          component="img"
+          src={params.value || params.row.images?.[0] || '/placeholder-product.png'}
+          alt={params.row.name}
+          sx={{
+            width: 40,
+            height: 40,
+            objectFit: 'cover',
+            borderRadius: 1,
+          }}
+        />
+      ),
+    },
+    {
       field: 'name',
       headerName: 'Product Name',
       flex: 1,
       minWidth: 200,
+      renderCell: (params: GridRenderCellParams) => (
+        <Box>
+          <Typography variant="body2" fontWeight="medium" noWrap>
+            {params.value}
+          </Typography>
+          {params.row.description && (
+            <Typography variant="caption" color="text.secondary" noWrap>
+              {params.row.description.substring(0, 50)}
+              {params.row.description.length > 50 ? '...' : ''}
+            </Typography>
+          )}
+        </Box>
+      ),
     },
     {
-      field: 'category_name',
+      field: 'category',
       headerName: 'Category',
       width: 150,
       renderCell: (params: GridRenderCellParams) => (
         <Chip label={params.value || 'N/A'} size="small" />
+      ),
+    },
+    {
+      field: 'subcategory',
+      headerName: 'Subcategory',
+      width: 150,
+      renderCell: (params: GridRenderCellParams) => (
+        <Typography variant="body2" color="text.secondary">
+          {params.value || 'N/A'}
+        </Typography>
       ),
     },
     {
@@ -220,15 +286,16 @@ export default function SellerInventoryPage() {
                   onChange={(e) => setSelectedSeller(e.target.value)}
                 >
                   {sellers.map((seller) => {
-                    const businessName = seller.business_details?.shopName || 
-                                        seller.business_details?.business_name || 
-                                        seller.phone_number;
+                    const businessName = seller.business_name || 
+                                        seller.display_name || 
+                                        seller.phone_number || 
+                                        'Unknown Seller';
                     return (
                       <MenuItem key={seller.id} value={seller.id}>
                         <Box>
                           <Typography variant="body1">{businessName}</Typography>
                           <Typography variant="caption" color="text.secondary">
-                            {seller.role} • {seller.phone_number}
+                            {seller.seller_type || seller.role} • {seller.phone_number || 'N/A'}
                           </Typography>
                         </Box>
                       </MenuItem>
@@ -240,15 +307,16 @@ export default function SellerInventoryPage() {
               {selectedSellerData && (
                 <Alert severity="info" sx={{ mt: 2 }}>
                   <Typography variant="subtitle2">
-                    {selectedSellerData.business_details?.shopName || 
-                     selectedSellerData.business_details?.business_name || 
+                    {selectedSellerData.business_name || 
+                     selectedSellerData.display_name || 
+                     selectedSellerData.phone_number || 
                      'Seller'}
                   </Typography>
                   <Typography variant="caption" display="block">
-                    Role: {selectedSellerData.role}
+                    Type: {selectedSellerData.seller_type || selectedSellerData.role || 'N/A'}
                   </Typography>
                   <Typography variant="caption" display="block">
-                    Phone: {selectedSellerData.phone_number}
+                    Phone: {selectedSellerData.phone_number || 'N/A'}
                   </Typography>
                 </Alert>
               )}
@@ -284,7 +352,11 @@ export default function SellerInventoryPage() {
                           onChange={(e) => setFilterCategory(e.target.value)}
                         >
                           <MenuItem value="all">All Categories</MenuItem>
-                          {/* Add categories dynamically */}
+                          {categories.map((category) => (
+                            <MenuItem key={category} value={category}>
+                              {category}
+                            </MenuItem>
+                          ))}
                         </Select>
                       </FormControl>
                     </Grid>

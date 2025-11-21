@@ -69,8 +69,8 @@ export default function Dashboard() {
       setLoading(true);
       setError(null);
 
-      // Fetch dashboard statistics
-      const dashboardData = await adminQueries.getDashboardStats();
+      // Fetch dashboard statistics with chart data
+      const dashboardData = await adminQueries.getDashboardStats(timeFilter);
 
       // Fetch additional analytics data
       const analyticsData = await adminQueries.getAnalytics();
@@ -88,66 +88,11 @@ export default function Dashboard() {
         pendingOrders: dashboardData.stats.pendingOrders || 0,
         completedOrders: dashboardData.stats.completedOrders || 0,
         totalRevenue: analyticsData.totalRevenue || 0,
-        monthlyRevenue: 0, // Will calculate from recent orders
+        monthlyRevenue: dashboardData.stats.monthlyRevenue || 0,
       });
 
-      // Generate sample chart data (will need to implement proper data fetching later)
-      const generateChartData = () => {
-        let chartDataArray: any[] = [];
-        const now = new Date();
-
-        switch (timeFilter) {
-          case '7days':
-            chartDataArray = Array.from({ length: 7 }, (_, i) => {
-              const date = subDays(now, 6 - i);
-              return {
-                date: format(date, 'MMM dd'),
-                orders: Math.floor(Math.random() * 20) + 5, // Sample data
-                revenue: Math.floor(Math.random() * 5000) + 1000, // Sample data
-              };
-            });
-            break;
-
-          case '4weeks':
-            chartDataArray = Array.from({ length: 4 }, (_, i) => {
-              return {
-                date: `Week ${i + 1}`,
-                orders: Math.floor(Math.random() * 100) + 20, // Sample data
-                revenue: Math.floor(Math.random() * 20000) + 5000, // Sample data
-              };
-            });
-            break;
-
-          case '12months':
-            chartDataArray = Array.from({ length: 12 }, (_, i) => {
-              const monthStart = startOfMonth(subMonths(now, 11 - i));
-              return {
-                date: format(monthStart, 'MMM yyyy'),
-                orders: Math.floor(Math.random() * 500) + 100, // Sample data
-                revenue: Math.floor(Math.random() * 50000) + 10000, // Sample data
-              };
-            });
-            break;
-
-          case '5years':
-            chartDataArray = Array.from({ length: 5 }, (_, i) => {
-              const yearStart = startOfYear(subYears(now, 4 - i));
-              return {
-                date: format(yearStart, 'yyyy'),
-                orders: Math.floor(Math.random() * 5000) + 1000, // Sample data
-                revenue: Math.floor(Math.random() * 500000) + 100000, // Sample data
-              };
-            });
-            break;
-
-          default:
-            chartDataArray = [];
-        }
-
-        return chartDataArray;
-      };
-
-      setChartData(generateChartData());
+      // Use real chart data from API
+      setChartData(dashboardData.chartData || []);
 
       // Recent orders are already set from dashboardData
       // No need to fetch separately
@@ -165,9 +110,7 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    if (stats) {
-      fetchDashboardData();
-    }
+    fetchDashboardData();
   }, [timeFilter]);
 
   const getChartTitle = () => {
@@ -399,7 +342,7 @@ export default function Dashboard() {
             <ListItem key={order.id} divider>
               <ListItemText
                 primary={`Order #${order.id.slice(-8)}`}
-                secondary={`${order.retailer?.business_details?.shopName || 'Unknown'} • ₹${order.total_amount}`}
+                secondary={`${order.retailer?.business_details?.shopName || order.retailer?.phone_number || 'Unknown'} • ₹${(order.total_amount || 0).toLocaleString()}`}
               />
               <Chip
                 icon={getOrderStatusIcon(order.status)}

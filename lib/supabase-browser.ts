@@ -55,6 +55,23 @@ export const adminQueries = {
     return response.json();
   },
 
+  async getSellersWithDetails() {
+    try {
+      const response = await fetch('/api/admin/sellers');
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Failed to fetch sellers: ${response.status}`);
+      }
+      const result = await response.json();
+      const sellers = result.data || result;
+      console.log('getSellersWithDetails response:', { result, sellers, isArray: Array.isArray(sellers), count: Array.isArray(sellers) ? sellers.length : 'N/A' });
+      return Array.isArray(sellers) ? sellers : [];
+    } catch (error) {
+      console.error('getSellersWithDetails error:', error);
+      throw error;
+    }
+  },
+
   async getUsersByRole(role: string) {
     const response = await fetch(`/api/admin/users?role=${role}`);
     if (!response.ok) {
@@ -104,8 +121,11 @@ export const adminQueries = {
     return response.json();
   },
 
-  async getDashboardStats() {
-    const response = await fetch('/api/admin/dashboard');
+  async getDashboardStats(timeFilter?: string) {
+    const url = timeFilter 
+      ? `/api/admin/dashboard?timeFilter=${timeFilter}`
+      : '/api/admin/dashboard';
+    const response = await fetch(url);
     if (!response.ok) {
       throw new Error('Failed to fetch dashboard stats');
     }

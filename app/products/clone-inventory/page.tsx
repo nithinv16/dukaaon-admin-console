@@ -95,13 +95,41 @@ export default function CloneInventoryPage() {
   const loadSellers = async () => {
     try {
       setLoadingSellers(true);
-      const response = await adminQueries.getAllUsers();
-      const filteredSellers = (response.data || []).filter(
-        (user: Seller) => user.role === 'wholesaler' || user.role === 'manufacturer'
-      );
-      setSellers(filteredSellers);
+      const sellers = await adminQueries.getSellersWithDetails();
+      console.log('Loaded sellers in clone-inventory:', sellers);
+      console.log('Sellers count:', sellers?.length || 0);
+      console.log('Sellers sample:', sellers?.[0]);
+      
+      if (sellers && Array.isArray(sellers)) {
+        // Filter out any invalid sellers and ensure they have an id and business_name
+        const validSellers = sellers.filter(seller => {
+          const isValid = seller && seller.id && (seller.business_name || seller.display_name || seller.phone_number);
+          if (!isValid) {
+            console.warn('Invalid seller filtered out:', seller);
+          }
+          return isValid;
+        });
+        
+        console.log('Valid sellers count:', validSellers.length);
+        console.log('Valid sellers sample:', validSellers[0] ? {
+          id: validSellers[0].id,
+          business_name: validSellers[0].business_name,
+          display_name: validSellers[0].display_name
+        } : null);
+        
+        setSellers(validSellers);
+        if (validSellers.length === 0) {
+          console.warn('No valid sellers found');
+          toast.error('No sellers found. Please add sellers first.');
+        }
+      } else {
+        console.error('Sellers data is not an array:', sellers);
+        setSellers([]);
+        toast.error('Invalid sellers data received');
+      }
     } catch (error) {
       console.error('Error loading sellers:', error);
+      setSellers([]);
       toast.error('Failed to load sellers');
     } finally {
       setLoadingSellers(false);
@@ -111,27 +139,51 @@ export default function CloneInventoryPage() {
   const loadSellerProducts = async (sellerId: string) => {
     try {
       setLoading(true);
+      console.log('Loading products for seller:', sellerId);
       
-      // Temporary fallback since getProducts doesn't exist in adminQueries
-      // TODO: Implement proper getProducts API endpoint
-      const response = {
-        products: []
-      };
+      // Fetch products for the selected seller
+      const response = await adminQueries.getProducts({
+        seller_id: sellerId,
+        limit: 1000, // Get all products for this seller
+      });
       
-      const sellerProducts = (response.products || []).filter(
-        (product: Product & { seller_id?: string }) => product.seller_id === sellerId
-      );
+      console.log('Products response:', response);
+      const sellerProducts = response.products || [];
+      console.log('Products found:', sellerProducts.length);
       
-      const cloneProducts: CloneProduct[] = sellerProducts.map((product: Product) => ({
-        ...product,
-        selected: false,
-        newPrice: product.price
-      }));
+      const cloneProducts: CloneProduct[] = sellerProducts.map((product: Product & { seller_id?: string }) => {
+        // Log each product to verify all fields are present
+        console.log('Product data:', {
+          id: product.id,
+          name: product.name,
+          description: product.description,
+          price: product.price,
+          category: product.category,
+          subcategory: product.subcategory,
+          brand: product.brand,
+          stock_available: product.stock_available,
+          unit: product.unit,
+          status: product.status,
+          image_url: product.image_url
+        });
+        
+        return {
+          ...product,
+          selected: false,
+          newPrice: product.price || 0
+        };
+      });
       
+      console.log('Clone products prepared:', cloneProducts.length);
       setProducts(cloneProducts);
+      
+      if (cloneProducts.length === 0) {
+        toast.info('No products found for this seller');
+      }
     } catch (error) {
       console.error('Error loading products:', error);
       toast.error('Failed to load products');
+      setProducts([]);
     } finally {
       setLoading(false);
     }
@@ -178,35 +230,66 @@ export default function CloneInventoryPage() {
 
       for (const product of selectedProducts) {
         try {
+          // Ensure all required fields have valid values
+          if (!product.name || !product.name.trim()) {
+            console.error(`Product ${product.id} has no name`);
+            errorCount++;
+            toast.error(`Product "${product.name || 'Unknown'}" has no name`);
+            continue;
+          }
+
+          if (!product.description || !product.description.trim()) {
+            console.warn(`Product ${product.name} has no description, using default`);
+          }
+
+          if (!product.newPrice || product.newPrice <= 0) {
+            console.warn(`Product ${product.name} has invalid price: ${product.newPrice}, using original price: ${product.price}`);
+          }
+
+          if (!toSeller || !toSeller.trim()) {
+            console.error('No target seller selected');
+            errorCount++;
+            toast.error('Please select a target seller');
+            continue;
+          }
+
           const productData = {
-            name: product.name,
-            description: product.description,
-            price: product.newPrice,
-            category: product.category,
-            subcategory: product.subcategory,
+            name: product.name.trim(),
+            description: (product.description || product.name || 'Product cloned from inventory').trim(),
+            price: product.newPrice > 0 ? product.newPrice : (product.price || 0),
+            category: product.category || 'Uncategorized',
+            subcategory: product.subcategory || undefined,
+            brand: product.brand || undefined,
             images: product.image_url ? [product.image_url] : [],
             seller_id: toSeller,
-            stock: product.stock_available || 0,
+            stock_available: product.stock_available ?? 0,
             unit: product.unit || 'piece',
-            min_order_quantity: product.min_quantity || product.min_order_quantity || 1
+            min_order_quantity: product.min_quantity || product.min_order_quantity || 1,
+            status: product.status || 'available'
           };
 
-          // Temporary fallback since addProduct doesn't exist in adminQueries
-          // TODO: Implement proper addProduct API endpoint
-          const result = {
-            success: true,
-            data: null
-          };
+          console.log('Cloning product:', product.name, 'to seller:', toSeller);
+          console.log('Product data being sent:', JSON.stringify(productData, null, 2));
           
-          if (!result.success) {
-            console.error(`Error cloning product ${product.name}:`, result.data);
-            errorCount++;
-          } else {
+          const result = await adminQueries.addProduct(productData);
+          
+          console.log('Add product result:', result);
+          
+          // Check if result has success property or if data/id exists (API returns { data, success: true })
+          if (result?.success === true || result?.data || result?.id) {
+            console.log('Successfully cloned product:', product.name);
             successCount++;
+          } else {
+            const errorMsg = result?.error || 'Unknown error';
+            console.error(`Error cloning product ${product.name}:`, errorMsg, result);
+            errorCount++;
+            toast.error(`Failed to clone ${product.name}: ${errorMsg}`);
           }
-        } catch (error) {
+        } catch (error: any) {
+          const errorMsg = error?.message || 'Unknown error';
           console.error(`Error cloning product ${product.name}:`, error);
           errorCount++;
+          toast.error(`Failed to clone ${product.name}: ${errorMsg}`);
         }
       }
 
@@ -235,7 +318,6 @@ export default function CloneInventoryPage() {
 
   const getSellerDisplayName = (seller: Seller) => {
     return seller.display_name || 
-           seller.business_details?.shopName || 
            seller.business_name || 
            seller.phone_number || 
            'Unknown Seller';
@@ -262,34 +344,76 @@ export default function CloneInventoryPage() {
         <Grid container spacing={3}>
           <Grid item xs={12} md={6}>
             <FormControl fullWidth disabled={loadingSellers}>
-              <InputLabel>From Seller</InputLabel>
+              <InputLabel id="from-seller-select-label">From Seller</InputLabel>
               <Select
+                labelId="from-seller-select-label"
                 value={fromSeller}
-                onChange={(e) => setFromSeller(e.target.value)}
+                onChange={(e) => {
+                  console.log('From Seller selected:', e.target.value);
+                  setFromSeller(e.target.value);
+                }}
                 label="From Seller"
+                disabled={loadingSellers}
+                MenuProps={{
+                  PaperProps: {
+                    style: {
+                      maxHeight: 300,
+                    },
+                  },
+                }}
               >
-                {sellers.map((seller) => (
-                  <MenuItem key={seller.id} value={seller.id}>
-                    {getSellerDisplayName(seller)}
+                {loadingSellers ? (
+                  <MenuItem disabled>
+                    <CircularProgress size={20} sx={{ mr: 1 }} />
+                    Loading sellers...
                   </MenuItem>
-                ))}
+                ) : sellers.length === 0 ? (
+                  <MenuItem disabled>No sellers available</MenuItem>
+                ) : (
+                  sellers.map((seller) => (
+                    <MenuItem key={seller.id} value={seller.id}>
+                      {getSellerDisplayName(seller)}
+                    </MenuItem>
+                  ))
+                )}
               </Select>
             </FormControl>
           </Grid>
           
           <Grid item xs={12} md={6}>
             <FormControl fullWidth disabled={loadingSellers}>
-              <InputLabel>To Seller</InputLabel>
+              <InputLabel id="to-seller-select-label">To Seller</InputLabel>
               <Select
+                labelId="to-seller-select-label"
                 value={toSeller}
-                onChange={(e) => setToSeller(e.target.value)}
+                onChange={(e) => {
+                  console.log('To Seller selected:', e.target.value);
+                  setToSeller(e.target.value);
+                }}
                 label="To Seller"
+                disabled={loadingSellers}
+                MenuProps={{
+                  PaperProps: {
+                    style: {
+                      maxHeight: 300,
+                    },
+                  },
+                }}
               >
-                {sellers.map((seller) => (
-                  <MenuItem key={seller.id} value={seller.id}>
-                    {getSellerDisplayName(seller)}
+                {loadingSellers ? (
+                  <MenuItem disabled>
+                    <CircularProgress size={20} sx={{ mr: 1 }} />
+                    Loading sellers...
                   </MenuItem>
-                ))}
+                ) : sellers.length === 0 ? (
+                  <MenuItem disabled>No sellers available</MenuItem>
+                ) : (
+                  sellers.map((seller) => (
+                    <MenuItem key={seller.id} value={seller.id}>
+                      {getSellerDisplayName(seller)}
+                    </MenuItem>
+                  ))
+                )}
               </Select>
             </FormControl>
           </Grid>

@@ -101,7 +101,8 @@ export default function UsersPage() {
         usersData = result;
       }
       
-      // Process users to extract business details (similar to orders page)
+      // Process users to extract business details
+      // For sellers (wholesalers/manufacturers), prioritize seller_details.business_name
       const processedUsers = usersData.map((user: any) => {
         let businessDetails: any = {};
         if (user.business_details) {
@@ -116,12 +117,43 @@ export default function UsersPage() {
           }
         }
         
-        // Extract business name similar to orders page
-        const shopName = businessDetails.shopName || 
-                         businessDetails.business_name || 
-                         businessDetails.shop_name ||
-                         businessDetails.name ||
-                         null;
+        // Step 6: For sellers, use business_name from seller_details.business_name
+        // Identify sellers based on role column
+        const isSeller = user.role === 'seller' || 
+                        user.role === 'wholesaler' || 
+                        user.role === 'manufacturer';
+        
+        let shopName = null;
+        
+        if (isSeller) {
+          // For sellers: Use business_name from seller_details.business_name
+          // This is set by getAllUsers() from seller_details table via foreign key (user_id)
+          shopName = user.business_name || // From seller_details.business_name
+                     businessDetails.business_name || 
+                     businessDetails.shopName || 
+                     businessDetails.shop_name ||
+                     businessDetails.name ||
+                     null;
+          
+          // Debug logging for sellers without business_name
+          if (!shopName) {
+            console.warn('Seller has no business name:', {
+              id: user.id,
+              role: user.role,
+              seller_type: user.seller_type, // From seller_details.seller_type (wholesaler/manufacturer)
+              business_name: user.business_name, // Should come from seller_details
+              business_details: businessDetails,
+              seller_details: user.seller_details
+            });
+          }
+        } else {
+          // For retailers, use business_details
+          shopName = businessDetails.shopName || 
+                     businessDetails.business_name || 
+                     businessDetails.shop_name ||
+                     businessDetails.name ||
+                     null;
+        }
         
         return {
           ...user,
@@ -129,6 +161,20 @@ export default function UsersPage() {
           shopName: shopName, // Add shopName property for easy access
         };
       });
+      
+      // Debug: Log sample processed users
+      const sellers = processedUsers.filter((u: any) => 
+        u.role === 'seller' || u.role === 'wholesaler' || u.role === 'manufacturer'
+      );
+      if (sellers.length > 0) {
+        console.log('Users page - Sample processed seller:', {
+          id: sellers[0].id,
+          role: sellers[0].role,
+          seller_type: sellers[0].seller_type, // From seller_details.seller_type
+          business_name: sellers[0].business_name, // From seller_details.business_name
+          shopName: sellers[0].shopName
+        });
+      }
       
       // Apply client-side filtering if needed
       let filteredUsers = processedUsers;

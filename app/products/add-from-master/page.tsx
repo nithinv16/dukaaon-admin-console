@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -36,6 +36,7 @@ export default function AddFromMasterProductsPage() {
   const [selectedMasterProduct, setSelectedMasterProduct] = useState<any>(null);
   const [masterProductLoading, setMasterProductLoading] = useState(false);
   const [sellers, setSellers] = useState<any[]>([]);
+  const [loadingSellers, setLoadingSellers] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [imageEditorOpen, setImageEditorOpen] = useState(false);
   
@@ -68,56 +69,60 @@ export default function AddFromMasterProductsPage() {
     'Office Supplies'
   ]);
 
-  // Debounced search effect
-  useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      if (masterProductsSearchTerm !== undefined) {
-        setMasterProductsPage(1); // Reset to first page when searching
-        loadMasterProducts();
-      }
-    }, 300);
-
-    return () => clearTimeout(timeoutId);
-  }, [masterProductsSearchTerm]);
-
-  // Load master products when page or category filter changes
-  useEffect(() => {
-    loadMasterProducts();
-  }, [masterProductsPage, masterProductsFilterCategory]);
-
-  // Load sellers and initial master products on component mount
-  useEffect(() => {
-    loadSellers();
-    loadMasterProducts();
-  }, []);
-
   const loadSellers = async () => {
     try {
-      const result = await adminQueries.getAllUsers();
-      const allUsers = result.data || [];
+      setLoadingSellers(true);
+      const sellers = await adminQueries.getSellersWithDetails();
+      console.log('Loaded sellers in add-from-master:', sellers);
+      console.log('Sellers count:', sellers?.length || 0);
+      console.log('Sellers sample:', sellers?.[0]);
       
-      // Filter to get only sellers (wholesalers and manufacturers)
-      const sellersOnly = allUsers.filter((user: any) => 
-        user.role === 'wholesaler' || user.role === 'manufacturer'
-      );
-      
-      setSellers(sellersOnly);
+      if (sellers && Array.isArray(sellers)) {
+        // Filter out any invalid sellers and ensure they have an id and business_name
+        const validSellers = sellers.filter(seller => {
+          const isValid = seller && seller.id && (seller.business_name || seller.display_name || seller.phone_number);
+          if (!isValid) {
+            console.warn('Invalid seller filtered out:', seller);
+          }
+          return isValid;
+        });
+        
+        console.log('Valid sellers count:', validSellers.length);
+        console.log('Valid sellers sample:', validSellers[0] ? {
+          id: validSellers[0].id,
+          business_name: validSellers[0].business_name,
+          display_name: validSellers[0].display_name
+        } : null);
+        
+        setSellers(validSellers);
+        if (validSellers.length === 0) {
+          console.warn('No valid sellers found');
+          toast.error('No sellers found. Please add sellers first.');
+        }
+      } else {
+        console.error('Sellers data is not an array:', sellers);
+        setSellers([]);
+        toast.error('Invalid sellers data received');
+      }
     } catch (error) {
       console.error('Error loading sellers:', error);
+      setSellers([]);
       toast.error('Failed to load sellers');
+    } finally {
+      setLoadingSellers(false);
     }
   };
 
-  const loadMasterProducts = async () => {
+  const loadMasterProducts = useCallback(async () => {
     try {
       setMasterProductLoading(true);
       
-      // Temporary fallback since getMasterProducts doesn't exist in adminQueries
-      // TODO: Implement proper getMasterProducts API endpoint
-      const result = {
-        products: [],
-        total: 0
-      };
+      const result = await adminQueries.getMasterProducts({
+        page: masterProductsPage,
+        limit: masterProductsPageSize,
+        search: masterProductsSearchTerm || undefined,
+        category: masterProductsFilterCategory !== 'all' ? masterProductsFilterCategory : undefined,
+      });
       
       setMasterProducts(result?.products || []);
       setMasterProductsTotalCount(result?.total || 0);
@@ -127,7 +132,29 @@ export default function AddFromMasterProductsPage() {
     } finally {
       setMasterProductLoading(false);
     }
-  };
+  }, [masterProductsPage, masterProductsPageSize, masterProductsSearchTerm, masterProductsFilterCategory]);
+
+  // Reset page to 1 when search term or category filter changes
+  useEffect(() => {
+    setMasterProductsPage(1);
+  }, [masterProductsSearchTerm, masterProductsFilterCategory]);
+
+  // Load master products with debounce for search, immediate for page/category
+  useEffect(() => {
+    // Debounce only when search term is not empty, immediate for empty search/page/category changes
+    const delay = masterProductsSearchTerm && masterProductsSearchTerm.trim() ? 300 : 0;
+    
+    const timeoutId = setTimeout(() => {
+      loadMasterProducts();
+    }, delay);
+
+    return () => clearTimeout(timeoutId);
+  }, [masterProductsSearchTerm, masterProductsPage, masterProductsFilterCategory, loadMasterProducts]);
+
+  // Load sellers on component mount
+  useEffect(() => {
+    loadSellers();
+  }, []);
 
   const handleMasterProductsSearch = (searchTerm: string) => {
     setMasterProductsSearchTerm(searchTerm);
@@ -306,7 +333,7 @@ export default function AddFromMasterProductsPage() {
                             {product.category} • {product.subcategory}
                           </Typography>
                           <Typography variant="body2" color="primary" fontWeight="medium">
-                            ${product.price}
+                            ₹{product.price}
                           </Typography>
                         </CardContent>
                       </Card>
@@ -385,7 +412,7 @@ export default function AddFromMasterProductsPage() {
                     {selectedMasterProduct.category} • {selectedMasterProduct.subcategory}
                   </Typography>
                   <Typography variant="h6" color="primary" sx={{ mt: 1 }}>
-                    ${selectedMasterProduct.price}
+                    ₹{selectedMasterProduct.price}
                   </Typography>
                 </Box>
 
@@ -394,20 +421,50 @@ export default function AddFromMasterProductsPage() {
                 </Typography>
                 <Grid container spacing={2}>
                   <Grid item xs={12}>
-                    <FormControl fullWidth>
-                      <InputLabel>Select Seller</InputLabel>
+                    <FormControl fullWidth disabled={loadingSellers}>
+                      <InputLabel id="seller-select-label">Select Seller</InputLabel>
                       <Select
+                        labelId="seller-select-label"
                         value={sellerData.seller_id}
-                        onChange={(e) => setSellerData(prev => ({ ...prev, seller_id: e.target.value }))}
+                        onChange={(e) => {
+                          console.log('Seller selected:', e.target.value);
+                          setSellerData(prev => ({ ...prev, seller_id: e.target.value }));
+                        }}
                         label="Select Seller"
+                        disabled={loadingSellers}
+                        MenuProps={{
+                          PaperProps: {
+                            style: {
+                              maxHeight: 300,
+                            },
+                          },
+                        }}
                       >
-                        {sellers.map((seller) => (
-                          <MenuItem key={seller.id} value={seller.id}>
-                            {seller.display_name || seller.business_details?.shopName || seller.phone_number || 'Unknown Seller'}
+                        {loadingSellers ? (
+                          <MenuItem disabled>
+                            <CircularProgress size={20} sx={{ mr: 1 }} />
+                            Loading sellers...
                           </MenuItem>
-                        ))}
+                        ) : sellers.length === 0 ? (
+                          <MenuItem disabled>No sellers available</MenuItem>
+                        ) : (
+                          sellers.map((seller) => {
+                            const displayName = seller.display_name || seller.business_name || seller.phone_number || 'Unknown Seller';
+                            console.log('Rendering seller:', seller.id, displayName);
+                            return (
+                              <MenuItem key={seller.id} value={seller.id}>
+                                {displayName}
+                              </MenuItem>
+                            );
+                          })
+                        )}
                       </Select>
                     </FormControl>
+                    {loadingSellers && (
+                      <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1 }}>
+                        <CircularProgress size={24} />
+                      </Box>
+                    )}
                   </Grid>
                   <Grid item xs={12}>
                     <TextField

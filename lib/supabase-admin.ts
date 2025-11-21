@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { format, subDays, subWeeks, subMonths, subYears, startOfWeek, startOfMonth, startOfYear } from 'date-fns';
 
 let adminSupabaseClient: any = null;
 
@@ -47,13 +48,334 @@ export function getAdminSupabaseClient() {
 export const adminQueries = {
   async getAllUsers() {
     const supabase = getAdminSupabaseClient();
-    // Get users from profiles table instead of auth.users for better data
-    const { data, error } = await supabase
+    
+    // Step 1: Fetch all profiles from the profiles table
+    const { data: profiles, error: profilesError } = await supabase
       .from('profiles')
       .select('*')
       .order('created_at', { ascending: false });
-    if (error) throw error;
-    return data || [];
+    
+    if (profilesError) throw profilesError;
+    if (!profiles || profiles.length === 0) return [];
+    
+    // Step 2: Identify sellers based on role column
+    // Sellers have role = 'seller' or role in ['wholesaler', 'manufacturer']
+    const sellerProfiles = profiles.filter((p: any) => 
+      p.role === 'seller' || 
+      p.role === 'wholesaler' || 
+      p.role === 'manufacturer'
+    );
+    
+    console.log('getAllUsers - Profiles:', {
+      total: profiles.length,
+      sellers: sellerProfiles.length,
+      sellerRoles: [...new Set(sellerProfiles.map((p: any) => p.role))]
+    });
+    
+    // Step 3: Fetch seller_details for those sellers using user_id (foreign key)
+    let sellersDetailsMap: Map<string, any> = new Map();
+    
+    if (sellerProfiles.length > 0) {
+      const sellerIds = sellerProfiles.map((p: any) => p.id).filter(Boolean);
+      
+      const { data: sellersData, error: sellersError } = await supabase
+        .from('seller_details')
+        .select('user_id, business_name, owner_name, seller_type')
+        .in('user_id', sellerIds);
+      
+      if (sellersError) {
+        console.error('Error fetching seller_details:', sellersError);
+      } else if (sellersData && sellersData.length > 0) {
+        // Create a map for quick lookup: user_id -> seller_details
+        sellersDetailsMap = new Map(sellersData.map((s: any) => [s.user_id, s]));
+        
+        console.log('getAllUsers - seller_details:', {
+          fetched: sellersData.length,
+          sample: sellersData[0] ? {
+            user_id: sellersData[0].user_id,
+            business_name: sellersData[0].business_name,
+            seller_type: sellersData[0].seller_type
+          } : null
+        });
+      }
+    }
+    
+    // Step 4 & 5: Process users and set business_name from seller_details.business_name
+    const processedUsers = profiles.map((user: any) => {
+      // Parse business_details if it's a string
+      const businessDetails = typeof user.business_details === 'string'
+        ? JSON.parse(user.business_details || '{}')
+        : user.business_details || {};
+      
+      // Check if this user is a seller
+      const isSeller = user.role === 'seller' || 
+                      user.role === 'wholesaler' || 
+                      user.role === 'manufacturer';
+      
+      if (isSeller) {
+        // Step 5: Get seller_details for this seller
+        const sellerDetail = sellersDetailsMap.get(user.id);
+        
+        if (sellerDetail && sellerDetail.business_name) {
+          // Set business_name from seller_details.business_name (primary source)
+          return {
+            ...user,
+            business_name: sellerDetail.business_name, // From seller_details table
+            owner_name: sellerDetail.owner_name,
+            seller_type: sellerDetail.seller_type, // wholesaler or manufacturer from seller_details
+            business_details: {
+              ...businessDetails,
+              business_name: sellerDetail.business_name, // Also add to business_details for compatibility
+              shopName: sellerDetail.business_name,
+            },
+            seller_details: sellerDetail // Keep for reference
+          };
+        } else {
+          // Seller but no seller_details entry found
+          console.warn(`Seller ${user.id} (role: ${user.role}) has no seller_details entry`);
+          return {
+            ...user,
+            business_details: businessDetails,
+            business_name: businessDetails.business_name || businessDetails.shopName || null
+          };
+        }
+      } else {
+        // Not a seller (e.g., retailer) - use business_details as before
+        return {
+          ...user,
+          business_details: businessDetails
+        };
+      }
+    });
+    
+    // Debug: Log sample seller data
+    const sellers = processedUsers.filter((u: any) => 
+      u.role === 'seller' || u.role === 'wholesaler' || u.role === 'manufacturer'
+    );
+    if (sellers.length > 0) {
+      console.log('Sample processed seller:', {
+        id: sellers[0].id,
+        role: sellers[0].role,
+        business_name: sellers[0].business_name,
+        seller_type: sellers[0].seller_type,
+        has_seller_detail: !!sellers[0].seller_details
+      });
+    }
+    
+    return processedUsers;
+  },
+
+  async getSellersWithDetails() {
+    const supabase = getAdminSupabaseClient();
+    
+    // Step 1: Fetch all profiles from the profiles table
+    const { data: profiles, error: profilesError } = await supabase
+      .from('profiles')
+      .select('*')
+      .order('created_at', { ascending: false });
+    
+    if (profilesError) throw profilesError;
+    if (!profiles || profiles.length === 0) return [];
+    
+    // Step 2: Identify sellers based on role column
+    // Sellers have role = 'seller' or role in ['wholesaler', 'manufacturer']
+    const sellerProfiles = profiles.filter((p: any) => 
+      p.role === 'seller' || 
+      p.role === 'wholesaler' || 
+      p.role === 'manufacturer'
+    );
+    
+    console.log('getSellersWithDetails - Profiles:', {
+      total: profiles.length,
+      sellers: sellerProfiles.length,
+      sellerRoles: [...new Set(sellerProfiles.map((p: any) => p.role))],
+      allRoles: [...new Set(profiles.map((p: any) => p.role))],
+      sampleProfile: profiles[0] ? { id: profiles[0].id, role: profiles[0].role } : null
+    });
+    
+    if (sellerProfiles.length === 0) {
+      console.warn('No sellers found with roles: seller, wholesaler, or manufacturer');
+      console.log('Available roles in profiles:', [...new Set(profiles.map((p: any) => p.role))]);
+      return [];
+    }
+    
+    // Step 3: Fetch seller_details for those sellers using user_id (foreign key)
+    let sellersDetailsMap: Map<string, any> = new Map();
+    
+    if (sellerProfiles.length > 0) {
+      const sellerIds = sellerProfiles.map((p: any) => p.id).filter(Boolean);
+      
+      const { data: sellersData, error: sellersError } = await supabase
+        .from('seller_details')
+        .select('user_id, business_name, owner_name, seller_type')
+        .in('user_id', sellerIds);
+      
+      if (sellersError) {
+        console.error('Error fetching seller_details:', sellersError);
+      } else if (sellersData && sellersData.length > 0) {
+        // Create a map for quick lookup: user_id -> seller_details
+        sellersDetailsMap = new Map(sellersData.map((s: any) => [s.user_id, s]));
+        
+        console.log('getSellersWithDetails - seller_details:', {
+          fetched: sellersData.length,
+          requested: sellerIds.length,
+          sample: sellersData[0] ? {
+            user_id: sellersData[0].user_id,
+            business_name: sellersData[0].business_name,
+            seller_type: sellersData[0].seller_type
+          } : null
+        });
+      } else {
+        console.warn('No seller_details found for seller IDs:', sellerIds);
+      }
+    }
+    
+    // Step 4 & 5: Process sellers and set business_name from seller_details.business_name
+    const enrichedSellers = sellerProfiles.map((profile: any) => {
+      // Parse business_details if it's a string
+      const businessDetails = typeof profile.business_details === 'string'
+        ? JSON.parse(profile.business_details || '{}')
+        : profile.business_details || {};
+      
+      // Step 5: Get seller_details for this seller
+      const sellerDetail = sellersDetailsMap.get(profile.id);
+      
+      if (sellerDetail && sellerDetail.business_name) {
+        // Set business_name from seller_details.business_name (primary source)
+        return {
+          ...profile,
+          business_name: sellerDetail.business_name, // From seller_details table
+          owner_name: sellerDetail.owner_name,
+          seller_type: sellerDetail.seller_type, // wholesaler or manufacturer from seller_details
+          business_details: {
+            ...businessDetails,
+            business_name: sellerDetail.business_name, // Also add to business_details for compatibility
+            shopName: sellerDetail.business_name,
+          },
+          // display_name should be seller_details.business_name (direct)
+          display_name: sellerDetail.business_name,
+          // business_info object for compatibility
+          business_info: {
+            business_name: sellerDetail.business_name,
+            owner_name: sellerDetail.owner_name || businessDetails.ownerName || businessDetails.owner_name || null,
+          },
+          seller_details: sellerDetail // Keep for reference
+        };
+      } else {
+        // Seller but no seller_details entry found
+        console.warn(`Seller ${profile.id} (role: ${profile.role}) has no seller_details entry`);
+        return {
+          ...profile,
+          business_details: businessDetails,
+          business_name: businessDetails.business_name || businessDetails.shopName || null,
+          display_name: businessDetails.business_name || 
+                       businessDetails.shopName || 
+                       businessDetails.shop_name ||
+                       businessDetails.name ||
+                       profile.phone_number ||
+                       'Unknown Seller',
+        };
+      }
+    });
+    
+    // Debug: Log sample seller data
+    if (enrichedSellers.length > 0) {
+      console.log('getSellersWithDetails - Sample processed seller:', {
+        id: enrichedSellers[0].id,
+        role: enrichedSellers[0].role,
+        business_name: enrichedSellers[0].business_name,
+        seller_type: enrichedSellers[0].seller_type,
+        display_name: enrichedSellers[0].display_name,
+        has_seller_detail: !!enrichedSellers[0].seller_details,
+        phone_number: enrichedSellers[0].phone_number
+      });
+    } else {
+      console.warn('getSellersWithDetails - No enriched sellers returned');
+    }
+    
+    // Ensure all sellers have valid IDs
+    const validSellers = enrichedSellers.filter((s: any) => s && s.id);
+    if (validSellers.length !== enrichedSellers.length) {
+      console.warn(`Filtered out ${enrichedSellers.length - validSellers.length} sellers without valid IDs`);
+    }
+    
+    console.log('getSellersWithDetails - Returning sellers:', {
+      total: validSellers.length,
+      with_business_name: validSellers.filter((s: any) => s.business_name).length,
+      with_display_name: validSellers.filter((s: any) => s.display_name).length
+    });
+    
+    return validSellers;
+  },
+
+  // Fallback method: fetch separately and join manually
+  async getSellersWithDetailsFallback() {
+    const supabase = getAdminSupabaseClient();
+    
+    // Get all sellers (wholesalers and manufacturers) from profiles
+    const { data: profiles, error: profilesError } = await supabase
+      .from('profiles')
+      .select('*')
+      .in('role', ['wholesaler', 'manufacturer'])
+      .order('created_at', { ascending: false });
+    
+    if (profilesError) throw profilesError;
+    if (!profiles || profiles.length === 0) return [];
+
+    // Get seller_ids
+    const sellerIds = profiles.map((p: any) => p.id).filter(Boolean);
+
+    // Fetch seller_details for all sellers using the foreign key (user_id -> profiles.id)
+    let sellersDetailsMap: Record<string, any> = {};
+    if (sellerIds.length > 0) {
+      const { data: sellersData, error: sellersError } = await supabase
+        .from('seller_details')
+        .select('user_id, business_name, owner_name, seller_type')
+        .in('user_id', sellerIds);
+
+      if (!sellersError && sellersData) {
+        sellersData.forEach((seller: any) => {
+          sellersDetailsMap[seller.user_id] = seller;
+        });
+      }
+    }
+
+    // Enrich profiles with seller_details data
+    const enrichedSellers = profiles.map((profile: any) => {
+      // Get seller_details via foreign key (user_id -> profiles.id)
+      const sellerDetail = sellersDetailsMap[profile.id];
+      
+      // Parse business_details if it's a string
+      const businessDetails = typeof profile.business_details === 'string'
+        ? JSON.parse(profile.business_details || '{}')
+        : profile.business_details || {};
+
+      // Get business_name from seller_details.business_name (PRIMARY SOURCE via FK)
+      const businessName = sellerDetail?.business_name || null;
+      const ownerName = sellerDetail?.owner_name || null;
+
+      return {
+        ...profile,
+        // Set business_name from seller_details.business_name (primary source via FK)
+        business_name: businessName,
+        owner_name: ownerName,
+        seller_type: sellerDetail?.seller_type || null,
+        // display_name should prioritize seller_details.business_name (from FK)
+        display_name: businessName || 
+                     businessDetails.business_name || 
+                     businessDetails.shopName || 
+                     businessDetails.shop_name ||
+                     businessDetails.name ||
+                     profile.phone_number ||
+                     'Unknown Seller',
+        business_info: {
+          business_name: businessName || businessDetails.business_name || null,
+          owner_name: ownerName || businessDetails.ownerName || businessDetails.owner_name || null,
+        }
+      };
+    });
+
+    return enrichedSellers;
   },
 
   async getUsersByRole(role: string) {
@@ -360,14 +682,15 @@ export const adminQueries = {
     const supabase = getAdminSupabaseClient();
     
     try {
-      // Get recent orders
+      // Get recent orders with retailer info
       const { data: recentOrders } = await supabase
         .from('orders')
         .select(`
           *,
-          profiles:user_id (
-            full_name,
-            email
+          retailer:profiles!orders_retailer_id_fkey(
+            id,
+            phone_number,
+            business_details
           )
         `)
         .order('created_at', { ascending: false })
@@ -386,18 +709,158 @@ export const adminQueries = {
       const { count: completedOrders } = await supabase
         .from('orders')
         .select('*', { count: 'exact', head: true })
-        .eq('status', 'completed');
+        .eq('status', 'delivered');
+
+      // Calculate monthly revenue (last 30 days)
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      
+      const { data: monthlyOrders } = await supabase
+        .from('orders')
+        .select('total_amount')
+        .eq('status', 'delivered')
+        .gte('created_at', thirtyDaysAgo.toISOString());
+
+      const monthlyRevenue = monthlyOrders?.reduce((sum: number, order: any) => {
+        return sum + (Number(order.total_amount) || 0);
+      }, 0) || 0;
 
       return {
         recentOrders: recentOrders || [],
         stats: {
           totalOrders: totalOrders || 0,
           pendingOrders: pendingOrders || 0,
-          completedOrders: completedOrders || 0
+          completedOrders: completedOrders || 0,
+          monthlyRevenue: monthlyRevenue
         }
       };
     } catch (error) {
       console.error('Error fetching dashboard stats:', error);
+      throw error;
+    }
+  },
+
+  async getChartData(timeFilter: string) {
+    const supabase = getAdminSupabaseClient();
+    
+    try {
+      let startDate: Date;
+      let dateFormat: string;
+      let groupBy: 'day' | 'week' | 'month' | 'year';
+
+      const now = new Date();
+      
+      switch (timeFilter) {
+        case '7days':
+          startDate = subDays(now, 6);
+          dateFormat = 'MMM dd';
+          groupBy = 'day';
+          break;
+        case '4weeks':
+          startDate = subWeeks(now, 4);
+          dateFormat = 'Week';
+          groupBy = 'week';
+          break;
+        case '12months':
+          startDate = subMonths(now, 12);
+          dateFormat = 'MMM yyyy';
+          groupBy = 'month';
+          break;
+        case '5years':
+          startDate = subYears(now, 5);
+          dateFormat = 'yyyy';
+          groupBy = 'year';
+          break;
+        default:
+          startDate = subDays(now, 6);
+          dateFormat = 'MMM dd';
+          groupBy = 'day';
+      }
+
+      // Fetch all orders in the date range
+      const { data: orders, error } = await supabase
+        .from('orders')
+        .select('created_at, total_amount, status')
+        .gte('created_at', startDate.toISOString())
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+
+      // Group orders by date period
+      const chartDataMap = new Map<string, { orders: number; revenue: number }>();
+
+      orders?.forEach((order: any) => {
+        const orderDate = new Date(order.created_at);
+        let key: string;
+
+        switch (groupBy) {
+          case 'day':
+            key = format(orderDate, 'yyyy-MM-dd');
+            break;
+          case 'week':
+            const weekStart = startOfWeek(orderDate);
+            key = `Week ${Math.ceil((orderDate.getTime() - startDate.getTime()) / (7 * 24 * 60 * 60 * 1000))}`;
+            break;
+          case 'month':
+            key = format(startOfMonth(orderDate), 'yyyy-MM');
+            break;
+          case 'year':
+            key = format(startOfYear(orderDate), 'yyyy');
+            break;
+          default:
+            key = format(orderDate, 'yyyy-MM-dd');
+        }
+
+        if (!chartDataMap.has(key)) {
+          chartDataMap.set(key, { orders: 0, revenue: 0 });
+        }
+
+        const data = chartDataMap.get(key)!;
+        data.orders += 1;
+        data.revenue += Number(order.total_amount) || 0;
+      });
+
+      // Convert to array and format dates
+      const chartData = Array.from(chartDataMap.entries()).map(([key, data]) => {
+        let displayDate: string;
+        
+        switch (groupBy) {
+          case 'day':
+            displayDate = format(new Date(key), dateFormat);
+            break;
+          case 'week':
+            displayDate = key;
+            break;
+          case 'month':
+            displayDate = format(new Date(key + '-01'), dateFormat);
+            break;
+          case 'year':
+            displayDate = key;
+            break;
+          default:
+            displayDate = key;
+        }
+
+        return {
+          date: displayDate,
+          orders: data.orders,
+          revenue: data.revenue
+        };
+      });
+
+      // Sort by date
+      chartData.sort((a, b) => {
+        if (groupBy === 'week') {
+          const aWeek = parseInt(a.date.replace('Week ', ''));
+          const bWeek = parseInt(b.date.replace('Week ', ''));
+          return aWeek - bWeek;
+        }
+        return a.date.localeCompare(b.date);
+      });
+
+      return chartData;
+    } catch (error) {
+      console.error('Error fetching chart data:', error);
       throw error;
     }
   },
@@ -427,9 +890,10 @@ export const adminQueries = {
     }
     if (status && status !== 'all') {
       if (status === 'active') {
-        query = query.eq('is_active', true).neq('status', 'out_of_stock');
+        // Active products are those with status 'available' and not 'out_of_stock'
+        query = query.eq('status', 'available');
       } else if (status === 'inactive') {
-        query = query.eq('is_active', false);
+        query = query.eq('status', 'inactive');
       } else {
         query = query.eq('status', status);
       }
@@ -449,26 +913,44 @@ export const adminQueries = {
     const { data, error, count } = await query;
     if (error) throw error;
 
-    // Fetch seller names for products
+    // Map product fields and fetch seller names
     if (data && data.length > 0) {
+      // Always map stock_available for all products (image_url is already in the database)
+      data.forEach((product: any) => {
+        product.stock_available = product.stock_available ?? 0; // Use stock_available directly
+        // image_url is already in the database, no mapping needed
+        product.seller_name = 'Unknown'; // Default value
+      });
+
+      // Fetch seller names for products using seller_details.business_name
       const sellerIds = Array.from(new Set(data.map((p: any) => p.seller_id).filter(Boolean)));
       if (sellerIds.length > 0) {
-        const { data: sellers } = await supabase
-          .from('profiles')
-          .select('id, business_details, phone_number')
-          .in('id', sellerIds);
+        // Fetch seller_details for these sellers
+        const { data: sellerDetails } = await supabase
+          .from('seller_details')
+          .select('user_id, business_name, owner_name')
+          .in('user_id', sellerIds);
 
-        const sellerMap = new Map(sellers?.map((s: any) => {
-          const businessDetails = typeof s.business_details === 'string' 
-            ? JSON.parse(s.business_details) 
-            : s.business_details;
-          return [s.id, businessDetails?.shopName || s.phone_number || 'Unknown'];
+        // Create a map of user_id -> business_name
+        const sellerMap = new Map(sellerDetails?.map((sd: any) => {
+          return [sd.user_id, sd.business_name || sd.owner_name || 'Unknown'];
         }) || []);
 
+        // Also fetch profiles as fallback
+        const { data: sellers } = await supabase
+          .from('profiles')
+          .select('id, phone_number')
+          .in('id', sellerIds);
+
+        const profileMap = new Map(sellers?.map((s: any) => {
+          return [s.id, s.phone_number || 'Unknown'];
+        }) || []);
+
+        // Update seller names - prioritize seller_details.business_name
         data.forEach((product: any) => {
-          product.seller_name = sellerMap.get(product.seller_id) || 'Unknown';
-          product.stock_available = product.stock_quantity || 0;
-          product.image_url = product.images?.[0] || null;
+          if (product.seller_id) {
+            product.seller_name = sellerMap.get(product.seller_id) || profileMap.get(product.seller_id) || 'Unknown';
+          }
         });
       }
     }
@@ -490,8 +972,8 @@ export const adminQueries = {
     subcategory?: string;
     brand?: string;
     seller_id: string;
-    stock_quantity?: number;
-    unit_of_measure?: string;
+    stock_available?: number;
+    unit?: string;
     min_order_quantity?: number;
     images?: string[];
     status?: string;
@@ -505,16 +987,14 @@ export const adminQueries = {
         description: productData.description,
         price: productData.price,
         category: productData.category,
-        category_name: productData.category,
         subcategory: productData.subcategory,
         brand: productData.brand,
         seller_id: productData.seller_id,
-        stock_quantity: productData.stock_quantity || 0,
-        unit_of_measure: productData.unit_of_measure || 'piece',
-        minimum_stock_level: productData.min_order_quantity || 1,
-        images: productData.images || [],
-        status: productData.status || 'available',
-        is_active: true
+        stock_available: productData.stock_available || 0,
+        unit: productData.unit || 'piece',
+        min_quantity: productData.min_order_quantity || 1,
+        image_url: productData.images?.[0] || productData.image_url || null,
+        status: productData.status || 'available'
       })
       .select()
       .single();
@@ -530,12 +1010,11 @@ export const adminQueries = {
     category?: string;
     subcategory?: string;
     brand?: string;
-    stock_quantity?: number;
-    unit_of_measure?: string;
+    stock_available?: number;
+    unit?: string;
     min_order_quantity?: number;
     images?: string[];
     status?: string;
-    is_active?: boolean;
   }) {
     const supabase = getAdminSupabaseClient();
     
@@ -548,16 +1027,18 @@ export const adminQueries = {
     if (updates.price !== undefined) updateData.price = updates.price;
     if (updates.category !== undefined) {
       updateData.category = updates.category;
-      updateData.category_name = updates.category;
     }
     if (updates.subcategory !== undefined) updateData.subcategory = updates.subcategory;
     if (updates.brand !== undefined) updateData.brand = updates.brand;
-    if (updates.stock_quantity !== undefined) updateData.stock_quantity = updates.stock_quantity;
-    if (updates.unit_of_measure !== undefined) updateData.unit_of_measure = updates.unit_of_measure;
-    if (updates.min_order_quantity !== undefined) updateData.minimum_stock_level = updates.min_order_quantity;
-    if (updates.images !== undefined) updateData.images = updates.images;
+    if (updates.stock_available !== undefined) updateData.stock_available = updates.stock_available;
+    if (updates.unit !== undefined) updateData.unit = updates.unit;
+    if (updates.min_order_quantity !== undefined) updateData.min_quantity = updates.min_order_quantity;
+    if (updates.images !== undefined) {
+      // If images is an array, take the first one; otherwise use the value directly
+      updateData.image_url = Array.isArray(updates.images) ? updates.images[0] || null : updates.images;
+    }
+    if (updates.image_url !== undefined) updateData.image_url = updates.image_url;
     if (updates.status !== undefined) updateData.status = updates.status;
-    if (updates.is_active !== undefined) updateData.is_active = updates.is_active;
 
     const { data, error } = await supabase
       .from('products')
@@ -640,15 +1121,13 @@ export const adminQueries = {
         description: payload.description || masterProduct.description,
         price: payload.price,
         category: masterProduct.category,
-        category_name: masterProduct.category,
         subcategory: masterProduct.subcategory,
         brand: masterProduct.brand,
-        stock_quantity: payload.stock_available,
-        unit_of_measure: payload.unit,
-        minimum_stock_level: payload.min_order_quantity,
-        images: masterProduct.images || [],
+        stock_available: payload.stock_available,
+        unit: payload.unit,
+        min_quantity: payload.min_order_quantity,
+        image_url: masterProduct.images?.[0] || masterProduct.image_url || null,
         status: 'available',
-        is_active: true,
         sku: masterProduct.sku,
         barcode: masterProduct.barcode
       })

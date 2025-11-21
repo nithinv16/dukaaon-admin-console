@@ -69,6 +69,7 @@ export default function ProductsPage() {
   const router = useRouter();
   const [products, setProducts] = useState<Product[]>([]);
   const [sellers, setSellers] = useState<any[]>([]);
+  const [loadingSellers, setLoadingSellers] = useState(true);
   const [stats, setStats] = useState<ProductStats>({
     totalProducts: 0,
     activeProducts: 0,
@@ -204,6 +205,47 @@ export default function ProductsPage() {
     loadProductSuggestions();
   }, []);
 
+  // Always reload sellers when Quick Add dialog opens to ensure fresh data
+  useEffect(() => {
+    if (masterProductsDialogOpen) {
+      console.log('Quick Add dialog opened - Current state:', {
+        sellersCount: sellers.length,
+        loadingSellers: loadingSellers
+      });
+      // Always reload sellers when dialog opens to ensure fresh data
+      console.log('Reloading sellers for Quick Add dialog...');
+      loadSellers();
+    }
+  }, [masterProductsDialogOpen]);
+
+  // Debug: Log when a product is selected in Quick Add
+  useEffect(() => {
+    if (selectedMasterProduct && masterProductsDialogOpen) {
+      console.log('Product selected in Quick Add, sellers available:', {
+        productId: selectedMasterProduct.id,
+        productName: selectedMasterProduct.name,
+        sellersCount: sellers.length,
+        sellers: sellers.map(s => ({
+          id: s.id,
+          name: s.display_name || s.business_name || s.phone_number
+        }))
+      });
+    }
+  }, [selectedMasterProduct, masterProductsDialogOpen, sellers]);
+
+  // Debug: Log whenever sellers state changes
+  useEffect(() => {
+    console.log('Sellers state changed:', {
+      count: sellers.length,
+      sellers: sellers.map(s => ({
+        id: s.id,
+        business_name: s.business_name,
+        display_name: s.display_name
+      })),
+      loading: loadingSellers
+    });
+  }, [sellers, loadingSellers]);
+
   // Debug log for extracted products
   useEffect(() => {
     console.log('=== EXTRACTED PRODUCTS STATE CHANGED ===');
@@ -298,9 +340,9 @@ export default function ProductsPage() {
         price: editingProduct.price,
         category: editingProduct.category,
         subcategory: editingProduct.subcategory,
-        stock_quantity: editingProduct.stock_available,
+        stock_available: editingProduct.stock_available,
         status: editingProduct.status,
-        is_active: editingProduct.status === 'active'
+        status: editingProduct.status || 'available'
       });
       
       setEditDialogOpen(false);
@@ -381,8 +423,8 @@ export default function ProductsPage() {
         category: newProduct.category,
         subcategory: newProduct.subcategory,
         seller_id: newProduct.seller_id,
-        stock_quantity: parseInt(newProduct.stock) || 0,
-        unit_of_measure: newProduct.unit,
+        stock_available: parseInt(newProduct.stock) || 0,
+        unit: newProduct.unit,
         min_order_quantity: parseInt(newProduct.min_order_quantity) || 1,
         images: imageUrls,
         status: 'available'
@@ -521,8 +563,8 @@ export default function ProductsPage() {
           category: product.category,
           subcategory: product.subcategory,
           seller_id: product.seller_id,
-          stock_quantity: product.quantity || 0,
-          unit_of_measure: product.unit || 'piece',
+          stock_available: product.quantity || 0,
+          unit: product.unit || 'piece',
           min_order_quantity: product.min_order_quantity || 1,
           images: product.imageUrl ? [product.imageUrl] : [],
           status: 'available'
@@ -576,7 +618,7 @@ export default function ProductsPage() {
       const allProducts = result.products || [];
       
       const totalProducts = allProducts.length;
-      const activeProducts = allProducts.filter((p: Product & { is_active?: boolean }) => p.is_active && p.status !== 'out_of_stock').length;
+      const activeProducts = allProducts.filter((p: Product) => p.status === 'available' && p.status !== 'out_of_stock').length;
       const outOfStock = allProducts.filter((p: Product) => (p.stock_available || 0) === 0).length;
       const lowStock = allProducts.filter((p: Product) => {
         const stock = p.stock_available || 0;
@@ -596,18 +638,57 @@ export default function ProductsPage() {
 
   const loadSellers = async () => {
     try {
-      const result = await adminQueries.getAllUsers();
-      const allUsers = result.data || [];
+      setLoadingSellers(true);
+      const sellers = await adminQueries.getSellersWithDetails();
+      console.log('Loaded sellers in products page:', sellers);
+      console.log('Sellers count:', sellers?.length || 0);
+      console.log('Sellers sample:', sellers?.[0]);
       
-      // Filter to get only sellers (wholesalers and manufacturers)
-      const sellersOnly = allUsers.filter((user: any) => 
-        user.role === 'wholesaler' || user.role === 'manufacturer'
-      );
-      
-      console.log('Loaded sellers:', sellersOnly);
-      setSellers(sellersOnly);
+      if (sellers && Array.isArray(sellers)) {
+        // Only filter out sellers without an id - don't require business_name
+        const validSellers = sellers.filter(seller => {
+          if (!seller || !seller.id) {
+            console.warn('Invalid seller (no id):', seller);
+            return false;
+          }
+          // Ensure business_name is set - if not, log a warning but don't filter out
+          if (!seller.business_name) {
+            console.warn('Seller missing business_name:', {
+              id: seller.id,
+              display_name: seller.display_name,
+              phone_number: seller.phone_number,
+              fullSeller: seller
+            });
+          }
+          return true;
+        });
+        
+        console.log('Loaded sellers - Total:', sellers.length, 'Valid:', validSellers.length);
+        console.log('Sellers with business_name:', validSellers.filter(s => s.business_name).length);
+        console.log('All sellers:', validSellers.map(s => ({
+          id: s.id,
+          business_name: s.business_name,
+          display_name: s.display_name,
+          phone_number: s.phone_number
+        })));
+        
+        setSellers(validSellers);
+        if (validSellers.length === 0) {
+          console.error('No sellers found after filtering');
+          toast.error('No sellers available. Please check if sellers exist in the database.');
+        } else {
+          console.log('Sellers set in state:', validSellers.length);
+        }
+      } else {
+        console.error('Sellers data is not an array:', sellers);
+        setSellers([]);
+        toast.error('Invalid sellers data received from server');
+      }
     } catch (error) {
       console.error('Error loading sellers:', error);
+      setSellers([]);
+    } finally {
+      setLoadingSellers(false);
     }
   };
 
@@ -678,8 +759,11 @@ export default function ProductsPage() {
   };
 
   const handleMasterProductDialogOpen = () => {
+    console.log('Quick Add dialog opening - reloading sellers...');
     setMasterProductsDialogOpen(true);
     loadMasterProducts();
+    // Always reload sellers when dialog opens to ensure fresh data
+    loadSellers();
   };
 
   // Helper functions for master products pagination
@@ -799,13 +883,13 @@ export default function ProductsPage() {
     },
     {
       field: 'seller_name',
-      headerName: 'Seller',
-      width: 150,
-      minWidth: 120,
-      flex: 0,
+      headerName: 'Seller Name',
+      width: 180,
+      minWidth: 150,
+      flex: 0.5,
       hideable: false,
       renderCell: (params: GridRenderCellParams) => (
-        <Typography variant="body2" noWrap>
+        <Typography variant="body2" noWrap title={params.value || 'N/A'}>
           {params.value || 'N/A'}
         </Typography>
       ),
@@ -993,7 +1077,7 @@ export default function ProductsPage() {
                   <MenuItem value="all">All Sellers</MenuItem>
                   {sellers.map((seller) => (
                     <MenuItem key={seller.id} value={seller.id}>
-                      {seller.business_name || seller.full_name}
+                      {seller.display_name || seller.business_name || seller.phone_number || 'Unknown Seller'}
                     </MenuItem>
                   ))}
                 </Select>
@@ -1100,7 +1184,7 @@ export default function ProductsPage() {
             initialState={{
               columns: {
                 columnVisibilityModel: {
-                  seller_name: false, // Hide on mobile by default
+                  seller_name: true, // Show seller name by default
                   created_at: false,  // Hide on mobile by default
                 },
               },
@@ -1313,19 +1397,43 @@ export default function ProductsPage() {
               </FormControl>
             </Box>
             
-            <FormControl fullWidth required>
-              <InputLabel>Select Seller</InputLabel>
+            <FormControl fullWidth required disabled={loadingSellers}>
+              <InputLabel id="add-product-seller-select-label">Select Seller</InputLabel>
               <Select
+                labelId="add-product-seller-select-label"
                 value={newProduct.seller_id}
-                onChange={(e) => setNewProduct(prev => ({ ...prev, seller_id: e.target.value }))}
+                onChange={(e) => {
+                  console.log('Seller selected in Add Product:', e.target.value);
+                  setNewProduct(prev => ({ ...prev, seller_id: e.target.value }));
+                }}
                 label="Select Seller"
+                disabled={loadingSellers}
+                MenuProps={{
+                  PaperProps: {
+                    style: {
+                      maxHeight: 300,
+                    },
+                  },
+                }}
               >
-                {sellers.map((seller) => (
-                  <MenuItem key={seller.id} value={seller.id}>
-                    {seller.business_details?.shopName || seller.business_name || seller.phone_number} 
-                    ({seller.role})
+                {loadingSellers ? (
+                  <MenuItem disabled>
+                    <CircularProgress size={20} sx={{ mr: 1 }} />
+                    Loading sellers...
                   </MenuItem>
-                ))}
+                ) : sellers.length === 0 ? (
+                  <MenuItem disabled>No sellers available</MenuItem>
+                ) : (
+                  sellers.map((seller) => {
+                    const displayName = seller.display_name || seller.business_name || seller.phone_number || 'Unknown Seller';
+                    return (
+                      <MenuItem key={seller.id} value={seller.id}>
+                        {displayName} 
+                        {seller.role && ` (${seller.role})`}
+                      </MenuItem>
+                    );
+                  })
+                )}
               </Select>
             </FormControl>
             
@@ -1540,6 +1648,8 @@ export default function ProductsPage() {
         onClose={() => setMasterProductsDialogOpen(false)}
         maxWidth="md"
         fullWidth
+        disableEscapeKeyDown={false}
+        disablePortal={false}
       >
         <DialogTitle>Add Product from Master Products</DialogTitle>
         <DialogContent>
@@ -1605,12 +1715,20 @@ export default function ProductsPage() {
                           '&:hover': { borderColor: 'primary.main' }
                         }}
                         onClick={() => {
+                          console.log('Product clicked in Quick Add:', product.id, product.name);
+                          console.log('Current sellers before selection:', sellers.length);
                           setSelectedMasterProduct(product);
                           setSellerData(prev => ({
                             ...prev,
+                            seller_id: prev.seller_id || '', // Preserve seller_id if already set
                             price: product.price?.toString() || '',
                             description: product.description || ''
                           }));
+                          // Ensure sellers are loaded
+                          if (sellers.length === 0 && !loadingSellers) {
+                            console.log('No sellers found, reloading...');
+                            loadSellers();
+                          }
                         }}
                       >
                         <CardMedia
@@ -1628,7 +1746,7 @@ export default function ProductsPage() {
                             {product.category} • {product.subcategory}
                           </Typography>
                           <Typography variant="body2" color="primary" fontWeight="medium">
-                            ${product.price}
+                            ₹{product.price}
                           </Typography>
                         </CardContent>
                       </Card>
@@ -1668,20 +1786,72 @@ export default function ProductsPage() {
                     <Typography variant="h6" gutterBottom>
                       Seller Details
                     </Typography>
+                    <Box sx={{ mb: 2, p: 1, bgcolor: 'grey.100', borderRadius: 1 }}>
+                      <Typography variant="caption" color="text.secondary">
+                        Debug: {sellers.length} seller{sellers.length !== 1 ? 's' : ''} loaded | Loading: {loadingSellers ? 'Yes' : 'No'}
+                      </Typography>
+                      {sellers.length > 0 && (
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                          Sellers: {sellers.map(s => s.business_name || s.id).join(', ')}
+                        </Typography>
+                      )}
+                    </Box>
                     <Grid container spacing={2}>
                       <Grid item xs={12} md={6}>
-                        <FormControl fullWidth>
-                          <InputLabel>Select Seller</InputLabel>
+                        <FormControl 
+                          fullWidth 
+                          disabled={loadingSellers} 
+                          error={sellers.length === 0 && !loadingSellers}
+                          key={`seller-form-${sellers.length}-${loadingSellers}`}
+                        >
+                          <InputLabel id="quick-add-seller-select-label" shrink={!!sellerData.seller_id}>
+                            Select Seller
+                          </InputLabel>
                           <Select
-                            value={sellerData.seller_id}
-                            onChange={(e) => setSellerData(prev => ({ ...prev, seller_id: e.target.value }))}
+                            labelId="quick-add-seller-select-label"
+                            value={sellerData.seller_id || ''}
+                            onChange={(e) => {
+                              console.log('Seller selected in Quick Add:', e.target.value);
+                              setSellerData(prev => ({ ...prev, seller_id: e.target.value }));
+                            }}
                             label="Select Seller"
+                            disabled={loadingSellers}
+                            notched={!!sellerData.seller_id}
+                            MenuProps={{
+                              PaperProps: {
+                                style: {
+                                  maxHeight: 300,
+                                },
+                              },
+                            }}
                           >
-                            {sellers.map((seller) => (
-                              <MenuItem key={seller.id} value={seller.id}>
-                                {seller.business_name || seller.full_name}
+                            {loadingSellers ? (
+                              <MenuItem disabled>
+                                <CircularProgress size={20} sx={{ mr: 1 }} />
+                                Loading sellers...
                               </MenuItem>
-                            ))}
+                            ) : sellers.length === 0 ? (
+                              <MenuItem disabled>No sellers available</MenuItem>
+                            ) : (
+                              <>
+                                {/* Test item to verify Select works */}
+                                <MenuItem value="test-1">Test Seller 1</MenuItem>
+                                <MenuItem value="test-2">Test Seller 2</MenuItem>
+                                {/* Actual sellers */}
+                                {sellers.map((seller) => {
+                                  if (!seller || !seller.id) {
+                                    return null;
+                                  }
+                                  const businessName = seller.business_name || seller.display_name || seller.phone_number || `Seller ${seller.id}`;
+                                  console.log('Rendering MenuItem for:', seller.id, businessName);
+                                  return (
+                                    <MenuItem key={seller.id} value={seller.id}>
+                                      {businessName}
+                                    </MenuItem>
+                                  );
+                                }).filter(Boolean)}
+                              </>
+                            )}
                           </Select>
                         </FormControl>
                       </Grid>
