@@ -42,22 +42,38 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const checkStoredSession = () => {
     try {
       const adminData = localStorage.getItem('admin_session');
+      console.log('🔍 Checking stored session:', adminData ? 'Found data' : 'No data');
+      
       if (adminData) {
         const admin = JSON.parse(adminData);
-        if (admin && admin.email && admin.role === 'admin') {
+        console.log('📋 Parsed admin data:', admin);
+        console.log('🔑 Admin has email?', !!admin?.email);
+        console.log('🔑 Admin role:', admin?.role);
+        console.log('🔑 Role check:', admin?.role === 'admin');
+        
+        // Check if role is any admin type (admin, Super Admin, etc.)
+        const isAdminRole = admin?.role && 
+          (admin.role.toLowerCase().includes('admin') || 
+           admin.role === 'admin' || 
+           admin.role === 'Super Admin');
+        
+        if (admin && admin.email && isAdminRole) {
+          console.log('✅ Valid admin session found, setting user');
           setUser(admin);
           setIsAdmin(true);
         } else {
+          console.warn('⚠️ Invalid admin session data, clearing');
           localStorage.removeItem('admin_session');
           setUser(null);
           setIsAdmin(false);
         }
       } else {
+        console.log('ℹ️ No stored session found');
         setUser(null);
         setIsAdmin(false);
       }
     } catch (error) {
-      console.error('Error parsing stored session:', error);
+      console.error('❌ Error parsing stored session:', error);
       localStorage.removeItem('admin_session');
       setUser(null);
       setIsAdmin(false);

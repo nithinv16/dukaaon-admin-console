@@ -69,7 +69,7 @@ export default function AddFromMasterProductsPage() {
     'Office Supplies'
   ]);
 
-  const loadSellers = async () => {
+  const loadSellers = useCallback(async () => {
     try {
       setLoadingSellers(true);
       const sellers = await adminQueries.getSellersWithDetails();
@@ -111,7 +111,7 @@ export default function AddFromMasterProductsPage() {
     } finally {
       setLoadingSellers(false);
     }
-  };
+  }, []);
 
   const loadMasterProducts = useCallback(async () => {
     try {
@@ -154,7 +154,23 @@ export default function AddFromMasterProductsPage() {
   // Load sellers on component mount
   useEffect(() => {
     loadSellers();
-  }, []);
+  }, [loadSellers]);
+
+  // Reload sellers when a product is selected to ensure fresh data
+  useEffect(() => {
+    if (selectedMasterProduct) {
+      console.log('Product selected in Add from Master, checking sellers:', {
+        productId: selectedMasterProduct.id,
+        productName: selectedMasterProduct.name,
+        sellersCount: sellers.length,
+        loadingSellers: loadingSellers
+      });
+      
+      // Always reload sellers when a product is selected to ensure fresh data
+      console.log('Product selected, reloading sellers...');
+      loadSellers();
+    }
+  }, [selectedMasterProduct, loadSellers]);
 
   const handleMasterProductsSearch = (searchTerm: string) => {
     setMasterProductsSearchTerm(searchTerm);
@@ -421,22 +437,41 @@ export default function AddFromMasterProductsPage() {
                 </Typography>
                 <Grid container spacing={2}>
                   <Grid item xs={12}>
-                    <FormControl fullWidth disabled={loadingSellers}>
+                    <FormControl 
+                      fullWidth 
+                      error={sellers.length === 0 && !loadingSellers}
+                    >
                       <InputLabel id="seller-select-label">Select Seller</InputLabel>
                       <Select
                         labelId="seller-select-label"
-                        value={sellerData.seller_id}
+                        value={sellerData.seller_id || ''}
                         onChange={(e) => {
                           console.log('Seller selected:', e.target.value);
                           setSellerData(prev => ({ ...prev, seller_id: e.target.value }));
+                        }}
+                        onOpen={() => {
+                          console.log('Seller dropdown opened in Add from Master, sellers count:', sellers.length);
+                          if (sellers.length === 0 && !loadingSellers) {
+                            console.log('No sellers when dropdown opened, loading sellers...');
+                            loadSellers();
+                          }
                         }}
                         label="Select Seller"
                         disabled={loadingSellers}
                         MenuProps={{
                           PaperProps: {
-                            style: {
+                            sx: {
                               maxHeight: 300,
+                              zIndex: 1301, // Ensure it appears above other elements
                             },
+                          },
+                          anchorOrigin: {
+                            vertical: 'bottom',
+                            horizontal: 'left',
+                          },
+                          transformOrigin: {
+                            vertical: 'top',
+                            horizontal: 'left',
                           },
                         }}
                       >
@@ -449,22 +484,21 @@ export default function AddFromMasterProductsPage() {
                           <MenuItem disabled>No sellers available</MenuItem>
                         ) : (
                           sellers.map((seller) => {
-                            const displayName = seller.display_name || seller.business_name || seller.phone_number || 'Unknown Seller';
-                            console.log('Rendering seller:', seller.id, displayName);
+                            if (!seller || !seller.id) {
+                              console.warn('Skipping invalid seller:', seller);
+                              return null;
+                            }
+                            const businessName = seller.business_name || seller.display_name || seller.phone_number || `Seller ${seller.id}`;
+                            console.log('Rendering MenuItem for seller:', { id: seller.id, name: businessName });
                             return (
-                              <MenuItem key={seller.id} value={seller.id}>
-                                {displayName}
+                              <MenuItem key={seller.id} value={seller.id} sx={{ py: 1 }}>
+                                {businessName}
                               </MenuItem>
                             );
-                          })
+                          }).filter(Boolean)
                         )}
                       </Select>
                     </FormControl>
-                    {loadingSellers && (
-                      <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1 }}>
-                        <CircularProgress size={24} />
-                      </Box>
-                    )}
                   </Grid>
                   <Grid item xs={12}>
                     <TextField

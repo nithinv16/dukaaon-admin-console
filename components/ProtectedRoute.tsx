@@ -16,15 +16,21 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
   const pathname = usePathname();
 
   useEffect(() => {
+    console.log('🛡️ ProtectedRoute effect:', { loading, user: !!user, isAdmin, pathname });
+    
     if (!loading) {
       if (!user || !isAdmin) {
         // No user or not admin, redirect to login
+        console.log('🚫 No user or not admin, redirecting to login');
         if (pathname !== '/login') {
           router.push('/login');
         }
       } else if (user && isAdmin && pathname === '/login') {
         // Admin user on login page, redirect to dashboard
+        console.log('✅ Admin user on login page, redirecting to dashboard');
         router.push('/');
+      } else if (user && isAdmin) {
+        console.log('✅ Authenticated user, allowing access to:', pathname);
       }
     }
   }, [user, loading, isAdmin, pathname, router]);

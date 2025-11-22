@@ -276,6 +276,19 @@ export default function ProductsPage() {
     }
   }, [masterProductsDialogOpen, loadSellers]);
 
+  // Always reload sellers when Add Product dialog opens to ensure fresh data
+  useEffect(() => {
+    if (addDialogOpen) {
+      console.log('Add Product dialog opened - Current state:', {
+        sellersCount: sellers.length,
+        loadingSellers: loadingSellers
+      });
+      // Always reload sellers when dialog opens to ensure fresh data
+      console.log('Reloading sellers for Add Product dialog...');
+      loadSellers();
+    }
+  }, [addDialogOpen, loadSellers]);
+
   // Ensure sellers are loaded when a product is selected in Quick Add
   useEffect(() => {
     if (selectedMasterProduct && masterProductsDialogOpen) {
@@ -1408,22 +1421,42 @@ export default function ProductsPage() {
               </FormControl>
             </Box>
             
-            <FormControl fullWidth required disabled={loadingSellers}>
+            <FormControl 
+              fullWidth 
+              required 
+              error={sellers.length === 0 && !loadingSellers}
+            >
               <InputLabel id="add-product-seller-select-label">Select Seller</InputLabel>
               <Select
                 labelId="add-product-seller-select-label"
-                value={newProduct.seller_id}
+                value={newProduct.seller_id || ''}
                 onChange={(e) => {
                   console.log('Seller selected in Add Product:', e.target.value);
                   setNewProduct(prev => ({ ...prev, seller_id: e.target.value }));
+                }}
+                onOpen={() => {
+                  console.log('Add Product seller dropdown opened, sellers count:', sellers.length);
+                  if (sellers.length === 0 && !loadingSellers) {
+                    console.log('No sellers when dropdown opened, loading sellers...');
+                    loadSellers();
+                  }
                 }}
                 label="Select Seller"
                 disabled={loadingSellers}
                 MenuProps={{
                   PaperProps: {
-                    style: {
+                    sx: {
                       maxHeight: 300,
+                      zIndex: 1301, // Ensure it appears above the dialog
                     },
+                  },
+                  anchorOrigin: {
+                    vertical: 'bottom',
+                    horizontal: 'left',
+                  },
+                  transformOrigin: {
+                    vertical: 'top',
+                    horizontal: 'left',
                   },
                 }}
               >
@@ -1436,14 +1469,19 @@ export default function ProductsPage() {
                   <MenuItem disabled>No sellers available</MenuItem>
                 ) : (
                   sellers.map((seller) => {
-                    const displayName = seller.display_name || seller.business_name || seller.phone_number || 'Unknown Seller';
+                    if (!seller || !seller.id) {
+                      console.warn('Skipping invalid seller:', seller);
+                      return null;
+                    }
+                    const businessName = seller.business_name || seller.display_name || seller.phone_number || `Seller ${seller.id}`;
+                    console.log('Rendering MenuItem for seller:', { id: seller.id, name: businessName });
                     return (
-                      <MenuItem key={seller.id} value={seller.id}>
-                        {displayName} 
+                      <MenuItem key={seller.id} value={seller.id} sx={{ py: 1 }}>
+                        {businessName}
                         {seller.role && ` (${seller.role})`}
                       </MenuItem>
                     );
-                  })
+                  }).filter(Boolean)
                 )}
               </Select>
             </FormControl>
