@@ -723,29 +723,24 @@ export default function ProductsPage() {
 
   const loadStats = async () => {
     try {
-      // Get all products without pagination to calculate accurate stats
-      const result = await adminQueries.getProducts({
-        page: 1,
-        limit: 10000, // Get all for stats
-      });
-      const allProducts = result.products || [];
-      
-      const totalProducts = allProducts.length;
-      const activeProducts = allProducts.filter((p: Product) => p.status === 'available').length;
-      const outOfStock = allProducts.filter((p: Product) => (p.stock_available || 0) === 0).length;
-      const lowStock = allProducts.filter((p: Product) => {
-        const stock = p.stock_available || 0;
-        return stock > 0 && stock <= 10; // Consider stock <= 10 as low stock
-      }).length;
+      // Use efficient stats API that queries database directly for counts
+      const statsResult = await adminQueries.getProductStats();
       
       setStats({
-        totalProducts,
-        activeProducts,
-        outOfStock,
-        lowStock,
+        totalProducts: statsResult.totalProducts || 0,
+        activeProducts: statsResult.activeProducts || 0,
+        outOfStock: statsResult.outOfStock || 0,
+        lowStock: statsResult.lowStock || 0,
       });
     } catch (error) {
       console.error('Error loading stats:', error);
+      // Set default values on error
+      setStats({
+        totalProducts: 0,
+        activeProducts: 0,
+        outOfStock: 0,
+        lowStock: 0,
+      });
     }
   };
 

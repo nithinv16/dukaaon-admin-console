@@ -1740,5 +1740,64 @@ export const adminQueries = {
       limit,
       totalPages: Math.ceil((count || 0) / limit)
     };
-  }
+  },
+
+  // Product Stats - Efficient stats calculation using database queries
+  async getProductStats() {
+    const supabase = getAdminSupabaseClient();
+    
+    try {
+      // Get total products count
+      const { count: totalCount, error: totalError } = await supabase
+        .from('products')
+        .select('*', { count: 'exact', head: true });
+      
+      if (totalError) throw totalError;
+
+      // Get active products count (status = 'available')
+      const { count: activeCount, error: activeError } = await supabase
+        .from('products')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'available');
+      
+      if (activeError) throw activeError;
+
+      // Get out of stock products count (stock_available = 0 or null)
+      // Use separate queries for null and zero values
+      const { count: outOfStockNull, error: outOfStockNullError } = await supabase
+        .from('products')
+        .select('*', { count: 'exact', head: true })
+        .is('stock_available', null);
+      
+      const { count: outOfStockZero, error: outOfStockZeroError } = await supabase
+        .from('products')
+        .select('*', { count: 'exact', head: true })
+        .eq('stock_available', 0);
+      
+      if (outOfStockNullError) throw outOfStockNullError;
+      if (outOfStockZeroError) throw outOfStockZeroError;
+      
+      const outOfStockCount = (outOfStockNull || 0) + (outOfStockZero || 0);
+
+      // Get low stock products count (stock_available > 0 and <= 10)
+      // Fetch products with stock > 0 and <= 10
+      const { count: lowStockCount, error: lowStockError } = await supabase
+        .from('products')
+        .select('*', { count: 'exact', head: true })
+        .gt('stock_available', 0)
+        .lte('stock_available', 10);
+      
+      if (lowStockError) throw lowStockError;
+
+      return {
+        totalProducts: totalCount || 0,
+        activeProducts: activeCount || 0,
+        outOfStock: outOfStockCount,
+        lowStock: lowStockCount || 0,
+      };
+    } catch (error) {
+      console.error('Error fetching product stats:', error);
+      throw error;
+    }
+  },
 };

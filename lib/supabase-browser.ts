@@ -186,6 +186,14 @@ export const adminQueries = {
     return response.json();
   },
 
+  async getProductStats() {
+    const response = await fetch('/api/admin/products/stats');
+    if (!response.ok) {
+      throw new Error('Failed to fetch product stats');
+    }
+    return response.json();
+  },
+
   // Master Products
   async getMasterProducts(options: {
     page?: number;
