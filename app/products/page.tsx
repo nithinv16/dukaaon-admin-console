@@ -55,8 +55,16 @@ import { processReceiptImage, UnifiedExtractedProduct as ExtractedProduct } from
 import { Product } from '@/types';
 import ExtractedProductEditor from '@/components/ExtractedProductEditor';
 import ProductImageEditor from '@/components/ProductImageEditor';
+import CategorySelector, { CategorySelectorValue } from '@/components/CategorySelector';
 import { useRouter } from 'next/navigation';
-import { defaultCategorySubcategoryMap } from '@/lib/categoryUtils';
+import ReceiptScanner from '@/components/ReceiptScanner';
+import ReceiptExtractionPreview from '@/components/ReceiptExtractionPreview';
+import ReceiptProductEditor from '@/components/ReceiptProductEditor';
+import ReceiptScannerV2 from '@/components/ReceiptScannerV2';
+import ReceiptProductEditorV2 from '@/components/ReceiptProductEditorV2';
+import { ScanReceiptResponse, ExtractedReceiptProduct, ReceiptMetadata } from '@/lib/receiptTypes';
+import { ExtractedProductV2 } from '@/lib/receiptExtractionV2';
+
 
 interface ProductStats {
   totalProducts: number;
@@ -104,33 +112,6 @@ export default function ProductsPage() {
   // Product name suggestions
   const [productSuggestions, setProductSuggestions] = useState<string[]>([]);
   
-  // Categories and subcategories data as state
-  const [categories, setCategories] = useState([
-    'Electronics',
-    'Clothing',
-    'Food & Beverages',
-    'Home & Garden',
-    'Health & Beauty',
-    'Sports & Outdoors',
-    'Books & Media',
-    'Toys & Games',
-    'Automotive',
-    'Office Supplies'
-  ]);
-  
-  const [subcategoriesByCategory, setSubcategoriesByCategory] = useState<{ [key: string]: string[] }>({
-    'Electronics': ['Smartphones', 'Laptops', 'Tablets', 'Accessories', 'Audio', 'Gaming'],
-    'Clothing': ['Men\'s Wear', 'Women\'s Wear', 'Kids Wear', 'Shoes', 'Accessories'],
-    'Food & Beverages': ['Fresh Produce', 'Packaged Foods', 'Beverages', 'Snacks', 'Dairy', 'Biscuit & Cookies'],
-    'Home & Garden': ['Furniture', 'Decor', 'Kitchen', 'Garden Tools', 'Lighting'],
-    'Health & Beauty': ['Skincare', 'Makeup', 'Hair Care', 'Health Supplements', 'Personal Care'],
-    'Sports & Outdoors': ['Fitness Equipment', 'Outdoor Gear', 'Sports Apparel', 'Team Sports'],
-    'Books & Media': ['Books', 'Movies', 'Music', 'Games', 'Educational'],
-    'Toys & Games': ['Action Figures', 'Board Games', 'Educational Toys', 'Outdoor Toys'],
-    'Automotive': ['Car Parts', 'Accessories', 'Tools', 'Maintenance'],
-    'Office Supplies': ['Stationery', 'Electronics', 'Furniture', 'Organization']
-  });
-  
   const unitOptions = [
     'piece',
     'kg',
@@ -154,16 +135,15 @@ export default function ProductsPage() {
     'sheet'
   ];
   
-  // Dialog states for adding new categories
-  const [newCategoryDialog, setNewCategoryDialog] = useState(false);
-  const [newSubcategoryDialog, setNewSubcategoryDialog] = useState(false);
-  const [newCategoryName, setNewCategoryName] = useState('');
-  const [newSubcategoryName, setNewSubcategoryName] = useState('');
+
   const [imageFiles, setImageFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(25);
   const [totalProducts, setTotalProducts] = useState(0);
+  const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   
   // Master products dialog states
   const [masterProductsDialogOpen, setMasterProductsDialogOpen] = useState(false);
@@ -186,12 +166,22 @@ export default function ProductsPage() {
     description: ''
   });
   
-  // Receipt scanning states
+  // Receipt scanning states (GitHub repo style)
   const [receiptProcessing, setReceiptProcessing] = useState(false);
   const [receiptImage, setReceiptImage] = useState<string | null>(null);
   const [extractedProducts, setExtractedProducts] = useState<ExtractedProduct[]>([]);
   const [receiptScanDialogOpen, setReceiptScanDialogOpen] = useState(false);
   const [extractedProductEditorOpen, setExtractedProductEditorOpen] = useState(false);
+
+  // Receipt scanning 2.0 states (using full receipt scanning system)
+  const [receiptScanResult, setReceiptScanResult] = useState<ScanReceiptResponse | null>(null);
+  const [receiptExtractionPreviewOpen, setReceiptExtractionPreviewOpen] = useState(false);
+  const [receiptProductEditorOpen, setReceiptProductEditorOpen] = useState(false);
+  
+  // Scan Receipts 2.0 states (NEW - enhanced AI-powered extraction)
+  const [receiptScanV2DialogOpen, setReceiptScanV2DialogOpen] = useState(false);
+  const [receiptProductsV2, setReceiptProductsV2] = useState<ExtractedProductV2[]>([]);
+  const [receiptProductEditorV2Open, setReceiptProductEditorV2Open] = useState(false);
 
 
 
@@ -335,27 +325,6 @@ export default function ProductsPage() {
     }
   }, [extractedProducts]);
 
-  // Test function to add dummy products for debugging
-  const addTestProducts = () => {
-    const testProducts: ExtractedProduct[] = [
-      {
-        name: 'Test Product 1',
-        price: 50.25,
-        quantity: 2,
-        unit: 'pcs',
-        confidence: 0.9
-      },
-      {
-        name: 'Test Product 2',
-        price: 75.00,
-        quantity: 1,
-        unit: 'kg',
-        confidence: 0.8
-      }
-    ];
-    setExtractedProducts(testProducts);
-    console.log('Added test products:', testProducts);
-  };
   
   // Load product name suggestions from existing products
   const loadProductSuggestions = async () => {
@@ -370,33 +339,6 @@ export default function ProductsPage() {
     }
   };
   
-  // Handle adding new category
-  const handleAddNewCategory = () => {
-    if (newCategoryName.trim()) {
-      const trimmedName = newCategoryName.trim();
-      setCategories(prev => [...prev, trimmedName]);
-      setNewProduct(prev => ({ ...prev, category: trimmedName }));
-      setNewCategoryName('');
-      setNewCategoryDialog(false);
-      toast.success('New category added!');
-    }
-  };
-  
-  // Handle adding new subcategory
-  const handleAddNewSubcategory = () => {
-    if (newSubcategoryName.trim() && newProduct.category) {
-      const trimmedName = newSubcategoryName.trim();
-      setSubcategoriesByCategory(prev => ({
-        ...prev,
-        [newProduct.category]: [...(prev[newProduct.category] || []), trimmedName]
-      }));
-      setNewProduct(prev => ({ ...prev, subcategory: trimmedName }));
-      setNewSubcategoryName('');
-      setNewSubcategoryDialog(false);
-      toast.success('New subcategory added!');
-    }
-  };
-
   const handleViewProduct = (product: Product) => {
     setSelectedProduct(product);
     setDialogOpen(true);
@@ -405,6 +347,35 @@ export default function ProductsPage() {
   const handleEditProduct = (product: Product) => {
     setEditingProduct(product);
     setEditDialogOpen(true);
+  };
+
+  const handleDeleteProducts = async () => {
+    if (selectedProducts.length === 0) return;
+
+    try {
+      setDeleting(true);
+      
+      // Delete products via API
+      const response = await fetch(`/api/admin/products?ids=${selectedProducts.join(',')}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to delete products');
+      }
+
+      toast.success(`Successfully deleted ${selectedProducts.length} product(s)`);
+      setSelectedProducts([]);
+      setDeleteDialogOpen(false);
+      loadProducts();
+      loadStats();
+    } catch (error: any) {
+      console.error('Error deleting products:', error);
+      toast.error(error.message || 'Failed to delete products');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const handleUpdateProduct = async () => {
@@ -473,6 +444,27 @@ export default function ProductsPage() {
 
     setUploading(true);
     try {
+      // Check for duplicate product
+      const duplicateCheck = await fetch('/api/admin/products/check-duplicate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newProduct.name.trim(),
+          seller_id: newProduct.seller_id,
+        }),
+      });
+
+      if (duplicateCheck.ok) {
+        const duplicateResult = await duplicateCheck.json();
+        if (duplicateResult.isDuplicate) {
+          const confirmMessage = `${duplicateResult.reason}\n\nDo you want to add it anyway?`;
+          if (!window.confirm(confirmMessage)) {
+            setUploading(false);
+            return;
+          }
+        }
+      }
+
       // Upload images first
       const imageUrls: string[] = [];
       for (const file of imageFiles) {
@@ -547,7 +539,7 @@ export default function ProductsPage() {
     setImageFiles(prev => prev.filter((_, i) => i !== index));
   };
   
-  // Receipt scanning handlers
+  // Receipt scanning handlers (GitHub repo style)
   const handleReceiptUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -567,14 +559,13 @@ export default function ProductsPage() {
     setReceiptProcessing(true);
     setReceiptImage(URL.createObjectURL(file));
     // Don't clear extracted products immediately - wait for new results
-    // setExtractedProducts([]);
     
     try {
       // Convert File to Buffer
       const arrayBuffer = await file.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
       
-      const result = await processReceiptImage(buffer);
+      const result = await processReceiptImage(buffer, 'aws');
       
       console.log('=== RECEIPT PROCESSING RESULT ===');
       console.log('Full result:', result);
@@ -632,7 +623,52 @@ export default function ProductsPage() {
 
   const handleExtractedProductsConfirm = async (editedProducts: any[]) => {
     try {
-      const addPromises = editedProducts.map(async (product) => {
+      // Check for duplicates first
+      const duplicateChecks = await Promise.all(
+        editedProducts.map(async (product) => {
+          if (!product.seller_id) return null;
+          const response = await fetch('/api/admin/products/check-duplicate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name: product.name.trim(),
+              seller_id: product.seller_id,
+            }),
+          });
+          if (response.ok) {
+            return await response.json();
+          }
+          return { isDuplicate: false };
+        })
+      );
+
+      // Filter out duplicates and show warnings
+      const productsToAdd: any[] = [];
+      const duplicateProducts: any[] = [];
+
+      editedProducts.forEach((product, index) => {
+        const duplicateCheck = duplicateChecks[index];
+        if (duplicateCheck?.isDuplicate) {
+          duplicateProducts.push({
+            product,
+            reason: duplicateCheck.reason,
+          });
+        } else {
+          productsToAdd.push(product);
+        }
+      });
+
+      // Show warning for duplicates
+      if (duplicateProducts.length > 0) {
+        const duplicateNames = duplicateProducts.map(d => d.product.name).join(', ');
+        const message = `${duplicateProducts.length} product(s) already exist: ${duplicateNames}\n\nDo you want to add the remaining ${productsToAdd.length} product(s)?`;
+        if (!window.confirm(message)) {
+          return;
+        }
+      }
+
+      // Add non-duplicate products
+      const addPromises = productsToAdd.map(async (product) => {
         const productData = {
           name: product.name,
           description: product.description || 'Product extracted from receipt',
@@ -831,22 +867,32 @@ export default function ProductsPage() {
 
   const columns: GridColDef[] = [
     {
-      field: 'images',
+      field: 'image_url',
       headerName: 'Image',
       width: 80,
       minWidth: 60,
       flex: 0,
       hideable: false,
-      renderCell: (params: GridRenderCellParams) => (
+      renderCell: (params: GridRenderCellParams) => {
+        // Get image URL from image_url field
+        const imageUrl = params.value || params.row.image_url || null;
+        return (
         <Avatar
-          src={params.value?.[0]}
-          alt={params.row.name}
+            src={imageUrl || undefined}
+            alt={params.row.name || 'Product'}
           variant="rounded"
           sx={{ width: 40, height: 40 }}
+            imgProps={{
+              onError: (e) => {
+                // Hide broken image and show icon instead
+                e.currentTarget.style.display = 'none';
+              }
+            }}
         >
           <Inventory />
         </Avatar>
-      ),
+        );
+      },
     },
     {
       field: 'name',
@@ -1119,6 +1165,21 @@ export default function ProductsPage() {
                 Add Product
               </Button>
             </Grid>
+            {selectedProducts.length > 0 && (
+              <Grid item xs={12} sm={6} md={2.4}>
+                <Button
+                  fullWidth
+                  variant="contained"
+                  color="error"
+                  startIcon={<Delete />}
+                  onClick={() => setDeleteDialogOpen(true)}
+                  size="small"
+                  sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}
+                >
+                  Delete Selected ({selectedProducts.length})
+                </Button>
+              </Grid>
+            )}
             <Grid item xs={12} sm={6} md={2.4}>
               <Button
                 fullWidth
@@ -1167,6 +1228,24 @@ export default function ProductsPage() {
             <Grid item xs={12} sm={6} md={2.4}>
               <Button
                 fullWidth
+                variant="contained"
+                color="secondary"
+                startIcon={<Receipt />}
+                onClick={() => {
+                  setReceiptScanV2DialogOpen(true);
+                }}
+                size="small"
+                sx={{ 
+                  whiteSpace: 'nowrap',
+                  fontSize: { xs: '0.75rem', sm: '0.875rem' }
+                }}
+              >
+                Scan Receipts 2.0 ⚡
+              </Button>
+            </Grid>
+            <Grid item xs={12} sm={6} md={2.4}>
+              <Button
+                fullWidth
                 variant="outlined"
                 startIcon={<ContentCopy />}
                 onClick={() => router.push('/products/clone-inventory')}
@@ -1197,6 +1276,11 @@ export default function ProductsPage() {
             onPaginationModelChange={(model) => {
               setPage(model.page);
               setPageSize(model.pageSize);
+            }}
+            checkboxSelection
+            rowSelectionModel={selectedProducts}
+            onRowSelectionModelChange={(newSelection) => {
+              setSelectedProducts(newSelection as string[]);
             }}
             slots={{ toolbar: GridToolbar }}
             slotProps={{
@@ -1366,60 +1450,21 @@ export default function ProductsPage() {
               </FormControl>
             </Box>
             
-            <Box sx={{ display: 'flex', gap: 2 }}>
-              <FormControl fullWidth required>
-                <InputLabel>Category</InputLabel>
-                <Select
-                  value={newProduct.category}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    if (value === 'add_new') {
-                      setNewCategoryDialog(true);
-                    } else {
-                      setNewProduct(prev => ({ ...prev, category: value, subcategory: '' }));
-                    }
-                  }}
-                  label="Category"
-                >
-                  {categories.map((category) => (
-                    <MenuItem key={category} value={category}>
-                      {category}
-                    </MenuItem>
-                  ))}
-                  <MenuItem value="add_new" sx={{ fontStyle: 'italic', color: 'primary.main' }}>
-                    + Add New Category
-                  </MenuItem>
-                </Select>
-              </FormControl>
-              
-              <FormControl fullWidth>
-                <InputLabel>Subcategory</InputLabel>
-                <Select
-                  value={newProduct.subcategory}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    if (value === 'add_new') {
-                      setNewSubcategoryDialog(true);
-                    } else {
-                      setNewProduct(prev => ({ ...prev, subcategory: value }));
-                    }
-                  }}
-                  label="Subcategory"
-                  disabled={!newProduct.category}
-                >
-                  {newProduct.category && subcategoriesByCategory[newProduct.category]?.map((subcategory) => (
-                    <MenuItem key={subcategory} value={subcategory}>
-                      {subcategory}
-                    </MenuItem>
-                  ))}
-                  {newProduct.category && (
-                    <MenuItem value="add_new" sx={{ fontStyle: 'italic', color: 'primary.main' }}>
-                      + Add New Subcategory
-                    </MenuItem>
-                  )}
-                </Select>
-              </FormControl>
-            </Box>
+            <CategorySelector
+              value={{
+                category: newProduct.category,
+                subcategory: newProduct.subcategory
+              }}
+              onChange={(value) => {
+                setNewProduct(prev => ({
+                  ...prev,
+                  category: value.category,
+                  subcategory: value.subcategory
+                }));
+              }}
+              allowNew={true}
+              size="medium"
+            />
             
             <FormControl 
               fullWidth 
@@ -1737,11 +1782,6 @@ export default function ProductsPage() {
                           label="Category"
                         >
                           <MenuItem value="all">All Categories</MenuItem>
-                          {categories.map((category) => (
-                            <MenuItem key={category} value={category}>
-                              {category}
-                            </MenuItem>
-                          ))}
                         </Select>
                       </FormControl>
                     </Grid>
@@ -1997,56 +2037,7 @@ export default function ProductsPage() {
         </DialogActions>
       </Dialog>
 
-      {/* Add New Category Dialog */}
-      <Dialog open={newCategoryDialog} onClose={() => setNewCategoryDialog(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Add New Category</DialogTitle>
-        <DialogContent>
-          <TextField
-            autoFocus
-            margin="dense"
-            label="Category Name"
-            fullWidth
-            variant="outlined"
-            value={newCategoryName}
-            onChange={(e) => setNewCategoryName(e.target.value)}
-            sx={{ mt: 1 }}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setNewCategoryDialog(false)}>Cancel</Button>
-          <Button onClick={handleAddNewCategory} variant="contained" disabled={!newCategoryName.trim()}>
-            Add Category
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Add New Subcategory Dialog */}
-      <Dialog open={newSubcategoryDialog} onClose={() => setNewSubcategoryDialog(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Add New Subcategory</DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Adding subcategory to: <strong>{newProduct.category}</strong>
-          </Typography>
-          <TextField
-            autoFocus
-            margin="dense"
-            label="Subcategory Name"
-            fullWidth
-            variant="outlined"
-            value={newSubcategoryName}
-            onChange={(e) => setNewSubcategoryName(e.target.value)}
-            sx={{ mt: 1 }}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setNewSubcategoryDialog(false)}>Cancel</Button>
-          <Button onClick={handleAddNewSubcategory} variant="contained" disabled={!newSubcategoryName.trim()}>
-            Add Subcategory
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Receipt Scanning Dialog */}
+      {/* Receipt Scanning Dialog (GitHub repo style) */}
       <Dialog
         open={receiptScanDialogOpen}
         onClose={() => setReceiptScanDialogOpen(false)}
@@ -2061,16 +2052,6 @@ export default function ProductsPage() {
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
             Upload a receipt image to automatically extract product details and add them to your inventory.
           </Typography>
-          
-          {/* Debug Test Button */}
-          <Button 
-            variant="outlined" 
-            color="secondary" 
-            onClick={addTestProducts}
-            sx={{ mb: 2, mr: 2 }}
-          >
-            Add Test Products (Debug)
-          </Button>
           
           <input
             accept="image/*"
@@ -2124,74 +2105,73 @@ export default function ProductsPage() {
                 Extracted Products ({extractedProducts.length})
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                 Review the extracted products below. Click on any product to add it to your inventory.
-               </Typography>
-               
-
+                Review the extracted products below. Click on any product to add it to your inventory.
+              </Typography>
+              
               <Stack spacing={2} sx={{ maxHeight: 400, overflow: 'auto' }}>
-                 {extractedProducts.map((product, index) => {
-                   console.log(`Product ${index}:`, product);
-                   console.log(`Product ${index} properties:`, {
-                      name: product.name,
-                      price: product.price,
-                      quantity: product.quantity,
-                      unit: product.unit,
-                     confidence: product.confidence
-                   });
-                   return (
-                   <Card 
-                     key={index} 
-                     variant="outlined"
-                     sx={{ 
-                       cursor: 'pointer',
-                       '&:hover': { 
-                         bgcolor: '#f5f5f5',
-                         boxShadow: 2
-                       }
-                     }}
-                     onClick={() => fillProductFromExtracted(product)}
-                   >
-                     <CardContent sx={{ p: 2 }}>
-                       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
-                         <Typography variant="subtitle1" fontWeight="medium">
-                           {product.name || 'Unnamed Product'}
-                         </Typography>
-                         {product.confidence && (
-                           <Chip
-                             label={`${Math.round(product.confidence * 100)}% confidence`}
-                             size="small"
-                             color={product.confidence > 0.8 ? 'success' : product.confidence > 0.6 ? 'warning' : 'error'}
-                           />
-                         )}
-                       </Box>
-                       <Grid container spacing={2}>
-                         <Grid item xs={4}>
-                           <Typography variant="caption" color="text.secondary">Unit Price</Typography>
-                           <Typography variant="body2">₹{product.price || 'N/A'}</Typography>
-                         </Grid>
-                         <Grid item xs={4}>
-                           <Typography variant="caption" color="text.secondary">Quantity</Typography>
-                           <Typography variant="body2">{product.quantity || 'N/A'} {product.unit || ''}</Typography>
-                         </Grid>
-                         <Grid item xs={4}>
-                           <Typography variant="caption" color="text.secondary">Net Amount</Typography>
-                           <Typography variant="body2">₹{product.price || 'N/A'}</Typography>
-                         </Grid>
-                       </Grid>
-                       <Typography variant="caption" color="primary" sx={{ mt: 1, display: 'block', fontStyle: 'italic' }}>
-                         Click to add this product
-                       </Typography>
-                     </CardContent>
-                   </Card>
-                   );
-                 })}
-               </Stack>
+                {extractedProducts.map((product, index) => {
+                  console.log(`Product ${index}:`, product);
+                  console.log(`Product ${index} properties:`, {
+                    name: product.name,
+                    price: product.price,
+                    quantity: product.quantity,
+                    unit: product.unit,
+                    confidence: product.confidence
+                  });
+                  return (
+                    <Card 
+                      key={index} 
+                      variant="outlined"
+                      sx={{ 
+                        cursor: 'pointer',
+                        '&:hover': { 
+                          bgcolor: '#f5f5f5',
+                          boxShadow: 2
+                        }
+                      }}
+                      onClick={() => fillProductFromExtracted(product)}
+                    >
+                      <CardContent sx={{ p: 2 }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+                          <Typography variant="subtitle1" fontWeight="medium">
+                            {product.name || 'Unnamed Product'}
+                          </Typography>
+                          {product.confidence && (
+                            <Chip
+                              label={`${Math.round(product.confidence * 100)}% confidence`}
+                              size="small"
+                              color={product.confidence > 0.8 ? 'success' : product.confidence > 0.6 ? 'warning' : 'error'}
+                            />
+                          )}
+                        </Box>
+                        <Grid container spacing={2}>
+                          <Grid item xs={4}>
+                            <Typography variant="caption" color="text.secondary">Unit Price</Typography>
+                            <Typography variant="body2">₹{product.price || 'N/A'}</Typography>
+                          </Grid>
+                          <Grid item xs={4}>
+                            <Typography variant="caption" color="text.secondary">Quantity</Typography>
+                            <Typography variant="body2">{product.quantity || 'N/A'} {product.unit || ''}</Typography>
+                          </Grid>
+                          <Grid item xs={4}>
+                            <Typography variant="caption" color="text.secondary">Net Amount</Typography>
+                            <Typography variant="body2">₹{product.price || 'N/A'}</Typography>
+                          </Grid>
+                        </Grid>
+                        <Typography variant="caption" color="primary" sx={{ mt: 1, display: 'block', fontStyle: 'italic' }}>
+                          Click to add this product
+                        </Typography>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </Stack>
             </Box>
           )}
         </DialogContent>
         <DialogActions>
-           <Button onClick={() => setReceiptScanDialogOpen(false)}>Close</Button>
-         </DialogActions>
+          <Button onClick={() => setReceiptScanDialogOpen(false)}>Close</Button>
+        </DialogActions>
       </Dialog>
 
       {/* Extracted Product Editor */}
@@ -2201,9 +2181,334 @@ export default function ProductsPage() {
         extractedProducts={extractedProducts}
         onConfirm={handleExtractedProductsConfirm}
         sellers={sellers}
-        categories={categories}
-        subcategories={subcategoriesByCategory}
+        categories={[]}
+        subcategories={{}}
       />
+
+      {/* Receipt Extraction Preview Dialog (Receipt Scanning 2.0) */}
+      <Dialog
+        open={receiptExtractionPreviewOpen}
+        onClose={() => setReceiptExtractionPreviewOpen(false)}
+        maxWidth="lg"
+        fullWidth
+      >
+        <DialogTitle>
+          Receipt Extraction Preview
+          <Button 
+            onClick={() => {
+              setReceiptExtractionPreviewOpen(false);
+              setReceiptProductEditorOpen(true);
+            }}
+            variant="contained"
+            sx={{ float: 'right', mt: -1 }}
+          >
+            Edit Products
+          </Button>
+        </DialogTitle>
+        <DialogContent>
+          {receiptScanResult && (
+            <ReceiptExtractionPreview
+              products={receiptScanResult.products}
+              metadata={receiptScanResult.metadata}
+              confidence={receiptScanResult.confidence}
+              originalImageUrl={receiptScanResult.originalImageUrl}
+            />
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setReceiptExtractionPreviewOpen(false)}>
+            Cancel
+          </Button>
+            <Button
+            variant="contained"
+            onClick={() => {
+              setReceiptExtractionPreviewOpen(false);
+              setReceiptProductEditorOpen(true);
+            }}
+          >
+            Edit & Add to Inventory
+            </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Receipt Product Editor Dialog (Receipt Scanning 2.0) */}
+      <Dialog
+        open={receiptProductEditorOpen}
+        onClose={() => setReceiptProductEditorOpen(false)}
+        maxWidth="lg"
+        fullWidth
+      >
+        <DialogTitle>Review & Edit Extracted Products</DialogTitle>
+        <DialogContent>
+          {/* Seller Selection */}
+          <FormControl fullWidth sx={{ mb: 3, mt: 2 }}>
+            <InputLabel>Select Seller *</InputLabel>
+            <Select
+              value={newProduct.seller_id || ''}
+              onChange={(e) => setNewProduct(prev => ({ ...prev, seller_id: e.target.value }))}
+              label="Select Seller"
+            >
+              {sellers.map((seller) => (
+                <MenuItem key={seller.id} value={seller.id}>
+                  {seller.business_name || seller.display_name || seller.phone_number || `Seller ${seller.id}`}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          
+          {receiptScanResult && (
+            <ReceiptProductEditor
+              products={receiptScanResult.products}
+              onConfirm={async (editedProducts: ExtractedReceiptProduct[]) => {
+                try {
+                  if (!newProduct.seller_id) {
+                    toast.error('Please select a seller first');
+                    return;
+                  }
+
+                  // Check for duplicates first
+                  const duplicateChecks = await Promise.all(
+                    editedProducts.map(async (product) => {
+                      const response = await fetch('/api/admin/products/check-duplicate', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          name: product.name.trim(),
+                          seller_id: newProduct.seller_id,
+                        }),
+                      });
+                      if (response.ok) {
+                        return await response.json();
+                      }
+                      return { isDuplicate: false };
+                    })
+                  );
+
+                  // Filter out duplicates and show warnings
+                  const productsToAdd: any[] = [];
+                  const duplicateProducts: any[] = [];
+
+                  editedProducts.forEach((product, index) => {
+                    const duplicateCheck = duplicateChecks[index];
+                    if (duplicateCheck?.isDuplicate) {
+                      duplicateProducts.push({
+                        product,
+                        reason: duplicateCheck.reason,
+                      });
+                    } else {
+                      productsToAdd.push(product);
+                    }
+                  });
+
+                  // Show warning for duplicates
+                  if (duplicateProducts.length > 0) {
+                    const duplicateNames = duplicateProducts.map(d => d.product.name).join(', ');
+                    const message = `${duplicateProducts.length} product(s) already exist: ${duplicateNames}\n\nDo you want to add the remaining ${productsToAdd.length} product(s)?`;
+                    if (!window.confirm(message)) {
+                      return;
+                    }
+                  }
+
+                  // Add non-duplicate products
+                  const addPromises = productsToAdd.map(async (product) => {
+                    const productData = {
+                      name: product.name,
+                      description: product.name || 'Product extracted from receipt',
+                      price: product.unitPrice || (product.netAmount / product.quantity) || 0,
+                      category: newProduct.category || '',
+                      subcategory: newProduct.subcategory || '',
+                      seller_id: newProduct.seller_id,
+                      stock_available: product.quantity || 0,
+                      unit: 'piece',
+                      min_order_quantity: 1,
+                      images: [],
+                      status: 'available'
+                    };
+                    
+                    return adminQueries.addProduct(productData);
+                  });
+                  
+                  await Promise.all(addPromises);
+                  
+                  toast.success(`Successfully added ${productsToAdd.length} products to inventory!`);
+                  setReceiptProductEditorOpen(false);
+                  setReceiptScanResult(null);
+                  loadProducts();
+                  loadStats();
+                } catch (error: any) {
+                  console.error('Error adding extracted products:', error);
+                  toast.error(error.message || 'Failed to add some products. Please try again.');
+                }
+              }}
+              onCancel={() => setReceiptProductEditorOpen(false)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Scan Receipts 2.0 Dialog (NEW - Enhanced AI-powered extraction) */}
+      <ReceiptScannerV2
+        open={receiptScanV2DialogOpen}
+        onClose={() => setReceiptScanV2DialogOpen(false)}
+        onScanComplete={(products: ExtractedProductV2[]) => {
+          setReceiptProductsV2(products);
+          setReceiptScanV2DialogOpen(false);
+          setReceiptProductEditorV2Open(true);
+          toast.success(`Extracted ${products.length} products using AI-powered extraction!`);
+        }}
+        onCancel={() => setReceiptScanV2DialogOpen(false)}
+      />
+
+      {/* Receipt Product Editor V2 Dialog */}
+      <Dialog
+        open={receiptProductEditorV2Open}
+        onClose={() => setReceiptProductEditorV2Open(false)}
+        maxWidth="lg"
+        fullWidth
+      >
+        <DialogTitle>Review & Edit Extracted Products (Scan Receipts 2.0)</DialogTitle>
+        <DialogContent>
+          {/* Seller Selection */}
+          <FormControl fullWidth sx={{ mb: 3, mt: 2 }}>
+            <InputLabel>Select Seller *</InputLabel>
+            <Select
+              value={newProduct.seller_id || ''}
+              onChange={(e) => setNewProduct(prev => ({ ...prev, seller_id: e.target.value }))}
+              label="Select Seller"
+            >
+              {sellers.map((seller) => (
+                <MenuItem key={seller.id} value={seller.id}>
+                  {seller.business_name || seller.display_name || seller.phone_number || `Seller ${seller.id}`}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          <ReceiptProductEditorV2
+            products={receiptProductsV2}
+            onConfirm={async (editedProducts: ExtractedProductV2[]) => {
+              try {
+                if (!newProduct.seller_id) {
+                  toast.error('Please select a seller first');
+                  return;
+                }
+
+                // Check for duplicates first
+                const duplicateChecks = await Promise.all(
+                  editedProducts.map(async (product) => {
+                    const response = await fetch('/api/admin/products/check-duplicate', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        name: product.name.trim(),
+                        seller_id: newProduct.seller_id,
+                      }),
+                    });
+                    if (response.ok) {
+                      return await response.json();
+                    }
+                    return { isDuplicate: false };
+                  })
+                );
+
+                // Filter out duplicates
+                const productsToAdd: any[] = [];
+                const duplicateProducts: any[] = [];
+
+                editedProducts.forEach((product, index) => {
+                  const duplicateCheck = duplicateChecks[index];
+                  if (duplicateCheck?.isDuplicate) {
+                    duplicateProducts.push({
+                      product,
+                      reason: duplicateCheck.reason,
+                    });
+                  } else {
+                    productsToAdd.push(product);
+                  }
+                });
+
+                // Show warning for duplicates
+                if (duplicateProducts.length > 0) {
+                  const duplicateNames = duplicateProducts.map(d => d.product.name).join(', ');
+                  const message = `${duplicateProducts.length} product(s) already exist: ${duplicateNames}\n\nDo you want to add the remaining ${productsToAdd.length} product(s)?`;
+                  if (!window.confirm(message)) {
+                    return;
+                  }
+                }
+
+                // Add non-duplicate products
+                const addPromises = productsToAdd.map(async (product) => {
+                  const productData = {
+                      name: product.name,
+                    description: product.name || 'Product extracted from receipt',
+                    price: product.unitPrice || (product.netAmount / product.quantity) || 0,
+                    category: newProduct.category || '',
+                    subcategory: newProduct.subcategory || '',
+                    seller_id: newProduct.seller_id,
+                    stock_available: product.quantity || 0,
+                    unit: product.unit || 'piece',
+                    min_order_quantity: 1,
+                    images: [],
+                    status: 'available'
+                  };
+                  
+                  return adminQueries.addProduct(productData);
+                });
+                
+                await Promise.all(addPromises);
+                
+                toast.success(`Successfully added ${productsToAdd.length} products to inventory!`);
+                setReceiptProductEditorV2Open(false);
+                setReceiptProductsV2([]);
+                loadProducts();
+                loadStats();
+              } catch (error: any) {
+                console.error('Error adding extracted products:', error);
+                toast.error(error.message || 'Failed to add some products. Please try again.');
+              }
+            }}
+            onCancel={() => setReceiptProductEditorV2Open(false)}
+          />
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onClose={() => !deleting && setDeleteDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Delete Products</DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            Are you sure you want to delete {selectedProducts.length} product(s)? This action cannot be undone.
+          </Alert>
+          <Typography variant="body2" color="text.secondary">
+            Selected products:
+                       </Typography>
+          <Box sx={{ mt: 1, maxHeight: 200, overflow: 'auto' }}>
+            {products
+              .filter(p => selectedProducts.includes(p.id))
+              .map(product => (
+                <Box key={product.id} sx={{ py: 0.5 }}>
+                  <Typography variant="body2">
+                    • {product.name} (₹{product.price?.toLocaleString() || '0'})
+                  </Typography>
+            </Box>
+              ))}
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteDialogOpen(false)} disabled={deleting}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleDeleteProducts}
+            color="error"
+            variant="contained"
+            disabled={deleting}
+            startIcon={deleting ? <CircularProgress size={16} /> : <Delete />}
+          >
+            {deleting ? 'Deleting...' : 'Delete'}
+          </Button>
+         </DialogActions>
+      </Dialog>
     </Box>
   );
 }

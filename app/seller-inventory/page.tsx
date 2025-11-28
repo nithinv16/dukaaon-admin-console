@@ -21,7 +21,6 @@ import {
   DialogActions,
   Stack,
   Alert,
-  CircularProgress,
 } from '@mui/material';
 import {
   DataGrid,
@@ -30,16 +29,14 @@ import {
   GridToolbar,
 } from '@mui/x-data-grid';
 import {
-  Inventory,
-  Add,
   Edit,
-  Delete,
   Search,
-  Person,
-  Store,
+  CloudUpload,
 } from '@mui/icons-material';
 import { adminQueries } from '@/lib/supabase-browser';
 import toast from 'react-hot-toast';
+import BulkImportDialog, { ParsedProduct, ImportResult } from '@/components/BulkImportDialog';
+import BulkImportPreview from '@/components/BulkImportPreview';
 
 export default function SellerInventoryPage() {
   const [sellers, setSellers] = useState<any[]>([]);
@@ -54,6 +51,11 @@ export default function SellerInventoryPage() {
   const [totalProducts, setTotalProducts] = useState(0);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<any>(null);
+  
+  // Bulk import state
+  const [bulkImportDialogOpen, setBulkImportDialogOpen] = useState(false);
+  const [bulkImportPreviewOpen, setBulkImportPreviewOpen] = useState(false);
+  const [parsedProducts, setParsedProducts] = useState<ParsedProduct[]>([]);
 
   useEffect(() => {
     loadSellers();
@@ -149,6 +151,40 @@ export default function SellerInventoryPage() {
       console.error('Error updating product:', error);
       toast.error(error.message || 'Failed to update product');
     }
+  };
+
+  // Bulk import handlers
+  const handleBulkImportClick = () => {
+    if (!selectedSeller) {
+      toast.error('Please select a seller first');
+      return;
+    }
+    setBulkImportDialogOpen(true);
+  };
+
+  const handleProductsParsed = (products: ParsedProduct[]) => {
+    setParsedProducts(products);
+    setBulkImportDialogOpen(false);
+    setBulkImportPreviewOpen(true);
+  };
+
+  const handleImportComplete = (results: ImportResult) => {
+    setBulkImportPreviewOpen(false);
+    setParsedProducts([]);
+    
+    if (results.successful > 0) {
+      toast.success(`Successfully imported ${results.successful} product(s)`);
+      loadSellerProducts(); // Refresh the product list
+    }
+    
+    if (results.failed > 0) {
+      toast.error(`${results.failed} product(s) failed to import`);
+    }
+  };
+
+  const handleImportCancel = () => {
+    setBulkImportPreviewOpen(false);
+    setParsedProducts([]);
   };
 
   const columns: GridColDef[] = [
@@ -360,10 +396,22 @@ export default function SellerInventoryPage() {
                         </Select>
                       </FormControl>
                     </Grid>
-                    <Grid item xs={12} sm={4}>
+                    <Grid item xs={12} sm={2}>
                       <Typography variant="body2" color="text.secondary">
                         Total Products: {totalProducts}
                       </Typography>
+                    </Grid>
+                    <Grid item xs={12} sm={2}>
+                      <Button
+                        variant="contained"
+                        startIcon={<CloudUpload />}
+                        onClick={handleBulkImportClick}
+                        disabled={!selectedSeller}
+                        fullWidth
+                        size="small"
+                      >
+                        Bulk Import
+                      </Button>
                     </Grid>
                   </Grid>
                 </CardContent>
@@ -479,6 +527,37 @@ export default function SellerInventoryPage() {
             Save
           </Button>
         </DialogActions>
+      </Dialog>
+
+      {/* Bulk Import Dialog */}
+      <BulkImportDialog
+        open={bulkImportDialogOpen}
+        onClose={() => setBulkImportDialogOpen(false)}
+        sellerId={selectedSeller || ''}
+        onProductsParsed={handleProductsParsed}
+      />
+
+      {/* Bulk Import Preview Dialog */}
+      <Dialog
+        open={bulkImportPreviewOpen}
+        onClose={handleImportCancel}
+        maxWidth="xl"
+        fullWidth
+        PaperProps={{ sx: { minHeight: '80vh' } }}
+      >
+        <DialogTitle>
+          Review & Import Products
+        </DialogTitle>
+        <DialogContent dividers>
+          {parsedProducts.length > 0 && selectedSeller && (
+            <BulkImportPreview
+              products={parsedProducts}
+              sellerId={selectedSeller}
+              onConfirm={handleImportComplete}
+              onCancel={handleImportCancel}
+            />
+          )}
+        </DialogContent>
       </Dialog>
     </Box>
   );

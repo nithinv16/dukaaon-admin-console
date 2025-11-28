@@ -253,6 +253,25 @@ export default function CloneInventoryPage() {
             continue;
           }
 
+          // Check for duplicate product
+          const duplicateCheck = await fetch('/api/admin/products/check-duplicate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name: product.name.trim(),
+              seller_id: toSeller,
+            }),
+          });
+
+          if (duplicateCheck.ok) {
+            const duplicateResult = await duplicateCheck.json();
+            if (duplicateResult.isDuplicate) {
+              console.warn(`Skipping duplicate product: ${product.name}`);
+              toast(`Skipped duplicate: ${product.name}`, { icon: '⚠️' });
+              continue; // Skip this product
+            }
+          }
+
           const productData = {
             name: product.name.trim(),
             description: (product.description || product.name || 'Product cloned from inventory').trim(),

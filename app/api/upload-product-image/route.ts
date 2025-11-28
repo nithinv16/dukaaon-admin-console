@@ -15,6 +15,7 @@ export async function POST(request: NextRequest) {
     const file = formData.get('image') as File;
     const productName = formData.get('productName') as string;
     const currentImageUrl = formData.get('currentImageUrl') as string;
+    const folder = (formData.get('folder') as string) || 'master-products'; // Default to master-products for backward compatibility
 
     if (!file) {
       return NextResponse.json(
@@ -46,16 +47,18 @@ export async function POST(request: NextRequest) {
       .substring(0, 50);
     
     const fileExtension = file.name.split('.').pop() || 'jpg';
-    const fileName = `${sanitizedProductName}.${fileExtension}`;
-    const filePath = `master-products/${fileName}`;
+    // Use timestamp + random string to ensure unique filenames for seller inventory
+    const uniqueId = Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+    const fileName = `${sanitizedProductName}_${uniqueId}.${fileExtension}`;
+    const filePath = `${folder}/${fileName}`;
 
     // If there's a current image, try to delete it first (only if it's different from the new one)
-    if (currentImageUrl && currentImageUrl.includes('master-products/')) {
+    if (currentImageUrl && currentImageUrl.includes(`${folder}/`)) {
       try {
         // Extract the old file path from the URL
         const urlParts = currentImageUrl.split('/');
         const oldFileName = urlParts[urlParts.length - 1];
-        const oldFilePath = `master-products/${oldFileName}`;
+        const oldFilePath = `${folder}/${oldFileName}`;
         
         // Only delete if it's a different file
         if (oldFilePath !== filePath) {

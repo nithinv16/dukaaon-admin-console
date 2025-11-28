@@ -4,6 +4,23 @@ export interface CategorySubcategoryMap {
   [category: string]: string[];
 }
 
+/**
+ * Generate a URL-friendly slug from a name
+ * - Converts to lowercase
+ * - Replaces spaces and special characters with hyphens
+ * - Removes consecutive hyphens
+ * - Trims hyphens from start and end
+ */
+export function generateSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s-]/g, '') // Remove special characters except spaces and hyphens
+    .replace(/\s+/g, '-')          // Replace spaces with hyphens
+    .replace(/-+/g, '-')           // Replace consecutive hyphens with single hyphen
+    .replace(/^-|-$/g, '');        // Trim hyphens from start and end
+}
+
 // Default category-subcategory mapping
 export const defaultCategorySubcategoryMap: CategorySubcategoryMap = {
   'electronics': ['smartphones', 'laptops', 'tablets', 'headphones', 'cameras'],

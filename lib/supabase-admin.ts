@@ -1050,15 +1050,43 @@ export const adminQueries = {
     return data;
   },
 
+  async deleteProduct(productId: string) {
+    const supabase = getAdminSupabaseClient();
+    
+    const { data, error } = await supabase
+      .from('products')
+      .delete()
+      .eq('id', productId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  },
+
+  async deleteProducts(productIds: string[]) {
+    const supabase = getAdminSupabaseClient();
+    
+    const { data, error } = await supabase
+      .from('products')
+      .delete()
+      .in('id', productIds)
+      .select();
+
+    if (error) throw error;
+    return data;
+  },
+
   // Master Products Management
   async getMasterProducts(options: {
     page?: number;
     limit?: number;
     search?: string;
     category?: string;
+    status?: string;
   } = {}) {
     const supabase = getAdminSupabaseClient();
-    const { page = 1, limit = 12, search, category } = options;
+    const { page = 1, limit = 12, search, category, status } = options;
     
     let query = supabase
       .from('master_products')
@@ -1069,6 +1097,9 @@ export const adminQueries = {
     }
     if (category && category !== 'all') {
       query = query.eq('category', category);
+    }
+    if (status && status !== 'all') {
+      query = query.eq('status', status);
     }
 
     const from = (page - 1) * limit;

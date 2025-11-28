@@ -74,6 +74,7 @@ import {
   type CategorySubcategoryMap 
 } from '@/lib/categoryUtils';
 import { MasterProduct } from '@/types';
+import CategorySelector, { CategorySelectorValue } from '@/components/CategorySelector';
 
 interface MasterProductStats {
   totalProducts: number;
@@ -134,6 +135,7 @@ export default function MasterProductsPage() {
   const [uploading, setUploading] = useState(false);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(25);
+  const [totalCount, setTotalCount] = useState(0);
   
   // Image-only upload states
   const [imageOnlyUploadOpen, setImageOnlyUploadOpen] = useState(false);
@@ -146,6 +148,14 @@ export default function MasterProductsPage() {
     loadStats();
   }, [page, pageSize, searchTerm, filterCategory, filterStatus]);
 
+  // Reset page to 0 when filters change (but not on initial mount)
+  useEffect(() => {
+    if (page > 0) {
+      setPage(0);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchTerm, filterCategory, filterStatus]);
+
   const loadMasterProducts = async () => {
     try {
       setLoading(true);
@@ -155,9 +165,11 @@ export default function MasterProductsPage() {
         limit: pageSize,
         search: searchTerm || undefined,
         category: filterCategory !== 'all' ? filterCategory : undefined,
+        status: filterStatus !== 'all' ? filterStatus : undefined,
       });
       
       setProducts(result.products || []);
+      setTotalCount(result.total || 0);
       setStats(prev => ({ ...prev, totalProducts: result.total || 0 }));
     } catch (error: unknown) {
       console.error('Error loading master products:', error);
@@ -816,7 +828,9 @@ export default function MasterProductsPage() {
             columns={columns}
             loading={loading}
             pageSizeOptions={[25, 50, 100]}
+            paginationMode="server"
             paginationModel={{ page, pageSize }}
+            rowCount={totalCount}
             onPaginationModelChange={(model) => {
               setPage(model.page);
               setPageSize(model.pageSize);
@@ -931,47 +945,21 @@ export default function MasterProductsPage() {
             
 
             
-            <Grid container spacing={2}>
-              <Grid item xs={12} md={6}>
-                <FormControl fullWidth required>
-                  <InputLabel>Category</InputLabel>
-                  <Select
-                     value={newProduct.category}
-                     onChange={(e) => {
-                        const selectedCategory = e.target.value;
+            <CategorySelector
+              value={{
+                category: newProduct.category,
+                subcategory: newProduct.subcategory
+              }}
+              onChange={(value) => {
                         setNewProduct(prev => ({ 
                           ...prev, 
-                          category: selectedCategory, 
-                          subcategory: '' // Reset subcategory when category changes
+                  category: value.category,
+                  subcategory: value.subcategory
                         }));
                       }}
-                     label="Category"
-                   >
-                     {Object.keys(categorySubcategoryMap).map((category) => (
-                       <MenuItem key={category} value={category}>
-                         {category.charAt(0).toUpperCase() + category.slice(1).replace(/[-_]/g, ' ')}
-                       </MenuItem>
-                     ))}
-                   </Select>
-                </FormControl>
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <FormControl fullWidth disabled={!newProduct.category}>
-                  <InputLabel>Subcategory</InputLabel>
-                  <Select
-                     value={newProduct.subcategory}
-                     onChange={(e) => setNewProduct(prev => ({ ...prev, subcategory: e.target.value }))}
-                     label="Subcategory"
-                   >
-                     {newProduct.category && categorySubcategoryMap[newProduct.category]?.map((subcategory) => (
-                       <MenuItem key={subcategory} value={subcategory}>
-                         {subcategory.charAt(0).toUpperCase() + subcategory.slice(1).replace('-', ' ')}
-                       </MenuItem>
-                     ))}
-                   </Select>
-                </FormControl>
-              </Grid>
-            </Grid>
+              allowNew={true}
+              size="medium"
+            />
             
 
             

@@ -192,12 +192,14 @@ export const adminQueries = {
     limit?: number;
     search?: string;
     category?: string;
+    status?: string;
   } = {}) {
     const params = new URLSearchParams();
     if (options.page) params.append('page', options.page.toString());
     if (options.limit) params.append('limit', options.limit.toString());
     if (options.search) params.append('search', options.search);
     if (options.category) params.append('category', options.category);
+    if (options.status) params.append('status', options.status);
 
     const response = await fetch(`/api/admin/master-products?${params.toString()}`);
     if (!response.ok) {
@@ -438,6 +440,42 @@ export const adminQueries = {
     if (options?.entity_type) params.append('entity_type', options.entity_type);
     const response = await fetch(`/api/admin/audit-log?${params.toString()}`);
     if (!response.ok) throw new Error('Failed to fetch audit log');
+    return response.json();
+  },
+
+  // Categories
+  async getCategories(): Promise<{ categories: any[]; subcategories: any[] }> {
+    const response = await fetch('/api/admin/categories');
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || 'Failed to fetch categories');
+    }
+    return response.json();
+  },
+
+  async createCategory(name: string): Promise<any> {
+    const response = await fetch('/api/admin/categories', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, type: 'category' }),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || 'Failed to create category');
+    }
+    return response.json();
+  },
+
+  async createSubcategory(name: string, categoryId: string): Promise<any> {
+    const response = await fetch('/api/admin/categories', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, type: 'subcategory', category_id: categoryId }),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || 'Failed to create subcategory');
+    }
     return response.json();
   }
 };

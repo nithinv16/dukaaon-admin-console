@@ -55,19 +55,25 @@ export default function AddFromMasterProductsPage() {
     description: ''
   });
 
-  // Categories data
-  const [categories] = useState([
-    'Electronics',
-    'Clothing',
-    'Food & Beverages',
-    'Home & Garden',
-    'Health & Beauty',
-    'Sports & Outdoors',
-    'Books & Media',
-    'Toys & Games',
-    'Automotive',
-    'Office Supplies'
-  ]);
+  // Categories data - fetched from database
+  const [categories, setCategories] = useState<string[]>([]);
+  const [loadingCategories, setLoadingCategories] = useState(true);
+
+  // Load categories from database
+  const loadCategories = useCallback(async () => {
+    try {
+      setLoadingCategories(true);
+      const data = await adminQueries.getCategories();
+      const categoryNames = (data.categories || []).map((cat: any) => cat.name);
+      setCategories(categoryNames);
+    } catch (error) {
+      console.error('Error loading categories:', error);
+      // Fallback to empty array on error
+      setCategories([]);
+    } finally {
+      setLoadingCategories(false);
+    }
+  }, []);
 
   const loadSellers = useCallback(async () => {
     try {
@@ -151,10 +157,11 @@ export default function AddFromMasterProductsPage() {
     return () => clearTimeout(timeoutId);
   }, [masterProductsSearchTerm, masterProductsPage, masterProductsFilterCategory, loadMasterProducts]);
 
-  // Load sellers on component mount
+  // Load sellers and categories on component mount
   useEffect(() => {
     loadSellers();
-  }, [loadSellers]);
+    loadCategories();
+  }, [loadSellers, loadCategories]);
 
   // Reload sellers when a product is selected to ensure fresh data
   useEffect(() => {
@@ -223,20 +230,45 @@ export default function AddFromMasterProductsPage() {
     }
 
     try {
+      // Check for duplicate product
+      const duplicateCheck = await fetch('/api/admin/products/check-duplicate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: selectedMasterProduct.name.trim(),
+          seller_id: sellerData.seller_id,
+        }),
+      });
+
+      if (duplicateCheck.ok) {
+        const duplicateResult = await duplicateCheck.json();
+        if (duplicateResult.isDuplicate) {
+          const confirmMessage = `${duplicateResult.reason}\n\nDo you want to add it anyway?`;
+          if (!window.confirm(confirmMessage)) {
+            return;
+          }
+        }
+      }
+
       setUploading(true);
       
-      // Temporary fallback since addMasterProductToSeller doesn't exist in adminQueries
-      // TODO: Implement proper addMasterProductToSeller API endpoint
-      const result = {
-        success: true,
-        error: null
+      // Add product to seller inventory
+      const productData = {
+        name: selectedMasterProduct.name,
+        description: sellerData.description || selectedMasterProduct.description || '',
+        price: parseFloat(sellerData.price),
+        category: selectedMasterProduct.category || '',
+        subcategory: selectedMasterProduct.subcategory || '',
+        brand: selectedMasterProduct.brand || '',
+        seller_id: sellerData.seller_id,
+        stock_available: parseInt(sellerData.stock_available),
+        unit: sellerData.unit || 'piece',
+        min_order_quantity: parseInt(sellerData.min_order_quantity) || 1,
+        images: selectedMasterProduct.images || (selectedMasterProduct.image_url ? [selectedMasterProduct.image_url] : []),
+        status: 'available'
       };
-      
-      if (result.error) {
-        console.error('Error adding master product to seller:', result.error);
-        toast.error('Failed to add product to seller inventory');
-        return;
-      }
+
+      await adminQueries.addProduct(productData);
       
       toast.success('Product added to seller inventory successfully!');
       // Navigate back to products page

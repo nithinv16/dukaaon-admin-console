@@ -1,5 +1,6 @@
 import { TextractClient, DetectDocumentTextCommand, AnalyzeDocumentCommand, Block } from '@aws-sdk/client-textract';
 import { fromEnv } from '@aws-sdk/credential-providers';
+import { extractProductNameFromLine, cleanProductName } from './productNameCleaner';
 
 // AWS Textract configuration
 const AWS_REGION = process.env.NEXT_PUBLIC_AWS_REGION || 'us-east-1';
@@ -277,7 +278,12 @@ export function parseReceiptTextAWS(textLines: string[], structuredData?: {
         const quantityMatch = line.match(quantityPattern);
         const quantity = quantityMatch ? parseFloat(quantityMatch[1]) : 1;
         
-        let productName = line;
+      // Extract and clean product name using enhanced cleaning utility
+      let productName = extractProductNameFromLine(line);
+      
+      // If extraction failed, fall back to basic cleaning
+      if (!productName || productName.length < 2) {
+        productName = line;
         productName = productName.replace(pricePattern, '');
         if (quantityMatch) {
           productName = productName.replace(quantityMatch[0], '');
@@ -285,6 +291,7 @@ export function parseReceiptTextAWS(textLines: string[], structuredData?: {
         productName = productName.replace(/^\s*\d+\s*/, '');
         productName = productName.replace(/\s+/g, ' ').trim();
         productName = productName.replace(/^[^a-zA-Z0-9]+|[^a-zA-Z0-9]+$/g, '');
+      }
         
         if (productName.length > 2) {
           const itemTotal = prices[prices.length - 1];
@@ -374,11 +381,20 @@ function extractProductFromTableRow(row: any[]): AWSExtractedProduct | null {
       if (qtyMatch) {
         quantity = parseFloat(qtyMatch[1]);
       } else if (text.length > 2) {
+        // Use raw text for now, will clean later
         productName = text;
       }
     } else if (i === 1 && !productName) {
       // Second column might be product name if first was quantity
       if (text.length > 2 && !pricePattern.test(text)) {
+        productName = text;
+      }
+    }
+    
+    // Also check if this cell looks like it could be a product name (has text that's not just numbers/codes)
+    if (!productName && text.length > 3 && /[A-Za-z]/.test(text) && !pricePattern.test(text)) {
+      // Check if it's not a pure code/SKU
+      if (!/^[A-Z0-9]{6,}$/i.test(text) && !/^\d+$/.test(text)) {
         productName = text;
       }
     }
@@ -419,12 +435,18 @@ function extractProductFromTableRow(row: any[]): AWSExtractedProduct | null {
     unitPrice = totalPrice / quantity;
   }
   
-  // Clean up product name
+  // Clean up product name using enhanced cleaning utility
   if (productName) {
-    productName = productName
-      .replace(/^[^a-zA-Z0-9]+|[^a-zA-Z0-9]+$/g, '')
-      .replace(/\s+/g, ' ')
-      .trim();
+    const cleaned = extractProductNameFromLine(productName);
+    productName = cleaned || cleanProductName(productName);
+    
+    // Fallback to basic cleaning if enhanced cleaning didn't work
+    if (!productName || productName.length < 2) {
+      productName = productName
+        .replace(/^[^a-zA-Z0-9]+|[^a-zA-Z0-9]+$/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
   }
   
   // Validate extracted data

@@ -1,6 +1,7 @@
 import { ComputerVisionClient } from '@azure/cognitiveservices-computervision';
 import { CognitiveServicesCredentials } from '@azure/ms-rest-azure-js';
 import { ReadResult } from '@azure/cognitiveservices-computervision/esm/models';
+import { extractProductNameFromLine, cleanProductName } from './productNameCleaner';
 
 // Azure Computer Vision configuration
 const AZURE_ENDPOINT = process.env.NEXT_PUBLIC_AZURE_ENDPOINT || '';
@@ -145,25 +146,30 @@ export function parseReceiptText(textLines: string[]): ReceiptData {
       const quantityMatch = line.match(quantityPattern);
       const quantity = quantityMatch ? parseFloat(quantityMatch[1]) : 1;
       
-      // Extract product name by removing prices and quantities
-      let productName = line;
+      // Extract and clean product name using enhanced cleaning utility
+      let productName = extractProductNameFromLine(line);
       
-      // Remove all price matches
-      productName = productName.replace(pricePattern, '');
-      
-      // Remove quantity if found
-      if (quantityMatch) {
-        productName = productName.replace(quantityMatch[0], '');
+      // If extraction failed, fall back to basic cleaning
+      if (!productName || productName.length < 2) {
+        productName = line;
+        
+        // Remove all price matches
+        productName = productName.replace(pricePattern, '');
+        
+        // Remove quantity if found
+        if (quantityMatch) {
+          productName = productName.replace(quantityMatch[0], '');
+        }
+        
+        // Remove common prefixes like item numbers
+        productName = productName.replace(/^\s*\d+\s*/, '');
+        
+        // Clean up the product name
+        productName = productName.replace(/\s+/g, ' ').trim();
+        
+        // Remove trailing/leading special characters
+        productName = productName.replace(/^[^a-zA-Z0-9]+|[^a-zA-Z0-9]+$/g, '');
       }
-      
-      // Remove common prefixes like item numbers
-      productName = productName.replace(/^\s*\d+\s*/, '');
-      
-      // Clean up the product name
-      productName = productName.replace(/\s+/g, ' ').trim();
-      
-      // Remove trailing/leading special characters
-      productName = productName.replace(/^[^a-zA-Z0-9]+|[^a-zA-Z0-9]+$/g, '');
       
       if (productName.length > 2) {
         // Use the last price as the total amount for this item

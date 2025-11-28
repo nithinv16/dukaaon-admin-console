@@ -1,60 +1,33 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
   Button,
-  TextField,
   Grid,
   Card,
   CardContent,
   Typography,
   Box,
-  Autocomplete,
   FormControl,
   InputLabel,
   Select,
   MenuItem,
-  Chip,
-  Avatar,
-  IconButton,
   CircularProgress,
-  Alert,
-  Divider
+  Alert
 } from '@mui/material';
 import {
-  Edit,
   Save,
-  Cancel,
-  Search,
-  Image,
-  CheckCircle,
-  ErrorOutline,
-  Link,
-  PhotoLibrary,
-  Delete,
-  Upload,
-  CloudUpload
+  Cancel
 } from '@mui/icons-material';
+import { List } from 'react-window';
 import { UnifiedExtractedProduct as ExtractedProduct } from '../lib/unifiedOCR';
-import { searchProductImage } from '../lib/imageSearcher';
 import { toast } from 'react-hot-toast';
 import { getSupabaseClient } from '../lib/supabase-browser';
+import ProductCard, { EditableProduct } from './ProductCard';
 
-interface EditableProduct extends ExtractedProduct {
-  id: string;
-  category: string;
-  subcategory: string;
-  brand: string;
-  description: string;
-  seller_id: string;
-  min_order_quantity: number;
-  unit_type: string;
-  imageUrl?: string;
-  imageSearching?: boolean;
-  edited?: boolean;
-}
+// EditableProduct interface is now imported from ProductCard
 
 interface ExtractedProductEditorProps {
   open: boolean;
@@ -62,65 +35,195 @@ interface ExtractedProductEditorProps {
   extractedProducts: ExtractedProduct[];
   onConfirm: (products: EditableProduct[]) => void;
   sellers: any[];
-  categories: string[];
-  subcategories: { [key: string]: string[] };
+  categories?: string[]; // Deprecated - kept for backward compatibility
+  subcategories?: { [key: string]: string[] }; // Deprecated - kept for backward compatibility
 }
+
+// Constants for virtualization
+// Each product card row contains 2 cards (md:6 grid) with estimated height
+const PRODUCT_ROW_HEIGHT = 580; // Height of a row containing product cards
+const VIRTUALIZATION_THRESHOLD = 6; // Only virtualize when more than this many products
 
 const ExtractedProductEditor: React.FC<ExtractedProductEditorProps> = ({
   open,
   onClose,
   extractedProducts,
   onConfirm,
-  sellers,
-  categories,
-  subcategories
+  sellers
 }) => {
   const [editableProducts, setEditableProducts] = useState<EditableProduct[]>([]);
   const [selectedSeller, setSelectedSeller] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [brands, setBrands] = useState<string[]>([]);
-  const [customCategories, setCustomCategories] = useState<string[]>([]);
-  const [customSubcategories, setCustomSubcategories] = useState<string[]>([]);
+  const [containerWidth, setContainerWidth] = useState(0);
+  const [containerHeight, setContainerHeight] = useState(400);
+  const containerRef = useRef<HTMLDivElement>(null);
+  
+  // Ref to track current editable products for non-blocking image search
+  // This allows handleImageSearch to access current state without stale closures
+  // Requirements: 2.5 - Don't block text input during image search
+  const editableProductsRef = useRef<EditableProduct[]>([]);
 
-  // Fetch brands from master_products table
+  // Keep ref in sync with state for non-blocking image search access
+  // Requirements: 2.5 - Separate loading state per product, don't block text input
+  useEffect(() => {
+    editableProductsRef.current = editableProducts;
+  }, [editableProducts]);
+
+  // Track container dimensions for virtualization
+  useEffect(() => {
+    if (!open || !containerRef.current) return;
+
+    const updateDimensions = () => {
+      if (containerRef.current) {
+        setContainerWidth(containerRef.current.offsetWidth);
+        // Calculate available height (dialog content minus seller card and padding)
+        const dialogContent = containerRef.current.closest('.MuiDialogContent-root');
+        if (dialogContent) {
+          const sellerCard = dialogContent.querySelector('.seller-selection-card');
+          const sellerCardHeight = sellerCard ? sellerCard.getBoundingClientRect().height + 24 : 150;
+          const availableHeight = dialogContent.clientHeight - sellerCardHeight - 48;
+          setContainerHeight(Math.max(availableHeight, 400));
+        }
+      }
+    };
+
+    // Initial measurement after a short delay to ensure DOM is ready
+    const timeoutId = setTimeout(updateDimensions, 100);
+    
+    // Set up resize observer
+    const resizeObserver = new ResizeObserver(updateDimensions);
+    resizeObserver.observe(containerRef.current);
+
+    return () => {
+      clearTimeout(timeoutId);
+      resizeObserver.disconnect();
+    };
+  }, [open]);
+
+  // Fetch brands from both products and master_products tables
   useEffect(() => {
     const fetchBrands = async () => {
       try {
         const supabase = getSupabaseClient();
         if (!supabase) {
           console.error('Supabase client not available');
-          setBrands(['AudioTech', 'EcoWear', 'SecureHome', 'Samsung', 'Apple', 'Nike', 'Adidas', 'Coca-Cola', 'Pepsi']);
+          // Fallback brands (common Indian FMCG brands)
+          setBrands(['HUL', 'ITC', 'Nestle', 'Britannia', 'Parle', 'Dabur', 'Colgate', 'P&G', 'Amul', 'Marico']);
           return;
         }
         
-        const { data, error } = await supabase
-          .from('master_products')
-          .select('brand')
-          .not('brand', 'is', null)
-          .order('brand');
+        // Common/prefilled brands (popular Indian FMCG brands)
+        const prefilledBrands = [
+          // Major FMCG Companies
+          'HUL', 'Hindustan Unilever', 'Unilever',
+          'ITC',
+          'Nestle', 'Nestlé', 'Nestlé India',
+          'Britannia',
+          'Parle',
+          'Dabur',
+          'Colgate', 'Colgate-Palmolive',
+          'P&G', 'Procter & Gamble',
+          'Amul',
+          'Marico',
+          'Godrej',
+          'Tata',
+          'Coca-Cola',
+          'Pepsi',
+          'Cadbury',
+          'Mondelez',
+          // Popular Indian Brands
+          'Red Label', 'Taj Mahal', 'Brooke Bond',
+          'Maggi', 'KitKat', 'Nescafe',
+          'Sunfeast', 'Yippee', 'Bingo',
+          'Lay\'s', 'Kurkure', 'Cheetos',
+          'Thums Up', 'Sprite', 'Fanta', 'Limca',
+          'Horlicks', 'Boost', 'Complan',
+          'Oreo', 'Parle-G', 'Monaco', 'Krackjack',
+          'Bournvita', 'Lactogen',
+          'Dettol', 'Savlon', 'Harpic', 'Lizol',
+          'Pepsodent', 'Sensodyne', 'Close-Up',
+          'Ariel', 'Surf Excel', 'Tide', 'Rin',
+          'Fair & Lovely', 'Ponds', 'Lakme',
+          'Vim', 'Lux', 'Dove', 'Lifebuoy',
+          'Himalaya', 'Dabur Real', 'Tropicana',
+          'Mother Dairy', 'Kwality',
+          'Dairy Milk', 'Perk', '5 Star', 'Gems',
+          'Haldiram\'s',
+        ];
         
-        if (error) {
-          console.error('Error fetching brands:', error);
-          // Set fallback brands if database query fails
-          setBrands(['AudioTech', 'EcoWear', 'SecureHome', 'Samsung', 'Apple', 'Nike', 'Adidas', 'Coca-Cola', 'Pepsi']);
-          return;
+        const allBrands = new Set<string>();
+        
+        // Add prefilled brands
+        prefilledBrands.forEach(brand => {
+          if (brand) allBrands.add(brand.trim());
+        });
+        
+        // Fetch unique brands from products table
+        try {
+          const { data: productsData, error: productsError } = await supabase
+            .from('products')
+            .select('brand')
+            .not('brand', 'is', null)
+            .neq('brand', '')
+            .order('brand', { ascending: true });
+          
+          if (!productsError && productsData) {
+            productsData.forEach((item: any) => {
+              if (item.brand && typeof item.brand === 'string' && item.brand.trim()) {
+                // Normalize brand name: trim and capitalize first letter
+                const normalizedBrand = item.brand.trim();
+                allBrands.add(normalizedBrand);
+              }
+            });
+          } else if (productsError) {
+            console.warn('Error fetching brands from products table:', productsError);
+          }
+        } catch (error) {
+          console.warn('Error fetching brands from products table:', error);
         }
         
-        console.log('Fetched brands data:', data);
-        // Extract unique brand names
-        const uniqueBrands = Array.from(new Set(data.map((item: any) => item.brand))).filter(Boolean) as string[];
-        console.log('Unique brands:', uniqueBrands);
+        // Fetch unique brands from master_products table
+        try {
+          const { data: masterProductsData, error: masterProductsError } = await supabase
+            .from('master_products')
+            .select('brand')
+            .not('brand', 'is', null)
+            .neq('brand', '')
+            .order('brand', { ascending: true });
         
-        // If no brands found in database, use fallback brands
-        if (uniqueBrands.length === 0) {
-          setBrands(['AudioTech', 'EcoWear', 'SecureHome', 'Samsung', 'Apple', 'Nike', 'Adidas', 'Coca-Cola', 'Pepsi']);
-        } else {
+          if (!masterProductsError && masterProductsData) {
+            masterProductsData.forEach((item: any) => {
+              if (item.brand && typeof item.brand === 'string' && item.brand.trim()) {
+                // Normalize brand name: trim
+                const normalizedBrand = item.brand.trim();
+                allBrands.add(normalizedBrand);
+              }
+            });
+          } else if (masterProductsError) {
+            console.warn('Error fetching brands from master_products table:', masterProductsError);
+          }
+        } catch (error) {
+          console.warn('Error fetching brands from master_products table:', error);
+        }
+        
+        // Convert to sorted array (case-insensitive sort, but preserve original case)
+        const uniqueBrands = Array.from(allBrands)
+          .filter(Boolean)
+          .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+        
+        console.log('Fetched unique brands:', uniqueBrands.length, uniqueBrands.slice(0, 10));
+        
+        if (uniqueBrands.length > 0) {
           setBrands(uniqueBrands);
+        } else {
+        // If no brands found in database, use fallback brands
+          setBrands(prefilledBrands);
         }
       } catch (error) {
         console.error('Error fetching brands:', error);
         // Set fallback brands if there's an exception
-        setBrands(['AudioTech', 'EcoWear', 'SecureHome', 'Samsung', 'Apple', 'Nike', 'Adidas', 'Coca-Cola', 'Pepsi']);
+        setBrands(['HUL', 'ITC', 'Nestle', 'Britannia', 'Parle', 'Dabur', 'Colgate', 'P&G', 'Amul', 'Marico']);
       }
     };
 
@@ -148,35 +251,85 @@ const ExtractedProductEditor: React.FC<ExtractedProductEditorProps> = ({
     }
   }, [open, extractedProducts]);
 
-  const updateProduct = (id: string, field: string, value: any) => {
+  const updateProduct = useCallback((id: string, field: string, value: any) => {
     setEditableProducts(prev => prev.map(product => 
       product.id === id 
         ? { ...product, [field]: value, edited: true }
         : product
     ));
-  };
 
-  // Search for product image using the image searcher
+    // If updating brand field, check if it's a new brand and add it to the brands list
+    if (field === 'brand' && value && typeof value === 'string' && value.trim()) {
+      const brandName = value.trim();
+      setBrands(prev => {
+        // Check if brand already exists (case-insensitive)
+        const exists = prev.some(b => b.toLowerCase() === brandName.toLowerCase());
+        if (!exists) {
+          // Add new brand to list and sort
+          const updatedBrands = [...prev, brandName].sort();
+          return updatedBrands;
+        }
+        return prev;
+      });
+    }
+  }, []);
+
+  // Search for product image using API route
   const searchForProductImage = async (productName: string) => {
     try {
-      const imageUrl = await searchProductImage(productName);
-      return imageUrl;
+      // Call existing API route for image search (server-side only)
+      const response = await fetch('/api/admin/scrape-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productName }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Image search failed');
+      }
+
+      const data = await response.json();
+      return data.imageUrl || 'https://via.placeholder.com/400x400/cccccc/666666?text=No+Image';
     } catch (error) {
       console.error('Error searching for image:', error);
       return 'https://via.placeholder.com/400x400/cccccc/666666?text=No+Image';
     }
   };
 
-  const handleImageSearch = async (productId: string) => {
+  /**
+   * Handle image search for a product - runs in background without blocking UI
+   * Requirements: 2.5 - Image search runs in background, doesn't block text input
+   * 
+   * Uses a ref to access current product state to avoid stale closures,
+   * and runs the search asynchronously without awaiting in the main flow.
+   */
+  const handleImageSearch = useCallback((productId: string) => {
+    // Get product name from current state using a ref-like pattern
+    // This avoids the problematic setState-to-read pattern
+    const product = editableProductsRef.current.find(p => p.id === productId);
+    if (!product) {
+      toast.error('Product not found');
+      return;
+    }
+
+    const productName = product.name;
+    if (!productName) {
+      toast.error('Product name is required for image search');
+      return;
+    }
+
+    // Set loading state immediately (synchronous, non-blocking)
     setEditableProducts(prev => prev.map(p => 
       p.id === productId ? { ...p, imageSearching: true } : p
     ));
     
-    try {
-      const product = editableProducts.find(p => p.id === productId);
-      if (product) {
-        const imageUrl = await searchForProductImage(product.name);
+    // Run search in background - fire and forget pattern
+    // This ensures the search doesn't block any UI interactions
+    const runBackgroundSearch = async () => {
+      try {
+        const imageUrl = await searchForProductImage(productName);
         
+        // Update state with result - only affects this specific product
         setEditableProducts(prev => prev.map(p => 
           p.id === productId 
             ? { ...p, imageUrl, imageSearching: false, edited: true }
@@ -184,17 +337,20 @@ const ExtractedProductEditor: React.FC<ExtractedProductEditorProps> = ({
         ));
         
         toast.success('Image found successfully!');
+      } catch (error) {
+        console.error('Error searching for image:', error);
+        setEditableProducts(prev => prev.map(p => 
+          p.id === productId ? { ...p, imageSearching: false } : p
+        ));
+        toast.error('Failed to find image');
       }
-    } catch (error) {
-      console.error('Error searching for image:', error);
-      setEditableProducts(prev => prev.map(p => 
-        p.id === productId ? { ...p, imageSearching: false } : p
-      ));
-      toast.error('Failed to find image');
-    }
-  };
+    };
 
-  const handleManualImageUrl = (productId: string, imageUrl: string) => {
+    // Execute without awaiting - truly non-blocking
+    runBackgroundSearch();
+  }, []);
+
+  const handleManualImageUrl = useCallback((productId: string, imageUrl: string) => {
     if (imageUrl.trim()) {
       setEditableProducts(prev => prev.map(product => 
         product.id === productId 
@@ -207,9 +363,9 @@ const ExtractedProductEditor: React.FC<ExtractedProductEditorProps> = ({
       ));
       toast.success('Image URL updated!');
     }
-  };
+  }, []);
 
-  const handleImageUpload = async (productId: string, file: File) => {
+  const handleImageUpload = useCallback((productId: string, file: File) => {
     try {
       // Validate file type
       if (!file.type.startsWith('image/')) {
@@ -248,21 +404,21 @@ const ExtractedProductEditor: React.FC<ExtractedProductEditorProps> = ({
       console.error('Error uploading image:', error);
       toast.error('Failed to upload image');
     }
-  };
+  }, []);
 
-  const handleFileInputChange = (productId: string, event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileInputChange = useCallback((productId: string, event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       handleImageUpload(productId, file);
     }
     // Reset the input value to allow selecting the same file again
     event.target.value = '';
-  };
+  }, [handleImageUpload]);
 
-  const handleDeleteProduct = (productId: string) => {
+  const handleDeleteProduct = useCallback((productId: string) => {
     setEditableProducts(prev => prev.filter(p => p.id !== productId));
     toast.success('Product removed from list');
-  };
+  }, []);
 
   const handleConfirm = async () => {
     // Validate required fields
@@ -298,9 +454,81 @@ const ExtractedProductEditor: React.FC<ExtractedProductEditorProps> = ({
     }
   };
 
-  const getAvailableSubcategories = (category: string) => {
-    return subcategories[category] || [];
-  };
+  // Row props for virtualized list - contains all data needed by row component
+  // Note: index, style, and ariaAttributes are automatically provided by List component
+  interface VirtualizedRowProps {
+    products: EditableProduct[];
+    rowBrands: string[];
+    rowUpdateProduct: (id: string, field: string, value: any) => void;
+    rowImageSearch: (productId: string) => void;
+    rowImageUpload: (productId: string, event: React.ChangeEvent<HTMLInputElement>) => void;
+    rowDelete: (productId: string) => void;
+    rowManualImageUrl: (productId: string, imageUrl: string) => void;
+  }
+
+  // Virtualized row renderer - renders 2 products per row (matching md:6 grid)
+  const VirtualizedRow = useCallback((props: { 
+    index: number; 
+    style: React.CSSProperties;
+    ariaAttributes: {
+      'aria-posinset': number;
+      'aria-setsize': number;
+      role: 'listitem';
+    };
+  } & VirtualizedRowProps) => {
+    const { 
+      index, 
+      style,
+      products,
+      rowBrands,
+      rowUpdateProduct,
+      rowImageSearch,
+      rowImageUpload,
+      rowDelete,
+      rowManualImageUrl
+    } = props;
+    
+    const startIndex = index * 2;
+    const product1 = products[startIndex];
+    const product2 = products[startIndex + 1];
+
+    return (
+      <div style={{ ...style, paddingRight: 8 }}>
+        <Grid container spacing={3}>
+          {product1 && (
+            <Grid item xs={12} md={6}>
+              <ProductCard
+                product={product1}
+                brands={rowBrands}
+                onUpdateProduct={rowUpdateProduct}
+                onImageSearch={rowImageSearch}
+                onImageUpload={rowImageUpload}
+                onDelete={rowDelete}
+                onManualImageUrl={rowManualImageUrl}
+              />
+            </Grid>
+          )}
+          {product2 && (
+            <Grid item xs={12} md={6}>
+              <ProductCard
+                product={product2}
+                brands={rowBrands}
+                onUpdateProduct={rowUpdateProduct}
+                onImageSearch={rowImageSearch}
+                onImageUpload={rowImageUpload}
+                onDelete={rowDelete}
+                onManualImageUrl={rowManualImageUrl}
+              />
+            </Grid>
+          )}
+        </Grid>
+      </div>
+    );
+  }, []);
+
+  // Calculate number of rows for virtualization (2 products per row)
+  const rowCount = Math.ceil(editableProducts.length / 2);
+  const shouldVirtualize = editableProducts.length > VIRTUALIZATION_THRESHOLD;
 
   return (
     <Dialog 
@@ -323,7 +551,7 @@ const ExtractedProductEditor: React.FC<ExtractedProductEditorProps> = ({
       
       <DialogContent dividers>
         {/* Global Seller Selection */}
-        <Card sx={{ mb: 3, bgcolor: 'primary.50' }}>
+        <Card className="seller-selection-card" sx={{ mb: 3, bgcolor: 'primary.50' }}>
           <CardContent sx={{ pb: 3 }}>
             <Typography variant="h6" gutterBottom>
               Seller Selection
@@ -387,309 +615,49 @@ const ExtractedProductEditor: React.FC<ExtractedProductEditorProps> = ({
           </CardContent>
         </Card>
 
-        {/* Product Cards */}
-        <Grid container spacing={3}>
-          {editableProducts.map((product) => (
-            <Grid item xs={12} md={6} key={product.id}>
-              <Card 
-                sx={{ 
-                  height: '100%',
-                  border: product.edited ? '2px solid' : '1px solid',
-                  borderColor: product.edited ? 'success.main' : 'divider'
-                }}
-              >
-                <CardContent>
-                  {/* Product Header */}
-                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                    {product.imageUrl ? (
-                      <Box sx={{ position: 'relative', mr: 2 }}>
-                        <Avatar 
-                          src={product.imageUrl} 
-                          sx={{ 
-                            width: 60, 
-                            height: 60,
-                            border: '2px solid',
-                            borderColor: product.imageUrl.startsWith('data:') ? 'success.main' : 'primary.main'
-                          }}
-                          variant="rounded"
-                        />
-                        {product.imageUrl.startsWith('data:') && (
-                          <Chip
-                            size="small"
-                            label="Uploaded"
-                            color="success"
-                            sx={{ 
-                              position: 'absolute', 
-                              bottom: -8, 
-                              left: '50%', 
-                              transform: 'translateX(-50%)',
-                              fontSize: '0.6rem',
-                              height: 16
-                            }}
-                          />
-                        )}
-                      </Box>
-                    ) : (
-                      <Avatar 
-                        sx={{ width: 60, height: 60, mr: 2, bgcolor: 'grey.300' }}
-                        variant="rounded"
-                      >
-                        <Image />
-                      </Avatar>
-                    )}
-                    <Box sx={{ flexGrow: 1 }}>
-                      <Typography variant="h6" noWrap>
-                        {product.name}
-                      </Typography>
-                      <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
-                        <Chip 
-                          size="small" 
-                          label={`₹${product.price}`} 
-                          color="primary" 
-                        />
-                        <Chip 
-                          size="small" 
-                          label={`${product.quantity} ${product.unit}`} 
-                          variant="outlined" 
-                        />
-                        <Chip 
-                          size="small" 
-                          label={`${Math.round(product.confidence * 100)}% confidence`} 
-                          color={product.confidence > 0.8 ? 'success' : 'warning'}
-                        />
-                      </Box>
-                    </Box>
-                    <Box sx={{ display: 'flex', gap: 1 }}>
-                      <IconButton 
-                        onClick={() => handleImageSearch(product.id)}
-                        disabled={product.imageSearching}
-                        color="primary"
-                        title="Search for product image"
-                      >
-                        {product.imageSearching ? (
-                          <CircularProgress size={20} />
-                        ) : (
-                          <PhotoLibrary />
-                        )}
-                      </IconButton>
-                      <IconButton 
-                        component="label"
-                        color="secondary"
-                        title="Upload product image"
-                      >
-                        <CloudUpload />
-                        <input
-                          type="file"
-                          hidden
-                          accept="image/*"
-                          onChange={(e) => handleFileInputChange(product.id, e)}
-                        />
-                      </IconButton>
-                      <IconButton 
-                        onClick={() => handleDeleteProduct(product.id)}
-                        color="error"
-                        title="Remove product"
-                      >
-                        <Delete />
-                      </IconButton>
-                    </Box>
-                  </Box>
-
-                  <Divider sx={{ mb: 2 }} />
-
-                  {/* Editable Fields */}
-                  <Grid container spacing={2}>
-                    <Grid item xs={12}>
-                      <TextField
-                        fullWidth
-                        label="Product Name"
-                        value={product.name}
-                        onChange={(e) => updateProduct(product.id, 'name', e.target.value)}
-                        size="small"
-                      />
-                    </Grid>
-                    
-                    <Grid item xs={6}>
-                      <TextField
-                        fullWidth
-                        label="Unit Price (₹)"
-                        type="number"
-                        value={product.price || ''}
-                        onChange={(e) => updateProduct(product.id, 'price', parseFloat(e.target.value) || '')}
-                        size="small"
-                      />
-                    </Grid>
-                    
-                    <Grid item xs={6}>
-                      <TextField
-                        fullWidth
-                        label="Quantity"
-                        type="number"
-                        value={product.quantity || ''}
-                        onChange={(e) => updateProduct(product.id, 'quantity', parseFloat(e.target.value) || '')}
-                        size="small"
-                      />
-                    </Grid>
-
-                    <Grid item xs={6}>
-                      <Autocomplete
-                        fullWidth
-                        size="small"
-                        options={[...categories, ...customCategories]}
-                        value={product.category}
-                        onChange={(event, newValue) => {
-                          updateProduct(product.id, 'category', newValue || '');
-                          updateProduct(product.id, 'subcategory', ''); // Reset subcategory
-                        }}
-                        freeSolo
-                        onInputChange={(event, newInputValue) => {
-                          if (newInputValue && !categories.includes(newInputValue) && !customCategories.includes(newInputValue)) {
-                            setCustomCategories(prev => [...prev, newInputValue]);
-                          }
-                        }}
-                        renderInput={(params) => (
-                          <TextField
-                            {...params}
-                            label="Category"
-                            placeholder="Select or enter category"
-                          />
-                        )}
-                      />
-                    </Grid>
-
-                    <Grid item xs={6}>
-                      <Autocomplete
-                        fullWidth
-                        size="small"
-                        options={[...getAvailableSubcategories(product.category), ...customSubcategories]}
-                        value={product.subcategory}
-                        onChange={(event, newValue) => {
-                          updateProduct(product.id, 'subcategory', newValue || '');
-                        }}
-                        freeSolo
-                        disabled={!product.category}
-                        onInputChange={(event, newInputValue) => {
-                          if (newInputValue && !getAvailableSubcategories(product.category).includes(newInputValue) && !customSubcategories.includes(newInputValue)) {
-                            setCustomSubcategories(prev => [...prev, newInputValue]);
-                          }
-                        }}
-                        renderInput={(params) => (
-                          <TextField
-                            {...params}
-                            label="Subcategory"
-                            placeholder="Select or enter subcategory"
-                          />
-                        )}
-                      />
-                    </Grid>
-
-                    <Grid item xs={6}>
-                      <Autocomplete
-                        fullWidth
-                        size="small"
-                        options={brands}
-                        value={product.brand}
-                        onChange={(event, newValue) => {
-                          updateProduct(product.id, 'brand', newValue || '');
-                        }}
-                        freeSolo
-                        renderInput={(params) => (
-                          <TextField
-                            {...params}
-                            label="Brand"
-                            placeholder="Select or enter brand"
-                          />
-                        )}
-                      />
-                    </Grid>
-
-                    <Grid item xs={4}>
-                      <TextField
-                        fullWidth
-                        label="Min Order Quantity"
-                        type="number"
-                        value={product.min_order_quantity || ''}
-                        onChange={(e) => updateProduct(product.id, 'min_order_quantity', parseInt(e.target.value) || '')}
-                        size="small"
-                      />
-                    </Grid>
-
-                    <Grid item xs={2}>
-                      <FormControl fullWidth size="small">
-                        <InputLabel>Unit</InputLabel>
-                        <Select
-                          value={product.unit_type}
-                          onChange={(e) => updateProduct(product.id, 'unit_type', e.target.value)}
-                          label="Unit"
-                        >
-                          <MenuItem value="pieces">Pieces</MenuItem>
-                          <MenuItem value="g">g</MenuItem>
-                          <MenuItem value="kg">kg</MenuItem>
-                          <MenuItem value="ml">ml</MenuItem>
-                          <MenuItem value="l">L</MenuItem>
-                          <MenuItem value="box">Box</MenuItem>
-                          <MenuItem value="carton">Carton</MenuItem>
-                          <MenuItem value="pack">Pack</MenuItem>
-                          <MenuItem value="bottle">Bottle</MenuItem>
-                          <MenuItem value="can">Can</MenuItem>
-                        </Select>
-                      </FormControl>
-                    </Grid>
-
-
-
-                    <Grid item xs={12}>
-                      <TextField
-                        fullWidth
-                        label="Description"
-                        multiline
-                        rows={2}
-                        value={product.description}
-                        onChange={(e) => updateProduct(product.id, 'description', e.target.value)}
-                        size="small"
-                      />
-                    </Grid>
-
-                    <Grid item xs={12}>
-                      <TextField
-                        fullWidth
-                        label="Product Image URL (Optional)"
-                        value={product.imageUrl && !product.imageUrl.startsWith('data:') ? product.imageUrl : ''}
-                        onChange={(e) => handleManualImageUrl(product.id, e.target.value)}
-                        size="small"
-                        placeholder="https://example.com/product-image.jpg"
-                        InputProps={{
-                          startAdornment: <Link sx={{ mr: 1, color: 'text.secondary' }} />
-                        }}
-                        helperText={product.imageUrl?.startsWith('data:') 
-                          ? "Image uploaded successfully. You can also enter a URL to replace it." 
-                          : "Enter a direct image URL, upload an image using the upload button, or search for one using the gallery button above"
-                        }
-                        disabled={product.imageSearching}
-                      />
-                    </Grid>
-                  </Grid>
-
-                  {/* Status Indicator */}
-                  {product.edited && (
-                    <Box sx={{ display: 'flex', alignItems: 'center', mt: 2, color: 'success.main' }}>
-                      <CheckCircle sx={{ mr: 1, fontSize: 16 }} />
-                      <Typography variant="caption">
-                        Product has been edited
-                      </Typography>
-                    </Box>
-                  )}
-                </CardContent>
-              </Card>
+        {/* Product Cards - Using virtualization for large lists, regular grid for small lists */}
+        <div ref={containerRef} style={{ width: '100%' }}>
+          {editableProducts.length === 0 ? (
+            <Alert severity="info" sx={{ mt: 2 }}>
+              No products extracted from receipt. Please try scanning again with a clearer image.
+            </Alert>
+          ) : shouldVirtualize ? (
+            /* Virtualized list for large product lists - Requirements: 2.4 */
+            <List
+              style={{ height: containerHeight, width: containerWidth || '100%' }}
+              rowCount={rowCount}
+              rowHeight={PRODUCT_ROW_HEIGHT}
+              overscanCount={2}
+              rowComponent={VirtualizedRow}
+              rowProps={{
+                products: editableProducts,
+                rowBrands: brands,
+                rowUpdateProduct: updateProduct,
+                rowImageSearch: handleImageSearch,
+                rowImageUpload: handleFileInputChange,
+                rowDelete: handleDeleteProduct,
+                rowManualImageUrl: handleManualImageUrl
+              }}
+            />
+          ) : (
+            /* Regular grid for small product lists */
+            <Grid container spacing={3}>
+              {editableProducts.map((product) => (
+                <Grid item xs={12} md={6} key={product.id}>
+                  <ProductCard
+                    product={product}
+                    brands={brands}
+                    onUpdateProduct={updateProduct}
+                    onImageSearch={handleImageSearch}
+                    onImageUpload={handleFileInputChange}
+                    onDelete={handleDeleteProduct}
+                    onManualImageUrl={handleManualImageUrl}
+                  />
+                </Grid>
+              ))}
             </Grid>
-          ))}
-        </Grid>
-
-        {editableProducts.length === 0 && (
-          <Alert severity="info" sx={{ mt: 2 }}>
-            No products extracted from receipt. Please try scanning again with a clearer image.
-          </Alert>
-        )}
+          )}
+        </div>
       </DialogContent>
       
       <DialogActions sx={{ p: 3 }}>

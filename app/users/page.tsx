@@ -149,10 +149,10 @@ export default function UsersPage() {
         } else {
           // For retailers, use business_details
           shopName = businessDetails.shopName || 
-                     businessDetails.business_name || 
-                     businessDetails.shop_name ||
-                     businessDetails.name ||
-                     null;
+                         businessDetails.business_name || 
+                         businessDetails.shop_name ||
+                         businessDetails.name ||
+                         null;
         }
         
         return {
