@@ -51,17 +51,13 @@ import {
 } from '@mui/icons-material';
 import { adminQueries } from '@/lib/supabase-browser';
 import toast from 'react-hot-toast';
-import { processReceiptImage, UnifiedExtractedProduct as ExtractedProduct } from '@/lib/unifiedOCR';
 import { Product } from '@/types';
-import ExtractedProductEditor from '@/components/ExtractedProductEditor';
 import ProductImageEditor from '@/components/ProductImageEditor';
 import CategorySelector, { CategorySelectorValue } from '@/components/CategorySelector';
 import { useRouter } from 'next/navigation';
 import ReceiptScanner from '@/components/ReceiptScanner';
 import ReceiptExtractionPreview from '@/components/ReceiptExtractionPreview';
-import ReceiptProductEditor from '@/components/ReceiptProductEditor';
 import ReceiptScannerV2 from '@/components/ReceiptScannerV2';
-import ReceiptProductEditorV2 from '@/components/ReceiptProductEditorV2';
 import { ScanReceiptResponse, ExtractedReceiptProduct, ReceiptMetadata } from '@/lib/receiptTypes';
 import { ExtractedProductV2 } from '@/lib/receiptExtractionV2';
 
@@ -85,6 +81,12 @@ export default function ProductsPage() {
     lowStock: 0,
   });
   const [loading, setLoading] = useState(true);
+  const [statsLoading, setStatsLoading] = useState({
+    totalProducts: true,
+    activeProducts: true,
+    outOfStock: true,
+    lowStock: true,
+  });
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCategory, setFilterCategory] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
@@ -108,10 +110,10 @@ export default function ProductsPage() {
     min_order_quantity: '1',
     images: [] as string[]
   });
-  
+
   // Product name suggestions
   const [productSuggestions, setProductSuggestions] = useState<string[]>([]);
-  
+
   const unitOptions = [
     'piece',
     'kg',
@@ -134,7 +136,7 @@ export default function ProductsPage() {
     'roll',
     'sheet'
   ];
-  
+
 
   const [imageFiles, setImageFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -144,13 +146,13 @@ export default function ProductsPage() {
   const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  
+
   // Master products dialog states
   const [masterProductsDialogOpen, setMasterProductsDialogOpen] = useState(false);
   const [masterProducts, setMasterProducts] = useState<any[]>([]);
   const [selectedMasterProduct, setSelectedMasterProduct] = useState<any>(null);
   const [masterProductLoading, setMasterProductLoading] = useState(false);
-  
+
   // Master products pagination and search state
   const [masterProductsPage, setMasterProductsPage] = useState(1);
   const [masterProductsPageSize] = useState(12); // 12 products per page (3x4 grid)
@@ -165,30 +167,63 @@ export default function ProductsPage() {
     unit: 'piece',
     description: ''
   });
-  
-  // Receipt scanning states (GitHub repo style)
-  const [receiptProcessing, setReceiptProcessing] = useState(false);
-  const [receiptImage, setReceiptImage] = useState<string | null>(null);
-  const [extractedProducts, setExtractedProducts] = useState<ExtractedProduct[]>([]);
-  const [receiptScanDialogOpen, setReceiptScanDialogOpen] = useState(false);
-  const [extractedProductEditorOpen, setExtractedProductEditorOpen] = useState(false);
+
 
   // Receipt scanning 2.0 states (using full receipt scanning system)
   const [receiptScanResult, setReceiptScanResult] = useState<ScanReceiptResponse | null>(null);
   const [receiptExtractionPreviewOpen, setReceiptExtractionPreviewOpen] = useState(false);
-  const [receiptProductEditorOpen, setReceiptProductEditorOpen] = useState(false);
-  
+
   // Scan Receipts 2.0 states (NEW - enhanced AI-powered extraction)
   const [receiptScanV2DialogOpen, setReceiptScanV2DialogOpen] = useState(false);
-  const [receiptProductsV2, setReceiptProductsV2] = useState<ExtractedProductV2[]>([]);
-  const [receiptProductEditorV2Open, setReceiptProductEditorV2Open] = useState(false);
 
 
 
   useEffect(() => {
     loadProducts();
     loadStats();
+
+    // Check if products were added (flag set by extracted page)
+    const productsAdded = sessionStorage.getItem('productsAdded');
+    if (productsAdded === 'true') {
+      // Refresh stats and products to show updated counts
+      loadStats();
+      loadProducts();
+      sessionStorage.removeItem('productsAdded');
+    }
   }, [page, pageSize, searchTerm, filterCategory, filterStatus, filterSeller]);
+
+  // Also refresh when page becomes visible (e.g., after returning from extracted page)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        // Check if products were added (flag set by extracted page)
+        const productsAdded = sessionStorage.getItem('productsAdded');
+        if (productsAdded === 'true') {
+          loadStats();
+          loadProducts();
+          sessionStorage.removeItem('productsAdded');
+        }
+      }
+    };
+
+    // Also check on focus (when user switches back to tab)
+    const handleFocus = () => {
+      const productsAdded = sessionStorage.getItem('productsAdded');
+      if (productsAdded === 'true') {
+        loadStats();
+        loadProducts();
+        sessionStorage.removeItem('productsAdded');
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, []);
 
   // Define loadSellers before useEffect hooks that use it
   const loadSellers = useCallback(async () => {
@@ -198,7 +233,7 @@ export default function ProductsPage() {
       console.log('Loaded sellers in products page:', sellers);
       console.log('Sellers count:', sellers?.length || 0);
       console.log('Sellers sample:', sellers?.[0]);
-      
+
       if (sellers && Array.isArray(sellers)) {
         // Only filter out sellers without an id - don't require business_name
         const validSellers = sellers.filter(seller => {
@@ -217,7 +252,7 @@ export default function ProductsPage() {
           }
           return true;
         });
-        
+
         console.log('Loaded sellers - Total:', sellers.length, 'Valid:', validSellers.length);
         console.log('Sellers with business_name:', validSellers.filter(s => s.business_name).length);
         console.log('All sellers:', validSellers.map(s => ({
@@ -226,7 +261,7 @@ export default function ProductsPage() {
           display_name: s.display_name,
           phone_number: s.phone_number
         })));
-        
+
         setSellers(validSellers);
         if (validSellers.length === 0) {
           console.error('No sellers found after filtering');
@@ -292,7 +327,7 @@ export default function ProductsPage() {
           name: s.business_name || s.display_name || s.phone_number
         }))
       });
-      
+
       // If no sellers are loaded, reload them
       if (sellers.length === 0 && !loadingSellers) {
         console.log('No sellers found when product selected, reloading sellers...');
@@ -314,18 +349,6 @@ export default function ProductsPage() {
     });
   }, [sellers, loadingSellers]);
 
-  // Debug log for extracted products
-  useEffect(() => {
-    console.log('=== EXTRACTED PRODUCTS STATE CHANGED ===');
-    console.log('extractedProducts:', extractedProducts);
-    console.log('extractedProducts length:', extractedProducts.length);
-    if (extractedProducts.length > 0) {
-      console.log('First product:', extractedProducts[0]);
-      console.log('All products:', extractedProducts);
-    }
-  }, [extractedProducts]);
-
-  
   // Load product name suggestions from existing products
   const loadProductSuggestions = async () => {
     try {
@@ -338,7 +361,7 @@ export default function ProductsPage() {
       console.error('Error loading product suggestions:', error);
     }
   };
-  
+
   const handleViewProduct = (product: Product) => {
     setSelectedProduct(product);
     setDialogOpen(true);
@@ -354,7 +377,7 @@ export default function ProductsPage() {
 
     try {
       setDeleting(true);
-      
+
       // Delete products via API
       const response = await fetch(`/api/admin/products?ids=${selectedProducts.join(',')}`, {
         method: 'DELETE',
@@ -380,7 +403,7 @@ export default function ProductsPage() {
 
   const handleUpdateProduct = async () => {
     if (!editingProduct) return;
-    
+
     try {
       setUploading(true);
       await adminQueries.updateProduct(editingProduct.id, {
@@ -392,7 +415,7 @@ export default function ProductsPage() {
         stock_available: editingProduct.stock_available,
         status: editingProduct.status || 'available'
       });
-      
+
       setEditDialogOpen(false);
       setEditingProduct(null);
       loadProducts();
@@ -419,19 +442,19 @@ export default function ProductsPage() {
   const handleImageUpdate = (newImageUrl: string) => {
     if (editingProductForImage) {
       // Update the product in the local state
-      setProducts(prevProducts => 
-        prevProducts.map(product => 
-          product.id === editingProductForImage.id 
+      setProducts(prevProducts =>
+        prevProducts.map(product =>
+          product.id === editingProductForImage.id
             ? { ...product, image_url: newImageUrl, images: [newImageUrl] }
             : product
         )
       );
-      
+
       // Also update editingProduct if it's the same product
       if (editingProduct && editingProduct.id === editingProductForImage.id) {
         setEditingProduct(prev => prev ? { ...prev, image_url: newImageUrl, images: [newImageUrl] } : null);
       }
-      
+
       toast.success('Product image updated successfully!');
     }
   };
@@ -470,12 +493,12 @@ export default function ProductsPage() {
       for (const file of imageFiles) {
         const formData = new FormData();
         formData.append('file', file);
-        
+
         const response = await fetch('/api/admin/upload-product-image', {
           method: 'POST',
           body: formData,
         });
-        
+
         if (response.ok) {
           const result = await response.json();
           if (result.success && result.url) {
@@ -484,7 +507,11 @@ export default function ProductsPage() {
         }
       }
 
-      // Add product with image URLs
+      // Add product with image URLs and tracking
+      const adminSession = localStorage.getItem('admin_session');
+      const sessionId = localStorage.getItem('tracking_session_id');
+      const admin = adminSession ? JSON.parse(adminSession) : null;
+
       const productData = {
         name: newProduct.name,
         description: newProduct.description,
@@ -496,11 +523,14 @@ export default function ProductsPage() {
         unit: newProduct.unit,
         min_order_quantity: parseInt(newProduct.min_order_quantity) || 1,
         images: imageUrls,
-        status: 'available'
+        status: 'available',
+        // Add tracking info
+        admin_id: admin?.id,
+        session_id: sessionId,
       };
 
       await adminQueries.addProduct(productData);
-      
+
       // Reset form
       setNewProduct({
         name: '',
@@ -516,11 +546,13 @@ export default function ProductsPage() {
       });
       setImageFiles([]);
       setAddDialogOpen(false);
-      
-      // Refresh products list
-      loadProducts();
-      loadStats();
-      
+
+      // Refresh products list and stats with a small delay to ensure database commit
+      setTimeout(() => {
+        loadProducts();
+        loadStats();
+      }, 500);
+
       toast.success('Product added successfully!');
     } catch (error: any) {
       console.error('Error adding product:', error);
@@ -538,167 +570,7 @@ export default function ProductsPage() {
   const removeImage = (index: number) => {
     setImageFiles(prev => prev.filter((_, i) => i !== index));
   };
-  
-  // Receipt scanning handlers (GitHub repo style)
-  const handleReceiptUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    
-    // Validate file type
-    if (!file.type.startsWith('image/')) {
-      toast.error('Please upload a valid image file');
-      return;
-    }
-    
-    // Validate file size (max 10MB)
-    if (file.size > 10 * 1024 * 1024) {
-      toast.error('Image size should be less than 10MB');
-      return;
-    }
-    
-    setReceiptProcessing(true);
-    setReceiptImage(URL.createObjectURL(file));
-    // Don't clear extracted products immediately - wait for new results
-    
-    try {
-      // Convert File to Buffer
-      const arrayBuffer = await file.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
-      
-      const result = await processReceiptImage(buffer, 'aws');
-      
-      console.log('=== RECEIPT PROCESSING RESULT ===');
-      console.log('Full result:', result);
-      console.log('Products array:', result.data?.products);
-      console.log('Products length:', result.data?.products?.length || 0);
-      
-      // Clear previous results first
-      setExtractedProducts([]);
-      
-      // Small delay to ensure state is cleared
-      setTimeout(() => {
-        if (result.data?.products && result.data.products.length > 0) {
-          console.log('Setting extracted products:', result.data.products);
-          setExtractedProducts(result.data.products);
-          setReceiptScanDialogOpen(false);
-          setExtractedProductEditorOpen(true);
-          toast.success(`Extracted ${result.data.products.length} products from receipt!`);
-        } else {
-          console.log('No products found in result');
-          toast.error('Receipt processed but no products found. Please try again with a clearer image.');
-        }
-      }, 100);
-    } catch (error) {
-      console.error('Receipt processing error:', error);
-      setExtractedProducts([]);
-      toast.error('Failed to process receipt. Please try again.');
-    } finally {
-      setReceiptProcessing(false);
-    }
-    
-    // Clear the input
-    event.target.value = '';
-  };
-  
-  const fillProductFromExtracted = (extractedProduct: ExtractedProduct) => {
-    setNewProduct({
-      name: extractedProduct.name,
-      price: extractedProduct.price.toString(),
-      stock: extractedProduct.quantity?.toString() || '',
-      unit: extractedProduct.unit || 'piece',
-      description: 'Product extracted from receipt',
-      category: '',
-      subcategory: '',
-      seller_id: '',
-      min_order_quantity: '1',
-      images: []
-    });
-    
-    // Close receipt dialog and open add product dialog
-    setReceiptScanDialogOpen(false);
-    setAddDialogOpen(true);
-    
-    toast.success('Product details filled from receipt!');
-  };
 
-  const handleExtractedProductsConfirm = async (editedProducts: any[]) => {
-    try {
-      // Check for duplicates first
-      const duplicateChecks = await Promise.all(
-        editedProducts.map(async (product) => {
-          if (!product.seller_id) return null;
-          const response = await fetch('/api/admin/products/check-duplicate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              name: product.name.trim(),
-              seller_id: product.seller_id,
-            }),
-          });
-          if (response.ok) {
-            return await response.json();
-          }
-          return { isDuplicate: false };
-        })
-      );
-
-      // Filter out duplicates and show warnings
-      const productsToAdd: any[] = [];
-      const duplicateProducts: any[] = [];
-
-      editedProducts.forEach((product, index) => {
-        const duplicateCheck = duplicateChecks[index];
-        if (duplicateCheck?.isDuplicate) {
-          duplicateProducts.push({
-            product,
-            reason: duplicateCheck.reason,
-          });
-        } else {
-          productsToAdd.push(product);
-        }
-      });
-
-      // Show warning for duplicates
-      if (duplicateProducts.length > 0) {
-        const duplicateNames = duplicateProducts.map(d => d.product.name).join(', ');
-        const message = `${duplicateProducts.length} product(s) already exist: ${duplicateNames}\n\nDo you want to add the remaining ${productsToAdd.length} product(s)?`;
-        if (!window.confirm(message)) {
-          return;
-        }
-      }
-
-      // Add non-duplicate products
-      const addPromises = productsToAdd.map(async (product) => {
-        const productData = {
-          name: product.name,
-          description: product.description || 'Product extracted from receipt',
-          price: product.price,
-          category: product.category,
-          subcategory: product.subcategory,
-          seller_id: product.seller_id,
-          stock_available: product.quantity || 0,
-          unit: product.unit || 'piece',
-          min_order_quantity: product.min_order_quantity || 1,
-          images: product.imageUrl ? [product.imageUrl] : [],
-          status: 'available'
-        };
-        
-        return adminQueries.addProduct(productData);
-      });
-      
-      await Promise.all(addPromises);
-      
-      toast.success(`Successfully added ${editedProducts.length} products to inventory!`);
-      setExtractedProductEditorOpen(false);
-      setExtractedProducts([]);
-      loadProducts(); // Refresh the products list
-      loadStats();
-    } catch (error: any) {
-      console.error('Error adding extracted products:', error);
-      toast.error(error.message || 'Failed to add some products. Please try again.');
-      throw error;
-    }
-  };
 
   const loadProducts = async () => {
     try {
@@ -723,9 +595,17 @@ export default function ProductsPage() {
 
   const loadStats = async () => {
     try {
+      // Set all stats to loading
+      setStatsLoading({
+        totalProducts: true,
+        activeProducts: true,
+        outOfStock: true,
+        lowStock: true,
+      });
+
       // Use efficient stats API that queries database directly for counts
       const statsResult = await adminQueries.getProductStats();
-      
+
       setStats({
         totalProducts: statsResult.totalProducts || 0,
         activeProducts: statsResult.activeProducts || 0,
@@ -741,25 +621,33 @@ export default function ProductsPage() {
         outOfStock: 0,
         lowStock: 0,
       });
+    } finally {
+      // Clear all loading states
+      setStatsLoading({
+        totalProducts: false,
+        activeProducts: false,
+        outOfStock: false,
+        lowStock: false,
+      });
     }
   };
 
   const loadMasterProducts = async (resetPage = false) => {
     try {
       setMasterProductLoading(true);
-      
+
       const currentPage = resetPage ? 1 : masterProductsPage;
       if (resetPage) {
         setMasterProductsPage(1);
       }
-      
+
       const result = await adminQueries.getMasterProducts({
         page: currentPage,
         limit: masterProductsPageSize,
         search: masterProductsSearchTerm || undefined,
         category: masterProductsFilterCategory === 'all' ? undefined : masterProductsFilterCategory,
       });
-      
+
       setMasterProducts(result?.products || []);
       setMasterProductsTotalCount(result?.total || 0);
     } catch (error) {
@@ -778,7 +666,7 @@ export default function ProductsPage() {
 
     try {
       setUploading(true);
-      
+
       await adminQueries.addMasterProductToSeller({
         master_product_id: selectedMasterProduct.id,
         seller_id: sellerData.seller_id,
@@ -788,7 +676,7 @@ export default function ProductsPage() {
         unit: sellerData.unit,
         description: sellerData.description
       });
-      
+
       toast.success('Product added to seller inventory successfully!');
       setMasterProductsDialogOpen(false);
       setSelectedMasterProduct(null);
@@ -842,7 +730,7 @@ export default function ProductsPage() {
       const timeoutId = setTimeout(() => {
         loadMasterProducts();
       }, 300); // Debounce search
-      
+
       return () => clearTimeout(timeoutId);
     }
   }, [masterProductsSearchTerm, masterProductsFilterCategory, masterProductsPage, masterProductsDialogOpen]);
@@ -872,20 +760,20 @@ export default function ProductsPage() {
         // Get image URL from image_url field
         const imageUrl = params.value || params.row.image_url || null;
         return (
-        <Avatar
+          <Avatar
             src={imageUrl || undefined}
             alt={params.row.name || 'Product'}
-          variant="rounded"
-          sx={{ width: 40, height: 40 }}
+            variant="rounded"
+            sx={{ width: 40, height: 40 }}
             imgProps={{
               onError: (e) => {
                 // Hide broken image and show icon instead
                 e.currentTarget.style.display = 'none';
               }
             }}
-        >
-          <Inventory />
-        </Avatar>
+          >
+            <Inventory />
+          </Avatar>
         );
       },
     },
@@ -989,7 +877,7 @@ export default function ProductsPage() {
           >
             <Visibility />
           </IconButton>
-          <IconButton 
+          <IconButton
             size="small"
             onClick={() => handleEditProduct(params.row)}
           >
@@ -1003,13 +891,27 @@ export default function ProductsPage() {
   return (
     <Box sx={{ p: { xs: 2, sm: 3 } }}>
       {/* Header */}
-      <Box sx={{ mb: 3 }}>
-        <Typography variant="h4" gutterBottom>
-          Product Management
-        </Typography>
-        <Typography variant="body1" color="text.secondary">
-          Manage your product catalog and inventory
-        </Typography>
+      <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <Box>
+          <Typography variant="h4" gutterBottom>
+            Product Management
+          </Typography>
+          <Typography variant="body1" color="text.secondary">
+            Manage your product catalog and inventory
+          </Typography>
+        </Box>
+        <Button
+          variant="outlined"
+          startIcon={<TrendingUp />}
+          onClick={() => {
+            loadStats();
+            loadProducts();
+            toast.success('Refreshing products and stats...');
+          }}
+          size="small"
+        >
+          Refresh
+        </Button>
       </Box>
 
       {/* Stats Cards */}
@@ -1021,11 +923,22 @@ export default function ProductsPage() {
                 <Avatar sx={{ bgcolor: 'primary.main' }}>
                   <Inventory />
                 </Avatar>
-                <Box>
-                  <Typography variant="h6">{stats.totalProducts.toLocaleString()}</Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Total Products
-                  </Typography>
+                <Box sx={{ flex: 1 }}>
+                  {statsLoading.totalProducts ? (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minHeight: 48 }}>
+                      <CircularProgress size={16} />
+                      <Typography variant="body2" color="text.secondary">
+                        Loading...
+                      </Typography>
+                    </Box>
+                  ) : (
+                    <>
+                      <Typography variant="h6">{stats.totalProducts.toLocaleString()}</Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Total Products
+                      </Typography>
+                    </>
+                  )}
                 </Box>
               </Box>
             </CardContent>
@@ -1038,11 +951,22 @@ export default function ProductsPage() {
                 <Avatar sx={{ bgcolor: 'success.main' }}>
                   <TrendingUp />
                 </Avatar>
-                <Box>
-                  <Typography variant="h6">{stats.activeProducts.toLocaleString()}</Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Active Products
-                  </Typography>
+                <Box sx={{ flex: 1 }}>
+                  {statsLoading.activeProducts ? (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minHeight: 48 }}>
+                      <CircularProgress size={16} />
+                      <Typography variant="body2" color="text.secondary">
+                        Loading...
+                      </Typography>
+                    </Box>
+                  ) : (
+                    <>
+                      <Typography variant="h6">{stats.activeProducts.toLocaleString()}</Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Active Products
+                      </Typography>
+                    </>
+                  )}
                 </Box>
               </Box>
             </CardContent>
@@ -1055,11 +979,22 @@ export default function ProductsPage() {
                 <Avatar sx={{ bgcolor: 'error.main' }}>
                   <Inventory />
                 </Avatar>
-                <Box>
-                  <Typography variant="h6">{stats.outOfStock}</Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Out of Stock
-                  </Typography>
+                <Box sx={{ flex: 1 }}>
+                  {statsLoading.outOfStock ? (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minHeight: 48 }}>
+                      <CircularProgress size={16} />
+                      <Typography variant="body2" color="text.secondary">
+                        Loading...
+                      </Typography>
+                    </Box>
+                  ) : (
+                    <>
+                      <Typography variant="h6">{stats.outOfStock}</Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Out of Stock
+                      </Typography>
+                    </>
+                  )}
                 </Box>
               </Box>
             </CardContent>
@@ -1072,11 +1007,22 @@ export default function ProductsPage() {
                 <Avatar sx={{ bgcolor: 'warning.main' }}>
                   <Inventory />
                 </Avatar>
-                <Box>
-                  <Typography variant="h6">{stats.lowStock}</Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Low Stock
-                  </Typography>
+                <Box sx={{ flex: 1 }}>
+                  {statsLoading.lowStock ? (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minHeight: 48 }}>
+                      <CircularProgress size={16} />
+                      <Typography variant="body2" color="text.secondary">
+                        Loading...
+                      </Typography>
+                    </Box>
+                  ) : (
+                    <>
+                      <Typography variant="h6">{stats.lowStock}</Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Low Stock
+                      </Typography>
+                    </>
+                  )}
                 </Box>
               </Box>
             </CardContent>
@@ -1182,7 +1128,7 @@ export default function ProductsPage() {
                 startIcon={<PlaylistAdd />}
                 onClick={() => router.push('/products/add-from-master')}
                 size="small"
-                sx={{ 
+                sx={{
                   whiteSpace: 'nowrap',
                   fontSize: { xs: '0.75rem', sm: '0.875rem' }
                 }}
@@ -1197,7 +1143,7 @@ export default function ProductsPage() {
                 startIcon={<Inventory />}
                 onClick={() => window.location.href = '/products/master'}
                 size="small"
-                sx={{ 
+                sx={{
                   whiteSpace: 'nowrap',
                   fontSize: { xs: '0.75rem', sm: '0.875rem' }
                 }}
@@ -1210,9 +1156,9 @@ export default function ProductsPage() {
                 fullWidth
                 variant="outlined"
                 startIcon={<Receipt />}
-                onClick={() => setReceiptScanDialogOpen(true)}
+                onClick={() => router.push('/products/scan-receipt')}
                 size="small"
-                sx={{ 
+                sx={{
                   whiteSpace: 'nowrap',
                   fontSize: { xs: '0.75rem', sm: '0.875rem' }
                 }}
@@ -1230,7 +1176,7 @@ export default function ProductsPage() {
                   setReceiptScanV2DialogOpen(true);
                 }}
                 size="small"
-                sx={{ 
+                sx={{
                   whiteSpace: 'nowrap',
                   fontSize: { xs: '0.75rem', sm: '0.875rem' }
                 }}
@@ -1245,7 +1191,7 @@ export default function ProductsPage() {
                 startIcon={<ContentCopy />}
                 onClick={() => router.push('/products/clone-inventory')}
                 size="small"
-                sx={{ 
+                sx={{
                   whiteSpace: 'nowrap',
                   fontSize: { xs: '0.75rem', sm: '0.875rem' }
                 }}
@@ -1292,7 +1238,7 @@ export default function ProductsPage() {
                 },
               },
             }}
-            sx={{ 
+            sx={{
               height: { xs: 400, sm: 500, md: 600 },
               '& .MuiDataGrid-main': {
                 '& .MuiDataGrid-columnHeaders': {
@@ -1384,7 +1330,7 @@ export default function ProductsPage() {
                 />
               )}
             />
-            
+
             <TextField
               label="Description"
               value={newProduct.description}
@@ -1394,7 +1340,7 @@ export default function ProductsPage() {
               fullWidth
               required
             />
-            
+
             <Box sx={{ display: 'flex', gap: 2 }}>
               <TextField
                 label="Price"
@@ -1406,7 +1352,7 @@ export default function ProductsPage() {
                 placeholder="Enter price"
                 inputProps={{ min: 0, step: 0.01 }}
               />
-              
+
               <TextField
                 label="Stock"
                 type="number"
@@ -1417,7 +1363,7 @@ export default function ProductsPage() {
                 inputProps={{ min: 0 }}
               />
             </Box>
-            
+
             <Box sx={{ display: 'flex', gap: 2 }}>
               <TextField
                 label="Minimum Order Quantity"
@@ -1428,7 +1374,7 @@ export default function ProductsPage() {
                 inputProps={{ min: 1 }}
                 helperText="Minimum quantity that customers must order"
               />
-              
+
               <FormControl fullWidth>
                 <InputLabel>Unit</InputLabel>
                 <Select
@@ -1444,7 +1390,7 @@ export default function ProductsPage() {
                 </Select>
               </FormControl>
             </Box>
-            
+
             <CategorySelector
               value={{
                 category: newProduct.category,
@@ -1460,10 +1406,10 @@ export default function ProductsPage() {
               allowNew={true}
               size="medium"
             />
-            
-            <FormControl 
-              fullWidth 
-              required 
+
+            <FormControl
+              fullWidth
+              required
               error={sellers.length === 0 && !loadingSellers}
             >
               <InputLabel id="add-product-seller-select-label">Select Seller</InputLabel>
@@ -1525,7 +1471,7 @@ export default function ProductsPage() {
                 )}
               </Select>
             </FormControl>
-            
+
 
 
             {/* Image Upload Section */}
@@ -1551,7 +1497,7 @@ export default function ProductsPage() {
                   Upload Images
                 </Button>
               </label>
-              
+
               {imageFiles.length > 0 && (
                 <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
                   {imageFiles.map((file, index) => (
@@ -1613,7 +1559,7 @@ export default function ProductsPage() {
                 fullWidth
                 required
               />
-              
+
               <TextField
                 label="Description"
                 value={editingProduct.description}
@@ -1623,7 +1569,7 @@ export default function ProductsPage() {
                 fullWidth
                 required
               />
-              
+
               <Box sx={{ display: 'flex', gap: 2 }}>
                 <TextField
                   label="Price"
@@ -1633,7 +1579,7 @@ export default function ProductsPage() {
                   fullWidth
                   required
                 />
-                
+
                 <TextField
                   label="Stock"
                   type="number"
@@ -1642,7 +1588,7 @@ export default function ProductsPage() {
                   fullWidth
                 />
               </Box>
-              
+
               <Box sx={{ display: 'flex', gap: 2 }}>
                 <TextField
                   label="Category"
@@ -1651,7 +1597,7 @@ export default function ProductsPage() {
                   fullWidth
                   required
                 />
-                
+
                 <TextField
                   label="Subcategory"
                   value={editingProduct.subcategory}
@@ -1659,7 +1605,7 @@ export default function ProductsPage() {
                   fullWidth
                 />
               </Box>
-              
+
               <FormControl fullWidth>
                 <InputLabel>Status</InputLabel>
                 <Select
@@ -1672,14 +1618,14 @@ export default function ProductsPage() {
                   <MenuItem value="out_of_stock">Out of Stock</MenuItem>
                 </Select>
               </FormControl>
-              
+
               {/* Product Image Section */}
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 2 }}>
                 <Typography variant="subtitle1">Product Image:</Typography>
                 {editingProduct.image_url ? (
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <img 
-                      src={editingProduct.image_url} 
+                    <img
+                      src={editingProduct.image_url}
                       alt={editingProduct.name}
                       style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 4 }}
                     />
@@ -1752,7 +1698,7 @@ export default function ProductsPage() {
                 <Typography variant="h6" gutterBottom>
                   Select Master Product
                 </Typography>
-                
+
                 {/* Search and Filter Controls */}
                 <Box sx={{ mb: 3 }}>
                   <Grid container spacing={2} alignItems="center">
@@ -1787,7 +1733,7 @@ export default function ProductsPage() {
                     </Grid>
                   </Grid>
                 </Box>
-                
+
                 <Grid container spacing={2} sx={{ mb: 3 }}>
                   {masterProducts.map((product) => (
                     <Grid item xs={12} sm={6} md={4} key={product.id}>
@@ -1840,7 +1786,7 @@ export default function ProductsPage() {
                     </Grid>
                   ))}
                 </Grid>
-                
+
                 {/* Pagination Controls */}
                 {masterProductsTotalCount > masterProductsPageSize && (
                   <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', mt: 3, mb: 2 }}>
@@ -1852,11 +1798,11 @@ export default function ProductsPage() {
                     >
                       Previous
                     </Button>
-                    
+
                     <Typography variant="body2" sx={{ mx: 2 }}>
                       Page {masterProductsPage} of {totalMasterProductsPages}
                     </Typography>
-                    
+
                     <Button
                       variant="outlined"
                       disabled={masterProductsPage === totalMasterProductsPages}
@@ -1885,8 +1831,8 @@ export default function ProductsPage() {
                     </Box>
                     <Grid container spacing={2}>
                       <Grid item xs={12} md={6}>
-                        <FormControl 
-                          fullWidth 
+                        <FormControl
+                          fullWidth
                           error={sellers.length === 0 && !loadingSellers}
                         >
                           <InputLabel id="quick-add-seller-select-label">
@@ -1942,8 +1888,8 @@ export default function ProductsPage() {
                                 const businessName = seller.business_name || seller.display_name || seller.phone_number || `Seller ${seller.id}`;
                                 console.log('Rendering MenuItem for seller:', { id: seller.id, name: businessName });
                                 return (
-                                  <MenuItem 
-                                    key={seller.id} 
+                                  <MenuItem
+                                    key={seller.id}
                                     value={seller.id}
                                     sx={{ py: 1.5 }}
                                   >
@@ -2032,153 +1978,8 @@ export default function ProductsPage() {
         </DialogActions>
       </Dialog>
 
-      {/* Receipt Scanning Dialog (GitHub repo style) */}
-      <Dialog
-        open={receiptScanDialogOpen}
-        onClose={() => setReceiptScanDialogOpen(false)}
-        maxWidth="md"
-        fullWidth
-      >
-        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Receipt color="primary" />
-          Scan Receipt
-        </DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            Upload a receipt image to automatically extract product details and add them to your inventory.
-          </Typography>
-          
-          <input
-            accept="image/*"
-            style={{ display: 'none' }}
-            id="receipt-scan-upload"
-            type="file"
-            onChange={handleReceiptUpload}
-          />
-          <label htmlFor="receipt-scan-upload">
-            <Button
-              variant="outlined"
-              component="span"
-              startIcon={<CloudUpload />}
-              disabled={receiptProcessing}
-              size="large"
-              sx={{ mb: 3, width: '100%' }}
-            >
-              {receiptProcessing ? 'Processing Receipt...' : 'Upload Receipt Image'}
-            </Button>
-          </label>
-          
-          {receiptProcessing && (
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2, mb: 3 }}>
-              <CircularProgress size={24} />
-              <Typography variant="body2">Extracting text from receipt...</Typography>
-            </Box>
-          )}
-          
-          {receiptImage && (
-            <Box sx={{ mb: 3, textAlign: 'center' }}>
-              <Typography variant="subtitle2" gutterBottom>
-                Receipt Preview
-              </Typography>
-              <img
-                src={receiptImage}
-                alt="Receipt preview"
-                style={{
-                  maxWidth: '100%',
-                  maxHeight: '300px',
-                  objectFit: 'contain',
-                  borderRadius: 8,
-                  border: '1px solid #ddd'
-                }}
-              />
-            </Box>
-          )}
-          
-          {extractedProducts.length > 0 && (
-            <Box>
-              <Typography variant="h6" gutterBottom>
-                Extracted Products ({extractedProducts.length})
-              </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                Review the extracted products below. Click on any product to add it to your inventory.
-              </Typography>
-              
-              <Stack spacing={2} sx={{ maxHeight: 400, overflow: 'auto' }}>
-                {extractedProducts.map((product, index) => {
-                  console.log(`Product ${index}:`, product);
-                  console.log(`Product ${index} properties:`, {
-                    name: product.name,
-                    price: product.price,
-                    quantity: product.quantity,
-                    unit: product.unit,
-                    confidence: product.confidence
-                  });
-                  return (
-                    <Card 
-                      key={index} 
-                      variant="outlined"
-                      sx={{ 
-                        cursor: 'pointer',
-                        '&:hover': { 
-                          bgcolor: '#f5f5f5',
-                          boxShadow: 2
-                        }
-                      }}
-                      onClick={() => fillProductFromExtracted(product)}
-                    >
-                      <CardContent sx={{ p: 2 }}>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
-                          <Typography variant="subtitle1" fontWeight="medium">
-                            {product.name || 'Unnamed Product'}
-                          </Typography>
-                          {product.confidence && (
-                            <Chip
-                              label={`${Math.round(product.confidence * 100)}% confidence`}
-                              size="small"
-                              color={product.confidence > 0.8 ? 'success' : product.confidence > 0.6 ? 'warning' : 'error'}
-                            />
-                          )}
-                        </Box>
-                        <Grid container spacing={2}>
-                          <Grid item xs={4}>
-                            <Typography variant="caption" color="text.secondary">Unit Price</Typography>
-                            <Typography variant="body2">₹{product.price || 'N/A'}</Typography>
-                          </Grid>
-                          <Grid item xs={4}>
-                            <Typography variant="caption" color="text.secondary">Quantity</Typography>
-                            <Typography variant="body2">{product.quantity || 'N/A'} {product.unit || ''}</Typography>
-                          </Grid>
-                          <Grid item xs={4}>
-                            <Typography variant="caption" color="text.secondary">Net Amount</Typography>
-                            <Typography variant="body2">₹{product.price || 'N/A'}</Typography>
-                          </Grid>
-                        </Grid>
-                        <Typography variant="caption" color="primary" sx={{ mt: 1, display: 'block', fontStyle: 'italic' }}>
-                          Click to add this product
-                        </Typography>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </Stack>
-            </Box>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setReceiptScanDialogOpen(false)}>Close</Button>
-        </DialogActions>
-      </Dialog>
 
       {/* Extracted Product Editor */}
-      <ExtractedProductEditor
-        open={extractedProductEditorOpen}
-        onClose={() => setExtractedProductEditorOpen(false)}
-        extractedProducts={extractedProducts}
-        onConfirm={handleExtractedProductsConfirm}
-        sellers={sellers}
-        categories={[]}
-        subcategories={{}}
-      />
 
       {/* Receipt Extraction Preview Dialog (Receipt Scanning 2.0) */}
       <Dialog
@@ -2189,10 +1990,14 @@ export default function ProductsPage() {
       >
         <DialogTitle>
           Receipt Extraction Preview
-          <Button 
+          <Button
             onClick={() => {
-              setReceiptExtractionPreviewOpen(false);
-              setReceiptProductEditorOpen(true);
+              // Store receipt result and navigate to extracted page
+              if (receiptScanResult) {
+                sessionStorage.setItem('extractedReceiptResult', JSON.stringify(receiptScanResult));
+                setReceiptExtractionPreviewOpen(false);
+                router.push('/products/extracted');
+              }
             }}
             variant="contained"
             sx={{ float: 'right', mt: -1 }}
@@ -2214,131 +2019,20 @@ export default function ProductsPage() {
           <Button onClick={() => setReceiptExtractionPreviewOpen(false)}>
             Cancel
           </Button>
-            <Button
+          <Button
             variant="contained"
             onClick={() => {
-              setReceiptExtractionPreviewOpen(false);
-              setReceiptProductEditorOpen(true);
+              // Store receipt result and navigate to extracted page
+              if (receiptScanResult) {
+                sessionStorage.setItem('extractedReceiptResult', JSON.stringify(receiptScanResult));
+                setReceiptExtractionPreviewOpen(false);
+                router.push('/products/extracted');
+              }
             }}
           >
             Edit & Add to Inventory
-            </Button>
+          </Button>
         </DialogActions>
-      </Dialog>
-
-      {/* Receipt Product Editor Dialog (Receipt Scanning 2.0) */}
-      <Dialog
-        open={receiptProductEditorOpen}
-        onClose={() => setReceiptProductEditorOpen(false)}
-        maxWidth="lg"
-        fullWidth
-      >
-        <DialogTitle>Review & Edit Extracted Products</DialogTitle>
-        <DialogContent>
-          {/* Seller Selection */}
-          <FormControl fullWidth sx={{ mb: 3, mt: 2 }}>
-            <InputLabel>Select Seller *</InputLabel>
-            <Select
-              value={newProduct.seller_id || ''}
-              onChange={(e) => setNewProduct(prev => ({ ...prev, seller_id: e.target.value }))}
-              label="Select Seller"
-            >
-              {sellers.map((seller) => (
-                <MenuItem key={seller.id} value={seller.id}>
-                  {seller.business_name || seller.display_name || seller.phone_number || `Seller ${seller.id}`}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          
-          {receiptScanResult && (
-            <ReceiptProductEditor
-              products={receiptScanResult.products}
-              onConfirm={async (editedProducts: ExtractedReceiptProduct[]) => {
-                try {
-                  if (!newProduct.seller_id) {
-                    toast.error('Please select a seller first');
-                    return;
-                  }
-
-                  // Check for duplicates first
-                  const duplicateChecks = await Promise.all(
-                    editedProducts.map(async (product) => {
-                      const response = await fetch('/api/admin/products/check-duplicate', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          name: product.name.trim(),
-                          seller_id: newProduct.seller_id,
-                        }),
-                      });
-                      if (response.ok) {
-                        return await response.json();
-                      }
-                      return { isDuplicate: false };
-                    })
-                  );
-
-                  // Filter out duplicates and show warnings
-                  const productsToAdd: any[] = [];
-                  const duplicateProducts: any[] = [];
-
-                  editedProducts.forEach((product, index) => {
-                    const duplicateCheck = duplicateChecks[index];
-                    if (duplicateCheck?.isDuplicate) {
-                      duplicateProducts.push({
-                        product,
-                        reason: duplicateCheck.reason,
-                      });
-                    } else {
-                      productsToAdd.push(product);
-                    }
-                  });
-
-                  // Show warning for duplicates
-                  if (duplicateProducts.length > 0) {
-                    const duplicateNames = duplicateProducts.map(d => d.product.name).join(', ');
-                    const message = `${duplicateProducts.length} product(s) already exist: ${duplicateNames}\n\nDo you want to add the remaining ${productsToAdd.length} product(s)?`;
-                    if (!window.confirm(message)) {
-                      return;
-                    }
-                  }
-
-                  // Add non-duplicate products
-                  const addPromises = productsToAdd.map(async (product) => {
-                    const productData = {
-                      name: product.name,
-                      description: product.name || 'Product extracted from receipt',
-                      price: product.unitPrice || (product.netAmount / product.quantity) || 0,
-                      category: newProduct.category || '',
-                      subcategory: newProduct.subcategory || '',
-                      seller_id: newProduct.seller_id,
-                      stock_available: product.quantity || 0,
-                      unit: 'piece',
-                      min_order_quantity: 1,
-                      images: [],
-                      status: 'available'
-                    };
-                    
-                    return adminQueries.addProduct(productData);
-                  });
-                  
-                  await Promise.all(addPromises);
-                  
-                  toast.success(`Successfully added ${productsToAdd.length} products to inventory!`);
-                  setReceiptProductEditorOpen(false);
-                  setReceiptScanResult(null);
-                  loadProducts();
-                  loadStats();
-                } catch (error: any) {
-                  console.error('Error adding extracted products:', error);
-                  toast.error(error.message || 'Failed to add some products. Please try again.');
-                }
-              }}
-              onCancel={() => setReceiptProductEditorOpen(false)}
-            />
-          )}
-        </DialogContent>
       </Dialog>
 
       {/* Scan Receipts 2.0 Dialog (NEW - Enhanced AI-powered extraction) */}
@@ -2346,126 +2040,14 @@ export default function ProductsPage() {
         open={receiptScanV2DialogOpen}
         onClose={() => setReceiptScanV2DialogOpen(false)}
         onScanComplete={(products: ExtractedProductV2[]) => {
-          setReceiptProductsV2(products);
+          // Store products in sessionStorage and navigate to extracted products page
+          sessionStorage.setItem('extractedProducts', JSON.stringify(products));
           setReceiptScanV2DialogOpen(false);
-          setReceiptProductEditorV2Open(true);
           toast.success(`Extracted ${products.length} products using AI-powered extraction!`);
+          router.push('/products/extracted');
         }}
         onCancel={() => setReceiptScanV2DialogOpen(false)}
       />
-
-      {/* Receipt Product Editor V2 Dialog */}
-      <Dialog
-        open={receiptProductEditorV2Open}
-        onClose={() => setReceiptProductEditorV2Open(false)}
-        maxWidth="lg"
-        fullWidth
-      >
-        <DialogTitle>Review & Edit Extracted Products (Scan Receipts 2.0)</DialogTitle>
-        <DialogContent>
-          {/* Seller Selection */}
-          <FormControl fullWidth sx={{ mb: 3, mt: 2 }}>
-            <InputLabel>Select Seller *</InputLabel>
-            <Select
-              value={newProduct.seller_id || ''}
-              onChange={(e) => setNewProduct(prev => ({ ...prev, seller_id: e.target.value }))}
-              label="Select Seller"
-            >
-              {sellers.map((seller) => (
-                <MenuItem key={seller.id} value={seller.id}>
-                  {seller.business_name || seller.display_name || seller.phone_number || `Seller ${seller.id}`}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-
-          <ReceiptProductEditorV2
-            products={receiptProductsV2}
-            onConfirm={async (editedProducts: ExtractedProductV2[]) => {
-              try {
-                if (!newProduct.seller_id) {
-                  toast.error('Please select a seller first');
-                  return;
-                }
-
-                // Check for duplicates first
-                const duplicateChecks = await Promise.all(
-                  editedProducts.map(async (product) => {
-                    const response = await fetch('/api/admin/products/check-duplicate', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
-                        name: product.name.trim(),
-                        seller_id: newProduct.seller_id,
-                      }),
-                    });
-                    if (response.ok) {
-                      return await response.json();
-                    }
-                    return { isDuplicate: false };
-                  })
-                );
-
-                // Filter out duplicates
-                const productsToAdd: any[] = [];
-                const duplicateProducts: any[] = [];
-
-                editedProducts.forEach((product, index) => {
-                  const duplicateCheck = duplicateChecks[index];
-                  if (duplicateCheck?.isDuplicate) {
-                    duplicateProducts.push({
-                      product,
-                      reason: duplicateCheck.reason,
-                    });
-                  } else {
-                    productsToAdd.push(product);
-                  }
-                });
-
-                // Show warning for duplicates
-                if (duplicateProducts.length > 0) {
-                  const duplicateNames = duplicateProducts.map(d => d.product.name).join(', ');
-                  const message = `${duplicateProducts.length} product(s) already exist: ${duplicateNames}\n\nDo you want to add the remaining ${productsToAdd.length} product(s)?`;
-                  if (!window.confirm(message)) {
-                    return;
-                  }
-                }
-
-                // Add non-duplicate products
-                const addPromises = productsToAdd.map(async (product) => {
-                  const productData = {
-                      name: product.name,
-                    description: product.name || 'Product extracted from receipt',
-                    price: product.unitPrice || (product.netAmount / product.quantity) || 0,
-                    category: newProduct.category || '',
-                    subcategory: newProduct.subcategory || '',
-                    seller_id: newProduct.seller_id,
-                    stock_available: product.quantity || 0,
-                    unit: product.unit || 'piece',
-                    min_order_quantity: 1,
-                    images: [],
-                    status: 'available'
-                  };
-                  
-                  return adminQueries.addProduct(productData);
-                });
-                
-                await Promise.all(addPromises);
-                
-                toast.success(`Successfully added ${productsToAdd.length} products to inventory!`);
-                setReceiptProductEditorV2Open(false);
-                setReceiptProductsV2([]);
-                loadProducts();
-                loadStats();
-              } catch (error: any) {
-                console.error('Error adding extracted products:', error);
-                toast.error(error.message || 'Failed to add some products. Please try again.');
-              }
-            }}
-            onCancel={() => setReceiptProductEditorV2Open(false)}
-          />
-        </DialogContent>
-      </Dialog>
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={deleteDialogOpen} onClose={() => !deleting && setDeleteDialogOpen(false)} maxWidth="sm" fullWidth>
@@ -2476,7 +2058,7 @@ export default function ProductsPage() {
           </Alert>
           <Typography variant="body2" color="text.secondary">
             Selected products:
-                       </Typography>
+          </Typography>
           <Box sx={{ mt: 1, maxHeight: 200, overflow: 'auto' }}>
             {products
               .filter(p => selectedProducts.includes(p.id))
@@ -2485,7 +2067,7 @@ export default function ProductsPage() {
                   <Typography variant="body2">
                     • {product.name} (₹{product.price?.toLocaleString() || '0'})
                   </Typography>
-            </Box>
+                </Box>
               ))}
           </Box>
         </DialogContent>
@@ -2502,7 +2084,7 @@ export default function ProductsPage() {
           >
             {deleting ? 'Deleting...' : 'Delete'}
           </Button>
-         </DialogActions>
+        </DialogActions>
       </Dialog>
     </Box>
   );

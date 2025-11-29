@@ -36,12 +36,14 @@ interface ReceiptProductEditorProps {
   products: ExtractedReceiptProduct[];
   onConfirm: (products: ExtractedReceiptProduct[]) => void;
   onCancel: () => void;
+  showTitle?: boolean; // Optional prop to show/hide title and description
 }
 
 export default function ReceiptProductEditor({
   products: initialProducts,
   onConfirm,
   onCancel,
+  showTitle = true,
 }: ReceiptProductEditorProps) {
   const [products, setProducts] = useState<ExtractedReceiptProduct[]>(initialProducts);
 
@@ -98,15 +100,19 @@ export default function ReceiptProductEditor({
 
   return (
     <Box sx={{ width: '100%', p: 3 }}>
-      <Typography variant="h5" gutterBottom>
-        Review & Edit Products
-      </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        Review the extracted products and make any necessary corrections. Unit prices will be automatically recalculated.
-      </Typography>
+      {showTitle && (
+        <>
+          <Typography variant="h5" gutterBottom>
+            Review & Edit Products
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            Review the extracted products and make any necessary corrections. Unit prices will be automatically recalculated.
+          </Typography>
+        </>
+      )}
 
       <Paper sx={{ mb: 3 }}>
-        <TableContainer sx={{ maxHeight: 600 }}>
+        <TableContainer sx={{ maxHeight: 'calc(100vh - 400px)', minHeight: 400 }}>
           <Table stickyHeader>
             <TableHead>
               <TableRow>

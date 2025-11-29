@@ -485,6 +485,110 @@ export const adminQueries = {
       throw new Error(error.error || 'Failed to create subcategory');
     }
     return response.json();
+  },
+
+  async updateCategory(id: string, name: string): Promise<any> {
+    const response = await fetch('/api/admin/categories', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, type: 'category', name }),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || 'Failed to update category');
+    }
+    return response.json();
+  },
+
+  async updateSubcategory(id: string, name: string, categoryId?: string): Promise<any> {
+    const body: any = { id, type: 'subcategory', name };
+    if (categoryId) body.category_id = categoryId;
+    
+    const response = await fetch('/api/admin/categories', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || 'Failed to update subcategory');
+    }
+    return response.json();
+  },
+
+  async deleteCategory(id: string): Promise<any> {
+    const response = await fetch('/api/admin/categories', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, type: 'category' }),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || 'Failed to delete category');
+    }
+    return response.json();
+  },
+
+  async deleteSubcategory(id: string): Promise<any> {
+    const response = await fetch('/api/admin/categories', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, type: 'subcategory' }),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || 'Failed to delete subcategory');
+    }
+    return response.json();
+  },
+
+  async getCategoryStats(): Promise<any> {
+    const response = await fetch('/api/admin/categories/stats');
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || 'Failed to fetch category stats');
+    }
+    return response.json();
+  },
+
+  async updateProductCategory(productIds: string[], category?: string, subcategory?: string | null): Promise<any> {
+    const response = await fetch('/api/admin/products/update-category', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ productIds, category, subcategory }),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || 'Failed to update product category');
+    }
+    return response.json();
+  },
+
+  async moveSubcategory(subcategoryId: string, newCategoryId: string): Promise<any> {
+    const response = await fetch('/api/admin/categories/move-subcategory', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subcategoryId, newCategoryId }),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || 'Failed to move subcategory');
+    }
+    return response.json();
+  },
+
+  async getProductsByCategory(category?: string, subcategory?: string, limit?: number): Promise<any> {
+    const params = new URLSearchParams();
+    if (category) params.append('category', category);
+    if (subcategory) params.append('subcategory', subcategory);
+    if (limit) params.append('limit', limit.toString());
+    
+    const response = await fetch(`/api/admin/products/by-category?${params.toString()}`);
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || 'Failed to fetch products');
+    }
+    return response.json();
   }
 };
 

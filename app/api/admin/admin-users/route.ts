@@ -21,12 +21,18 @@ export async function GET(request: NextRequest) {
     if (error) throw error;
 
     // Transform data to include role name
-    const users = (data || []).map((user: any) => ({
-      ...user,
-      role_name: user.admin_roles?.name || null,
+    const admins = (data || []).map((user: any) => ({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      role_name: user.admin_roles?.name || user.role,
+      role_id: user.role_id,
+      status: user.status,
+      created_at: user.created_at,
     }));
 
-    return NextResponse.json({ users });
+    return NextResponse.json({ admins });
   } catch (error: any) {
     console.error('Error fetching admin users:', error);
     return NextResponse.json(

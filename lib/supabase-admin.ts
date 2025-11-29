@@ -964,6 +964,55 @@ export const adminQueries = {
     };
   },
 
+  // Helper function to get category and subcategory IDs from names
+  async getCategoryAndSubcategoryIds(categoryName: string, subcategoryName?: string): Promise<{ category_id: string | null; subcategory_id: string | null }> {
+    const supabase = getAdminSupabaseClient();
+    
+    let categoryId: string | null = null;
+    let subcategoryId: string | null = null;
+    
+    // Get category ID by name (case-insensitive)
+    if (categoryName && categoryName.trim()) {
+      const normalizedCategoryName = categoryName.trim();
+      const { data: categoryData, error: categoryError } = await supabase
+        .from('categories')
+        .select('id')
+        .ilike('name', normalizedCategoryName)
+        .limit(1)
+        .maybeSingle();
+      
+      if (!categoryError && categoryData) {
+        categoryId = categoryData.id;
+      } else if (categoryError) {
+        console.warn(`Error finding category "${categoryName}":`, categoryError.message);
+      } else {
+        console.warn(`Category "${categoryName}" not found in categories table`);
+      }
+    }
+    
+    // Get subcategory ID by name and category_id (case-insensitive)
+    if (subcategoryName && subcategoryName.trim() && categoryId) {
+      const normalizedSubcategoryName = subcategoryName.trim();
+      const { data: subcategoryData, error: subcategoryError } = await supabase
+        .from('subcategories')
+        .select('id')
+        .eq('category_id', categoryId)
+        .ilike('name', normalizedSubcategoryName)
+        .limit(1)
+        .maybeSingle();
+      
+      if (!subcategoryError && subcategoryData) {
+        subcategoryId = subcategoryData.id;
+      } else if (subcategoryError) {
+        console.warn(`Error finding subcategory "${subcategoryName}" for category "${categoryName}":`, subcategoryError.message);
+      } else {
+        console.warn(`Subcategory "${subcategoryName}" not found in subcategories table for category "${categoryName}"`);
+      }
+    }
+    
+    return { category_id: categoryId, subcategory_id: subcategoryId };
+  },
+
   async addProduct(productData: {
     name: string;
     description: string;
@@ -980,26 +1029,61 @@ export const adminQueries = {
   }) {
     const supabase = getAdminSupabaseClient();
     
+    // Get category and subcategory IDs from names
+    const { category_id, subcategory_id } = await this.getCategoryAndSubcategoryIds(
+      productData.category,
+      productData.subcategory
+    );
+    
+    // Prepare insert data with both IDs and text fields (for backward compatibility)
+    const insertData: any = {
+      name: productData.name,
+      description: productData.description,
+      price: productData.price,
+      category: productData.category, // Keep text field for backward compatibility
+      subcategory: productData.subcategory || null, // Keep text field for backward compatibility
+      brand: productData.brand,
+      seller_id: productData.seller_id,
+      stock_available: productData.stock_available || 0,
+      unit: productData.unit || 'piece',
+      min_quantity: productData.min_order_quantity || 1,
+      image_url: productData.images?.[0] || null,
+      status: productData.status || 'available'
+    };
+    
+    // Add category_id and subcategory_id if they exist (columns may or may not exist in table)
+    if (category_id !== null) {
+      insertData.category_id = category_id;
+    }
+    if (subcategory_id !== null) {
+      insertData.subcategory_id = subcategory_id;
+    }
+    
     const { data, error } = await supabase
       .from('products')
-      .insert({
-        name: productData.name,
-        description: productData.description,
-        price: productData.price,
-        category: productData.category,
-        subcategory: productData.subcategory,
-        brand: productData.brand,
-        seller_id: productData.seller_id,
-        stock_available: productData.stock_available || 0,
-        unit: productData.unit || 'piece',
-        min_quantity: productData.min_order_quantity || 1,
-        image_url: productData.images?.[0] || null,
-        status: productData.status || 'available'
-      })
+      .insert(insertData)
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      // If error is due to missing category_id/subcategory_id columns, try without them
+      if (error.message?.includes('category_id') || error.message?.includes('subcategory_id')) {
+        console.warn('category_id/subcategory_id columns not found, using text fields only');
+        delete insertData.category_id;
+        delete insertData.subcategory_id;
+        
+        const { data: retryData, error: retryError } = await supabase
+          .from('products')
+          .insert(insertData)
+          .select()
+          .single();
+        
+        if (retryError) throw retryError;
+        return retryData;
+      }
+      throw error;
+    }
+    
     return data;
   },
 
@@ -1025,10 +1109,31 @@ export const adminQueries = {
     if (updates.name !== undefined) updateData.name = updates.name;
     if (updates.description !== undefined) updateData.description = updates.description;
     if (updates.price !== undefined) updateData.price = updates.price;
+    
+    // Handle category and subcategory updates - convert names to IDs
     if (updates.category !== undefined) {
-      updateData.category = updates.category;
+      updateData.category = updates.category; // Keep text field for backward compatibility
+      
+      // Get category ID from name
+      const { category_id } = await this.getCategoryAndSubcategoryIds(updates.category, updates.subcategory);
+      if (category_id !== null) {
+        updateData.category_id = category_id;
+      }
     }
-    if (updates.subcategory !== undefined) updateData.subcategory = updates.subcategory;
+    
+    if (updates.subcategory !== undefined) {
+      updateData.subcategory = updates.subcategory; // Keep text field for backward compatibility
+      
+      // Get subcategory ID from name (need category name for lookup)
+      const categoryName = updates.category || updateData.category;
+      if (categoryName) {
+        const { subcategory_id } = await this.getCategoryAndSubcategoryIds(categoryName, updates.subcategory);
+        if (subcategory_id !== null) {
+          updateData.subcategory_id = subcategory_id;
+        }
+      }
+    }
+    
     if (updates.brand !== undefined) updateData.brand = updates.brand;
     if (updates.stock_available !== undefined) updateData.stock_available = updates.stock_available;
     if (updates.unit !== undefined) updateData.unit = updates.unit;
@@ -1046,7 +1151,26 @@ export const adminQueries = {
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      // If error is due to missing category_id/subcategory_id columns, try without them
+      if (error.message?.includes('category_id') || error.message?.includes('subcategory_id')) {
+        console.warn('category_id/subcategory_id columns not found, using text fields only');
+        delete updateData.category_id;
+        delete updateData.subcategory_id;
+        
+        const { data: retryData, error: retryError } = await supabase
+          .from('products')
+          .update(updateData)
+          .eq('id', productId)
+          .select()
+          .single();
+        
+        if (retryError) throw retryError;
+        return retryData;
+      }
+      throw error;
+    }
+    
     return data;
   },
 
@@ -1747,12 +1871,35 @@ export const adminQueries = {
     const supabase = getAdminSupabaseClient();
     
     try {
-      // Get total products count
-      const { count: totalCount, error: totalError } = await supabase
+      // Get total products count - fetch all IDs and count them directly
+      // This ensures we get the actual count even if count queries are affected by RLS
+      console.log('🔍 Fetching product stats with service role...');
+      
+      // First try to get count, but if it seems wrong, fetch all and count
+      const { count: totalCount, error: countError } = await supabase
         .from('products')
         .select('*', { count: 'exact', head: true });
       
-      if (totalError) throw totalError;
+      // Also fetch all product IDs to verify the count
+      const { data: allProductIds, error: fetchError } = await supabase
+        .from('products')
+        .select('id');
+      
+      if (fetchError) {
+        console.error('Error fetching product IDs:', fetchError);
+        console.error('Error details:', JSON.stringify(fetchError, null, 2));
+        throw fetchError;
+      }
+      
+      // Use the actual array length as the source of truth
+      const actualCount = allProductIds?.length ?? totalCount ?? 0;
+      
+      console.log('Total products count query result:', actualCount);
+      console.log('Count from count query:', totalCount, 'Actual array length:', allProductIds?.length);
+      
+      if (countError) {
+        console.warn('Count query had error, using array length:', countError);
+      }
 
       // Get active products count (status = 'available')
       const { count: activeCount, error: activeError } = await supabase
@@ -1760,10 +1907,13 @@ export const adminQueries = {
         .select('*', { count: 'exact', head: true })
         .eq('status', 'available');
       
-      if (activeError) throw activeError;
+      if (activeError) {
+        console.error('Error counting active products:', activeError);
+        throw activeError;
+      }
 
       // Get out of stock products count (stock_available = 0 or null)
-      // Use separate queries for null and zero values
+      // Use separate queries for null and zero values for better reliability
       const { count: outOfStockNull, error: outOfStockNullError } = await supabase
         .from('products')
         .select('*', { count: 'exact', head: true })
@@ -1774,27 +1924,40 @@ export const adminQueries = {
         .select('*', { count: 'exact', head: true })
         .eq('stock_available', 0);
       
-      if (outOfStockNullError) throw outOfStockNullError;
-      if (outOfStockZeroError) throw outOfStockZeroError;
+      if (outOfStockNullError) {
+        console.error('Error counting out of stock (null) products:', outOfStockNullError);
+        throw outOfStockNullError;
+      }
+      if (outOfStockZeroError) {
+        console.error('Error counting out of stock (zero) products:', outOfStockZeroError);
+        throw outOfStockZeroError;
+      }
       
-      const outOfStockCount = (outOfStockNull || 0) + (outOfStockZero || 0);
+      const outOfStockCount = (outOfStockNull ?? 0) + (outOfStockZero ?? 0);
 
       // Get low stock products count (stock_available > 0 and <= 10)
-      // Fetch products with stock > 0 and <= 10
       const { count: lowStockCount, error: lowStockError } = await supabase
         .from('products')
         .select('*', { count: 'exact', head: true })
         .gt('stock_available', 0)
         .lte('stock_available', 10);
       
-      if (lowStockError) throw lowStockError;
+      if (lowStockError) {
+        console.error('Error counting low stock products:', lowStockError);
+        throw lowStockError;
+      }
 
-      return {
-        totalProducts: totalCount || 0,
-        activeProducts: activeCount || 0,
-        outOfStock: outOfStockCount,
-        lowStock: lowStockCount || 0,
+      // Ensure we have valid numbers (handle null/undefined)
+      const stats = {
+        totalProducts: Number(actualCount) || 0,
+        activeProducts: Number(activeCount) || 0,
+        outOfStock: Number(outOfStockCount) || 0,
+        lowStock: Number(lowStockCount) || 0,
       };
+
+      console.log('Product stats fetched:', stats);
+      console.log('Raw counts - total:', actualCount, 'active:', activeCount, 'outOfStock:', outOfStockCount, 'lowStock:', lowStockCount);
+      return stats;
     } catch (error) {
       console.error('Error fetching product stats:', error);
       throw error;

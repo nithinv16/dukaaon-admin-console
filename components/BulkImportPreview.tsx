@@ -46,10 +46,10 @@ import {
   LocalOffer
 } from '@mui/icons-material';
 import { toast } from 'react-hot-toast';
-import CategorySelector, { 
-  Category, 
-  Subcategory, 
-  CategorySelectorValue 
+import CategorySelector, {
+  Category,
+  Subcategory,
+  CategorySelectorValue
 } from './CategorySelector';
 import { ParsedProduct, ImportResult } from './BulkImportDialog';
 import { adminQueries } from '../lib/supabase-browser';
@@ -107,7 +107,7 @@ export function matchProductToCategory(
 ): { category?: Category; subcategory?: Subcategory } {
   const nameLower = productName.toLowerCase().trim();
   const words = nameLower.split(/\s+/);
-  
+
   // Enhanced keyword mappings with better coverage
   const categoryKeywords: Record<string, string[]> = {
     'electronics': ['phone', 'mobile', 'laptop', 'tablet', 'camera', 'headphone', 'earphone', 'speaker', 'tv', 'television', 'computer', 'charger', 'cable', 'battery', 'powerbank', 'adapter'],
@@ -124,11 +124,11 @@ export function matchProductToCategory(
 
   // Score-based matching for better accuracy
   let bestMatch: { category?: Category; score: number } = { score: 0 };
-  
+
   // First pass: keyword matching with scoring
   for (const [categoryKey, keywords] of Object.entries(categoryKeywords)) {
     let score = 0;
-    
+
     // Count keyword matches
     for (const keyword of keywords) {
       if (nameLower.includes(keyword)) {
@@ -136,35 +136,35 @@ export function matchProductToCategory(
         score += keyword.length;
       }
     }
-    
+
     // Check word-by-word matching for better accuracy
     for (const word of words) {
       if (keywords.some(keyword => word.includes(keyword) || keyword.includes(word))) {
         score += word.length * 2; // Word matches get double score
       }
     }
-    
+
     if (score > bestMatch.score) {
       // Find matching category in database
       const matchedCat = categories.find(c => {
         const catLower = c.name.toLowerCase();
-        return catLower.includes(categoryKey) || 
-               categoryKey.includes(catLower) ||
-               catLower.split(' ').some(word => categoryKeywords[categoryKey].includes(word));
+        return catLower.includes(categoryKey) ||
+          categoryKey.includes(catLower) ||
+          catLower.split(' ').some(word => categoryKeywords[categoryKey].includes(word));
       });
-      
+
       if (matchedCat) {
         bestMatch = { category: matchedCat, score };
       }
     }
   }
-  
+
   // Second pass: fuzzy matching with category names
   if (!bestMatch.category) {
     for (const category of categories) {
       const catLower = category.name.toLowerCase();
       const catWords = catLower.split(/\s+/);
-      
+
       // Check if any product word matches category word
       let matchCount = 0;
       for (const word of words) {
@@ -174,25 +174,25 @@ export function matchProductToCategory(
           matchCount++;
         }
       }
-      
+
       if (matchCount > 0 && matchCount > bestMatch.score) {
         bestMatch = { category, score: matchCount };
       }
     }
   }
-  
+
   // Try to match subcategory if category found
   let matchedSubcategory: Subcategory | undefined;
   if (bestMatch.category) {
     const categorySubcategories = subcategories.filter(s => s.category_id === bestMatch.category!.id);
-    
+
     // Score subcategories
     let bestSubcat: { subcategory?: Subcategory; score: number } = { score: 0 };
-    
+
     for (const subcat of categorySubcategories) {
       const subcatLower = subcat.name.toLowerCase();
       let score = 0;
-      
+
       // Exact match
       if (nameLower.includes(subcatLower)) {
         score = 100;
@@ -203,18 +203,18 @@ export function matchProductToCategory(
         for (const word of words) {
           if (word.length > 3 && subcatWords.some(sw => sw.includes(word) || word.includes(sw))) {
             score += word.length;
-  }
+          }
         }
       }
-      
+
       if (score > bestSubcat.score) {
         bestSubcat = { subcategory: subcat, score };
       }
     }
-    
+
     matchedSubcategory = bestSubcat.subcategory;
   }
-  
+
   return { category: bestMatch.category, subcategory: matchedSubcategory };
 }
 
@@ -224,18 +224,18 @@ export function matchProductToCategory(
  */
 export function detectUnitFromProductName(productName: string): string {
   const nameLower = productName.toLowerCase().trim();
-  
+
   // Unit patterns with priority order
   const unitPatterns: Array<{ pattern: RegExp; unit: string }> = [
     // Weight units
     { pattern: /\b(\d+(?:\.\d+)?)\s*(?:kg|kilogram|kilograms|kgs)\b/i, unit: 'kg' },
     { pattern: /\b(\d+(?:\.\d+)?)\s*(?:g|gram|grams|gm|gms)\b/i, unit: 'g' },
     { pattern: /\b(\d+(?:\.\d+)?)\s*(?:mg|milligram|milligrams)\b/i, unit: 'g' },
-    
+
     // Volume units
     { pattern: /\b(\d+(?:\.\d+)?)\s*(?:l|liter|litre|liters|litres|lt)\b/i, unit: 'l' },
     { pattern: /\b(\d+(?:\.\d+)?)\s*(?:ml|milliliter|millilitre|milliliters|millilitres)\b/i, unit: 'ml' },
-    
+
     // Packaging units
     { pattern: /\b(\d+)\s*(?:box|boxes)\b/i, unit: 'box' },
     { pattern: /\b(\d+)\s*(?:pack|packs|pkt|pkts|packet|packets)\b/i, unit: 'pack' },
@@ -244,37 +244,37 @@ export function detectUnitFromProductName(productName: string): string {
     { pattern: /\b(\d+)\s*(?:can|cans|tin|tins)\b/i, unit: 'can' },
     { pattern: /\b(\d+)\s*(?:jar|jars)\b/i, unit: 'bottle' },
     { pattern: /\b(\d+)\s*(?:pouch|pouches)\b/i, unit: 'pack' },
-    
+
     // Count units
     { pattern: /\b(\d+)\s*(?:pcs?|pc|pieces?|piece|unit|units|nos?|no|count)\b/i, unit: 'pieces' },
     { pattern: /\b(\d+)\s*(?:dozen|dz)\b/i, unit: 'dozen' },
-    
+
     // Area/Volume units
     { pattern: /\b(\d+(?:\.\d+)?)\s*(?:sq\s*ft|square\s*feet)\b/i, unit: 'square meter' },
     { pattern: /\b(\d+(?:\.\d+)?)\s*(?:sq\s*m|square\s*meter)\b/i, unit: 'square meter' },
-    
+
     // Length units
     { pattern: /\b(\d+(?:\.\d+)?)\s*(?:m|meter|metre|meters|metres)\b/i, unit: 'meter' },
     { pattern: /\b(\d+(?:\.\d+)?)\s*(?:cm|centimeter|centimetre|centimeters|centimetres)\b/i, unit: 'cm' },
     { pattern: /\b(\d+(?:\.\d+)?)\s*(?:ft|feet|foot)\b/i, unit: 'meter' },
   ];
-  
+
   // Try to match patterns (higher priority first)
   for (const { pattern, unit } of unitPatterns) {
     if (pattern.test(nameLower)) {
       return unit;
     }
   }
-  
+
   // Fallback: check common keywords that suggest units
   if (/\b(loose|bulk|wholesale)\b/i.test(nameLower)) {
     return 'kg';
   }
-  
+
   if (/\b(ready\s*to\s*cook|instant|mix)\b/i.test(nameLower)) {
     return 'pack';
   }
-  
+
   // Default to pieces
   return 'pieces';
 }
@@ -334,13 +334,13 @@ const BulkImportPreview: React.FC<BulkImportPreviewProps> = ({
   // Initialize editable products with auto-tagging when categories are loaded
   useEffect(() => {
     if (categories.length === 0) return;
-    
+
     const initializeProducts = async () => {
       // First pass: Initialize with rule-based matching (fast)
-    const initProducts = products.map(product => {
+      const initProducts = products.map(product => {
         let matchedCategory: Category | undefined;
         let matchedSubcategory: Subcategory | undefined;
-        
+
         // If product has AI-extracted category with high confidence, use it
         if (product.aiExtracted && product.category && product.confidence && product.confidence.overall >= 0.7) {
           matchedCategory = categories.find(c => c.name.toLowerCase() === product.category?.toLowerCase());
@@ -350,22 +350,22 @@ const BulkImportPreview: React.FC<BulkImportPreviewProps> = ({
             );
           }
         }
-        
+
         // Fallback to keyword-based matching if no AI match
         if (!matchedCategory) {
           const match = matchProductToCategory(product.name, categories, subcategories);
           matchedCategory = match.category;
           matchedSubcategory = match.subcategory;
         }
-        
+
         // Auto-detect unit from product name (use AI-extracted unit if available)
         const detectedUnit = product.unit || detectUnitFromProductName(product.name);
-      
-      return {
-        ...product,
-        id: generateProductId(),
-        isLoadingImage: false,
-        hasError: false,
+
+        return {
+          ...product,
+          id: generateProductId(),
+          isLoadingImage: false,
+          hasError: false,
           uploadingImage: false,
           stock_level: product.stock_level || 100,
           category: matchedCategory?.name || product.category || '',
@@ -375,32 +375,32 @@ const BulkImportPreview: React.FC<BulkImportPreviewProps> = ({
           aiExtracted: product.aiExtracted,
           needsReview: product.needsReview,
           confidence: product.confidence,
-        categoryValue: {
+          categoryValue: {
             category: matchedCategory?.name || product.category || '',
             categoryId: matchedCategory?.id,
             subcategory: matchedSubcategory?.name || product.subcategory || '',
             subcategoryId: matchedSubcategory?.id
-        }
-      };
-    });
-    
+          }
+        };
+      });
+
       // Set initial products immediately (fast rule-based matching)
-    setEditableProducts(initProducts);
-    setIsLoading(false);
-      
+      setEditableProducts(initProducts);
+      setIsLoading(false);
+
       // Second pass: Enhance with AI + web search for products without category matches (chunked, non-blocking)
       const productsNeedingEnhancement = initProducts.filter(p => !p.category || p.category === '');
       if (productsNeedingEnhancement.length > 0) {
         // Process in chunks to prevent browser freezing
         const CHUNK_SIZE = 3; // Smaller chunks for better responsiveness
         const DELAY_BETWEEN_CHUNKS = 150; // 150ms delay between chunks
-        
+
         for (let i = 0; i < productsNeedingEnhancement.length; i += CHUNK_SIZE) {
           const chunk = productsNeedingEnhancement.slice(i, i + CHUNK_SIZE);
-          
+
           // Yield to browser before processing chunk
           await yieldToBrowser();
-          
+
           try {
             const response = await fetch('/api/admin/enhanced-categorize', {
               method: 'POST',
@@ -421,72 +421,72 @@ const BulkImportPreview: React.FC<BulkImportPreviewProps> = ({
             if (response.ok) {
               const result = await response.json();
               if (result.success && result.results) {
-              // Update products with enhanced categorization results
-              setEditableProducts(prev => prev.map(p => {
-                const enhanced = result.results.find((r: any) => r.productName === p.name);
-                if (enhanced && enhanced.success && enhanced.category) {
-                  // Case-insensitive category matching
-                  const matchedCat = categories.find(c => {
-                    const catLower = c.name.toLowerCase().trim();
-                    const enhancedLower = enhanced.category.toLowerCase().trim();
-                    return catLower === enhancedLower || 
-                           catLower.includes(enhancedLower) || 
-                           enhancedLower.includes(catLower);
-                  });
-                  
-                  // Case-insensitive subcategory matching
-                  const matchedSubcat = matchedCat && enhanced.subcategory ? subcategories.find(
-                    s => {
-                      if (s.category_id !== matchedCat.id) return false;
-                      const subcatLower = s.name.toLowerCase().trim();
-                      const enhancedSubLower = enhanced.subcategory.toLowerCase().trim();
-                      return subcatLower === enhancedSubLower ||
-                             subcatLower.includes(enhancedSubLower) ||
-                             enhancedSubLower.includes(subcatLower);
-                    }
-                  ) : undefined;
-                  
-                  if (matchedCat) {
-                    return {
-                      ...p,
-                      category: matchedCat.name,
-                      subcategory: matchedSubcat?.name || enhanced.subcategory || p.subcategory,
-                      categoryValue: {
-                        category: matchedCat.name,
-                        categoryId: matchedCat.id,
-                        subcategory: matchedSubcat?.name || enhanced.subcategory || p.subcategory,
-                        subcategoryId: matchedSubcat?.id
+                // Update products with enhanced categorization results
+                setEditableProducts(prev => prev.map(p => {
+                  const enhanced = result.results.find((r: any) => r.productName === p.name);
+                  if (enhanced && enhanced.success && enhanced.category) {
+                    // Case-insensitive category matching
+                    const matchedCat = categories.find(c => {
+                      const catLower = c.name.toLowerCase().trim();
+                      const enhancedLower = enhanced.category.toLowerCase().trim();
+                      return catLower === enhancedLower ||
+                        catLower.includes(enhancedLower) ||
+                        enhancedLower.includes(catLower);
+                    });
+
+                    // Case-insensitive subcategory matching
+                    const matchedSubcat = matchedCat && enhanced.subcategory ? subcategories.find(
+                      s => {
+                        if (s.category_id !== matchedCat.id) return false;
+                        const subcatLower = s.name.toLowerCase().trim();
+                        const enhancedSubLower = enhanced.subcategory.toLowerCase().trim();
+                        return subcatLower === enhancedSubLower ||
+                          subcatLower.includes(enhancedSubLower) ||
+                          enhancedSubLower.includes(subcatLower);
                       }
-                    };
+                    ) : undefined;
+
+                    if (matchedCat) {
+                      return {
+                        ...p,
+                        category: matchedCat.name,
+                        subcategory: matchedSubcat?.name || enhanced.subcategory || p.subcategory,
+                        categoryValue: {
+                          category: matchedCat.name,
+                          categoryId: matchedCat.id,
+                          subcategory: matchedSubcat?.name || enhanced.subcategory || p.subcategory,
+                          subcategoryId: matchedSubcat?.id
+                        }
+                      };
+                    }
                   }
-                }
-                return p;
-              }));
+                  return p;
+                }));
               }
             }
           } catch (error) {
             console.warn('Enhanced categorization chunk failed:', error);
           }
-          
+
           // Delay before next chunk (except for last chunk)
           if (i + CHUNK_SIZE < productsNeedingEnhancement.length) {
             await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_CHUNKS));
           }
         }
       }
-      
+
       // Third pass: Brand mapping with AI + web search (chunked, non-blocking)
       const productsNeedingBrandMapping = initProducts.filter(p => !p.brand || p.brand.trim() === '');
       if (productsNeedingBrandMapping.length > 0) {
         const CHUNK_SIZE = 3;
         const DELAY_BETWEEN_CHUNKS = 150;
-        
+
         for (let i = 0; i < productsNeedingBrandMapping.length; i += CHUNK_SIZE) {
           const chunk = productsNeedingBrandMapping.slice(i, i + CHUNK_SIZE);
-          
+
           // Yield to browser before processing chunk
           await yieldToBrowser();
-          
+
           try {
             const response = await fetch('/api/admin/enhanced-brand', {
               method: 'POST',
@@ -516,7 +516,7 @@ const BulkImportPreview: React.FC<BulkImportPreviewProps> = ({
           } catch (error) {
             console.warn('Enhanced brand mapping chunk failed:', error);
           }
-          
+
           // Delay before next chunk (except for last chunk)
           if (i + CHUNK_SIZE < productsNeedingBrandMapping.length) {
             await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_CHUNKS));
@@ -524,13 +524,13 @@ const BulkImportPreview: React.FC<BulkImportPreviewProps> = ({
         }
       }
     };
-    
+
     initializeProducts();
   }, [products, categories, subcategories, yieldToBrowser]);
 
   // Update a single product field
   const updateProduct = useCallback((id: string, field: keyof EditableProduct, value: any) => {
-    setEditableProducts(prev => 
+    setEditableProducts(prev =>
       prev.map(p => p.id === id ? { ...p, [field]: value } : p)
     );
   }, []);
@@ -558,7 +558,7 @@ const BulkImportPreview: React.FC<BulkImportPreviewProps> = ({
     if (!product) return;
 
     updateProduct(id, 'isLoadingImage', true);
-    
+
     try {
       // Call API route for image search (server-side only)
       const response = await fetch('/api/admin/scrape-image', {
@@ -570,13 +570,13 @@ const BulkImportPreview: React.FC<BulkImportPreviewProps> = ({
           productId: id
         }),
       });
-      
+
       if (!response.ok) {
         throw new Error('Image search failed');
       }
-      
+
       const result = await response.json();
-      
+
       if (result.success && result.imageUrl) {
         updateProduct(id, 'imageUrl', result.imageUrl);
       } else {
@@ -629,7 +629,7 @@ const BulkImportPreview: React.FC<BulkImportPreviewProps> = ({
       formData.append('image', file);
       formData.append('productName', product.name);
       formData.append('folder', 'seller-inventory'); // Store in seller-inventory folder
-      
+
       // Include current image URL if it exists and is from storage (not base64)
       if (product.imageUrl && !product.imageUrl.startsWith('data:')) {
         formData.append('currentImageUrl', product.imageUrl);
@@ -646,7 +646,7 @@ const BulkImportPreview: React.FC<BulkImportPreviewProps> = ({
       }
 
       const result = await response.json();
-      
+
       if (result.success && result.imageUrl) {
         // Update with the storage URL (replacing the temporary preview)
         updateProduct(id, 'imageUrl', result.imageUrl);
@@ -670,7 +670,7 @@ const BulkImportPreview: React.FC<BulkImportPreviewProps> = ({
   // Requirements: 5.9 - Batch processing with rate limiting and progress tracking
   const scrapeAllImages = useCallback(async () => {
     const productsWithoutImages = editableProducts.filter(p => !p.imageUrl);
-    
+
     if (productsWithoutImages.length === 0) {
       toast.success('All products already have images');
       return;
@@ -678,21 +678,21 @@ const BulkImportPreview: React.FC<BulkImportPreviewProps> = ({
 
     setIsBatchScraping(true);
     setScrapeProgress({ current: 0, total: productsWithoutImages.length });
-    
+
     // Mark all products as loading
     productsWithoutImages.forEach(p => updateProduct(p.id, 'isLoadingImage', true));
-    
+
     toast.loading(`Scraping images for ${productsWithoutImages.length} products...`, { id: 'image-scrape' });
 
     try {
       // Process in batches with progress tracking
-    const batchSize = 3;
+      const batchSize = 3;
       let successful = 0;
       let failed = 0;
-      
-    for (let i = 0; i < productsWithoutImages.length; i += batchSize) {
-      const batch = productsWithoutImages.slice(i, i + batchSize);
-      
+
+      for (let i = 0; i < productsWithoutImages.length; i += batchSize) {
+        const batch = productsWithoutImages.slice(i, i + batchSize);
+
         // Process batch in parallel using API route
         const results = await Promise.all(
           batch.map(async (product) => {
@@ -707,9 +707,9 @@ const BulkImportPreview: React.FC<BulkImportPreviewProps> = ({
                   productId: product.id
                 }),
               });
-              
+
               updateProduct(product.id, 'isLoadingImage', false);
-              
+
               if (response.ok) {
                 const result = await response.json();
                 if (result.success && result.imageUrl) {
@@ -719,25 +719,25 @@ const BulkImportPreview: React.FC<BulkImportPreviewProps> = ({
               }
               return { success: false };
             } catch {
-        updateProduct(product.id, 'isLoadingImage', false);
+              updateProduct(product.id, 'isLoadingImage', false);
               return { success: false };
             }
           })
         );
-        
+
         // Update progress
         results.forEach(r => r.success ? successful++ : failed++);
         setScrapeProgress({ current: i + batch.length, total: productsWithoutImages.length });
 
-      // Rate limiting delay between batches
-      if (i + batchSize < productsWithoutImages.length) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        // Rate limiting delay between batches
+        if (i + batchSize < productsWithoutImages.length) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
       }
-    }
 
       toast.dismiss('image-scrape');
       setIsBatchScraping(false);
-      
+
       if (failed > 0) {
         toast.success(`Scraped images for ${successful} products. ${failed} failed.`);
       } else {
@@ -762,6 +762,11 @@ const BulkImportPreview: React.FC<BulkImportPreviewProps> = ({
 
     setIsImporting(true);
     setImportProgress(0);
+
+    // Get admin and session info for tracking
+    const adminSession = localStorage.getItem('admin_session');
+    const sessionId = localStorage.getItem('tracking_session_id');
+    const admin = adminSession ? JSON.parse(adminSession) : null;
 
     const results: ImportResult = {
       successful: 0,
@@ -792,7 +797,7 @@ const BulkImportPreview: React.FC<BulkImportPreviewProps> = ({
     // Process each product
     for (let i = 0; i < editableProducts.length; i++) {
       const product = editableProducts[i];
-      
+
       try {
         // Validate required fields
         if (!product.name || product.name.trim() === '') {
@@ -810,29 +815,29 @@ const BulkImportPreview: React.FC<BulkImportPreviewProps> = ({
 
         // Handle image URL - upload base64 images to storage first
         let finalImageUrl = product.imageUrl || '';
-        
+
         // If image is a base64 data URL, convert it to a File and upload to storage
         if (finalImageUrl.startsWith('data:image/')) {
           try {
             // Convert base64 to blob
             const response = await fetch(finalImageUrl);
             const blob = await response.blob();
-            
+
             // Create a File from the blob
             const fileName = `${product.name.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}.${blob.type.split('/')[1] || 'jpg'}`;
             const file = new File([blob], fileName, { type: blob.type });
-            
+
             // Upload to storage
             const formData = new FormData();
             formData.append('image', file);
             formData.append('productName', product.name);
             formData.append('folder', 'seller-inventory'); // Store in seller-inventory folder
-            
+
             const uploadResponse = await fetch('/api/upload-product-image', {
               method: 'POST',
               body: formData,
             });
-            
+
             if (uploadResponse.ok) {
               const uploadResult = await uploadResponse.json();
               if (uploadResult.success && uploadResult.imageUrl) {
@@ -848,7 +853,7 @@ const BulkImportPreview: React.FC<BulkImportPreviewProps> = ({
           }
         }
 
-        // Add product to seller inventory via API
+        // Add product to seller inventory via API with tracking
         const response = await fetch('/api/admin/products', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -862,7 +867,10 @@ const BulkImportPreview: React.FC<BulkImportPreviewProps> = ({
             subcategory: product.subcategory || '',
             image_url: finalImageUrl,
             stock_level: product.stock_level || 100,
-            unit: product.unit || 'pieces'
+            unit: product.unit || 'pieces',
+            // Add tracking info
+            admin_id: admin?.id,
+            session_id: sessionId,
           })
         });
 
@@ -913,10 +921,15 @@ const BulkImportPreview: React.FC<BulkImportPreviewProps> = ({
     });
 
     setShowResultsDialog(false);
-    
+
     // Re-run import for failed products only
     setIsImporting(true);
     setImportProgress(0);
+
+    // Get admin and session info for tracking
+    const adminSession = localStorage.getItem('admin_session');
+    const sessionId = localStorage.getItem('tracking_session_id');
+    const admin = adminSession ? JSON.parse(adminSession) : null;
 
     const results: ImportResult = {
       successful: importResults?.successful || 0,
@@ -926,7 +939,7 @@ const BulkImportPreview: React.FC<BulkImportPreviewProps> = ({
 
     for (let i = 0; i < failedProducts.length; i++) {
       const product = failedProducts[i];
-      
+
       try {
         if (!product.name || product.name.trim() === '') {
           throw new Error('Product name is required');
@@ -934,29 +947,29 @@ const BulkImportPreview: React.FC<BulkImportPreviewProps> = ({
 
         // Handle image URL - upload base64 images to storage first
         let finalImageUrl = product.imageUrl || '';
-        
+
         // If image is a base64 data URL, convert it to a File and upload to storage
         if (finalImageUrl.startsWith('data:image/')) {
           try {
             // Convert base64 to blob
             const response = await fetch(finalImageUrl);
             const blob = await response.blob();
-            
+
             // Create a File from the blob
             const fileName = `${product.name.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}.${blob.type.split('/')[1] || 'jpg'}`;
             const file = new File([blob], fileName, { type: blob.type });
-            
+
             // Upload to storage
             const formData = new FormData();
             formData.append('image', file);
             formData.append('productName', product.name);
             formData.append('folder', 'seller-inventory'); // Store in seller-inventory folder
-            
+
             const uploadResponse = await fetch('/api/upload-product-image', {
               method: 'POST',
               body: formData,
             });
-            
+
             if (uploadResponse.ok) {
               const uploadResult = await uploadResponse.json();
               if (uploadResult.success && uploadResult.imageUrl) {
@@ -985,7 +998,10 @@ const BulkImportPreview: React.FC<BulkImportPreviewProps> = ({
             subcategory: product.subcategory || '',
             image_url: finalImageUrl,
             stock_level: product.stock_level || 100,
-            unit: product.unit || 'pieces'
+            unit: product.unit || 'pieces',
+            // Add tracking info
+            admin_id: admin?.id,
+            session_id: sessionId,
           })
         });
 
@@ -1044,25 +1060,25 @@ const BulkImportPreview: React.FC<BulkImportPreviewProps> = ({
               Preview Import ({editableProducts.length} products)
             </Typography>
             <Box display="flex" gap={1} mt={1} flexWrap="wrap">
-              <Chip 
-                icon={<ImageIcon />} 
-                label={`${productStats.withImages} with images`} 
-                color="success" 
-                size="small" 
+              <Chip
+                icon={<ImageIcon />}
+                label={`${productStats.withImages} with images`}
+                color="success"
+                size="small"
               />
-              <Chip 
-                icon={<Warning />} 
-                label={`${productStats.withoutImages} without images`} 
-                color="warning" 
-                size="small" 
+              <Chip
+                icon={<Warning />}
+                label={`${productStats.withoutImages} without images`}
+                color="warning"
+                size="small"
               />
               {/* AI extraction stats */}
               {productStats.aiExtracted > 0 && (
                 <Tooltip title="Products extracted using AI">
-                  <Chip 
-                    icon={<AutoAwesome />} 
-                    label={`${productStats.aiExtracted} AI-extracted`} 
-                    color="primary" 
+                  <Chip
+                    icon={<AutoAwesome />}
+                    label={`${productStats.aiExtracted} AI-extracted`}
+                    color="primary"
                     size="small"
                     variant="outlined"
                   />
@@ -1070,10 +1086,10 @@ const BulkImportPreview: React.FC<BulkImportPreviewProps> = ({
               )}
               {productStats.needsReview > 0 && (
                 <Tooltip title="Products with low confidence that need review">
-                  <Chip 
-                    icon={<RateReview />} 
-                    label={`${productStats.needsReview} need review`} 
-                    color="warning" 
+                  <Chip
+                    icon={<RateReview />}
+                    label={`${productStats.needsReview} need review`}
+                    color="warning"
                     size="small"
                     variant="outlined"
                   />
@@ -1081,10 +1097,10 @@ const BulkImportPreview: React.FC<BulkImportPreviewProps> = ({
               )}
               {productStats.withBrand > 0 && (
                 <Tooltip title="Products with identified brands">
-                  <Chip 
-                    icon={<LocalOffer />} 
-                    label={`${productStats.withBrand} with brand`} 
-                    color="info" 
+                  <Chip
+                    icon={<LocalOffer />}
+                    label={`${productStats.withBrand} with brand`}
+                    color="info"
                     size="small"
                     variant="outlined"
                   />
@@ -1100,8 +1116,8 @@ const BulkImportPreview: React.FC<BulkImportPreviewProps> = ({
               onClick={scrapeAllImages}
               disabled={isImporting || isBatchScraping || productStats.withoutImages === 0}
             >
-              {isBatchScraping 
-                ? `Scraping ${scrapeProgress.current}/${scrapeProgress.total}...` 
+              {isBatchScraping
+                ? `Scraping ${scrapeProgress.current}/${scrapeProgress.total}...`
                 : `Scrape All Images (${productStats.withoutImages})`}
             </Button>
             <Button
@@ -1126,9 +1142,9 @@ const BulkImportPreview: React.FC<BulkImportPreviewProps> = ({
         {/* Progress indicators */}
         {isBatchScraping && (
           <Box sx={{ mt: 2 }}>
-            <LinearProgress 
-              variant="determinate" 
-              value={scrapeProgress.total > 0 ? (scrapeProgress.current / scrapeProgress.total) * 100 : 0} 
+            <LinearProgress
+              variant="determinate"
+              value={scrapeProgress.total > 0 ? (scrapeProgress.current / scrapeProgress.total) * 100 : 0}
             />
             <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
               Scraping images... {scrapeProgress.current}/{scrapeProgress.total}
@@ -1149,22 +1165,22 @@ const BulkImportPreview: React.FC<BulkImportPreviewProps> = ({
       <Grid container spacing={2}>
         {editableProducts.map((product) => (
           <Grid item xs={12} sm={6} md={4} key={product.id}>
-            <Card 
-              sx={{ 
+            <Card
+              sx={{
                 height: '100%',
-                border: product.hasError 
-                  ? '2px solid' 
-                  : product.needsReview 
-                    ? '2px dashed' 
-                    : product.aiExtracted 
-                      ? '1px solid' 
+                border: product.hasError
+                  ? '2px solid'
+                  : product.needsReview
+                    ? '2px dashed'
+                    : product.aiExtracted
+                      ? '1px solid'
                       : 'none',
-                borderColor: product.hasError 
-                  ? 'error.main' 
-                  : product.needsReview 
-                    ? 'warning.main' 
-                    : product.aiExtracted 
-                      ? 'primary.light' 
+                borderColor: product.hasError
+                  ? 'error.main'
+                  : product.needsReview
+                    ? 'warning.main'
+                    : product.aiExtracted
+                      ? 'primary.light'
                       : 'transparent',
                 position: 'relative'
               }}
@@ -1177,10 +1193,10 @@ const BulkImportPreview: React.FC<BulkImportPreviewProps> = ({
                     label={`${Math.round((product.confidence?.overall || 0) * 100)}%`}
                     size="small"
                     color={product.confidence?.overall && product.confidence.overall >= 0.7 ? 'success' : 'warning'}
-                    sx={{ 
-                      position: 'absolute', 
-                      top: 8, 
-                      left: 8, 
+                    sx={{
+                      position: 'absolute',
+                      top: 8,
+                      left: 8,
                       zIndex: 10,
                       height: 20,
                       fontSize: '0.65rem'
@@ -1196,10 +1212,10 @@ const BulkImportPreview: React.FC<BulkImportPreviewProps> = ({
                     label="Review"
                     size="small"
                     color="warning"
-                    sx={{ 
-                      position: 'absolute', 
-                      top: product.aiExtracted ? 32 : 8, 
-                      left: 8, 
+                    sx={{
+                      position: 'absolute',
+                      top: product.aiExtracted ? 32 : 8,
+                      left: 8,
                       zIndex: 10,
                       height: 20,
                       fontSize: '0.65rem'
@@ -1218,16 +1234,16 @@ const BulkImportPreview: React.FC<BulkImportPreviewProps> = ({
                     sx={{ objectFit: 'contain' }}
                   />
                 ) : (
-                  <Box 
-                    display="flex" 
-                    alignItems="center" 
-                    justifyContent="center" 
+                  <Box
+                    display="flex"
+                    alignItems="center"
+                    justifyContent="center"
                     height="100%"
                   >
                     <ImageIcon sx={{ fontSize: 48, color: 'grey.400' }} />
                   </Box>
                 )}
-                
+
                 {/* Image loading overlay */}
                 {(product.isLoadingImage || product.uploadingImage) && (
                   <Box
@@ -1249,10 +1265,10 @@ const BulkImportPreview: React.FC<BulkImportPreviewProps> = ({
 
                 {/* Image search and upload buttons */}
                 <Box sx={{ position: 'absolute', top: 8, right: 8, display: 'flex', gap: 0.5 }}>
-                <IconButton
-                  size="small"
+                  <IconButton
+                    size="small"
                     component="label"
-                  sx={{
+                    sx={{
                       bgcolor: 'white',
                       '&:hover': { bgcolor: 'grey.100' }
                     }}
@@ -1270,15 +1286,15 @@ const BulkImportPreview: React.FC<BulkImportPreviewProps> = ({
                   <IconButton
                     size="small"
                     sx={{
-                    bgcolor: 'white',
-                    '&:hover': { bgcolor: 'grey.100' }
-                  }}
-                  onClick={() => searchImageForProduct(product.id)}
+                      bgcolor: 'white',
+                      '&:hover': { bgcolor: 'grey.100' }
+                    }}
+                    onClick={() => searchImageForProduct(product.id)}
                     disabled={product.isLoadingImage || product.uploadingImage}
                     title="Search for image"
-                >
-                  <Search fontSize="small" />
-                </IconButton>
+                  >
+                    <Search fontSize="small" />
+                  </IconButton>
                 </Box>
 
                 {/* Delete button - moved to bottom left to avoid badge overlap */}
@@ -1307,24 +1323,24 @@ const BulkImportPreview: React.FC<BulkImportPreviewProps> = ({
                 )}
 
                 {/* Product Name - highlight if low confidence */}
-                <Tooltip 
-                  title={product.confidence?.name !== undefined 
-                    ? `Name confidence: ${Math.round(product.confidence.name * 100)}%` 
+                <Tooltip
+                  title={product.confidence?.name !== undefined
+                    ? `Name confidence: ${Math.round(product.confidence.name * 100)}%`
                     : ''}
                   placement="top"
                 >
                   <DebouncedTextField
-                  fullWidth
-                  size="small"
-                  label="Product Name"
-                  value={product.name}
+                    fullWidth
+                    size="small"
+                    label="Product Name"
+                    value={product.name}
                     onChange={(value) => updateProduct(product.id, 'name', value)}
                     debounceMs={300}
-                    sx={{ 
+                    sx={{
                       mb: 1.5,
                       '& .MuiOutlinedInput-root': {
-                        borderColor: product.confidence?.name !== undefined && product.confidence.name < 0.7 
-                          ? 'warning.main' 
+                        borderColor: product.confidence?.name !== undefined && product.confidence.name < 0.7
+                          ? 'warning.main'
                           : undefined
                       }
                     }}
@@ -1333,9 +1349,9 @@ const BulkImportPreview: React.FC<BulkImportPreviewProps> = ({
                 </Tooltip>
 
                 {/* Brand field - show brand identification results */}
-                <Tooltip 
-                  title={product.confidence?.brand !== undefined 
-                    ? `Brand confidence: ${Math.round(product.confidence.brand * 100)}%` 
+                <Tooltip
+                  title={product.confidence?.brand !== undefined
+                    ? `Brand confidence: ${Math.round(product.confidence.brand * 100)}%`
                     : 'Brand not identified'}
                   placement="top"
                 >
@@ -1347,57 +1363,57 @@ const BulkImportPreview: React.FC<BulkImportPreviewProps> = ({
                     onChange={(value) => updateProduct(product.id, 'brand', value)}
                     debounceMs={300}
                     placeholder="Enter brand name"
-                    sx={{ 
+                    sx={{
                       mb: 1.5,
                       '& .MuiOutlinedInput-root': {
-                        borderColor: product.aiExtracted && !product.brand 
-                          ? 'info.main' 
+                        borderColor: product.aiExtracted && !product.brand
+                          ? 'info.main'
                           : undefined
                       }
                     }}
                     color={product.aiExtracted && !product.brand ? 'info' : undefined}
-                />
+                  />
                 </Tooltip>
 
                 {/* Price and Quantity Row - highlight if low confidence */}
                 <Box display="flex" gap={1} mb={1.5}>
-                  <Tooltip 
-                    title={product.confidence?.price !== undefined 
-                      ? `Price confidence: ${Math.round(product.confidence.price * 100)}%` 
+                  <Tooltip
+                    title={product.confidence?.price !== undefined
+                      ? `Price confidence: ${Math.round(product.confidence.price * 100)}%`
                       : ''}
                     placement="top"
                   >
                     <DebouncedTextField
-                    size="small"
-                    label="Price"
-                    type="number"
-                    value={product.price}
+                      size="small"
+                      label="Price"
+                      type="number"
+                      value={product.price}
                       onChange={(value) => updateProduct(product.id, 'price', typeof value === 'number' ? value : parseFloat(String(value)) || 0)}
                       debounceMs={300}
                       parseAsNumber
-                    sx={{ flex: 1 }}
-                    InputProps={{ inputProps: { min: 0, step: 0.01 } }}
+                      sx={{ flex: 1 }}
+                      InputProps={{ inputProps: { min: 0, step: 0.01 } }}
                       color={product.confidence?.price !== undefined && product.confidence.price < 0.7 ? 'warning' : undefined}
-                  />
+                    />
                   </Tooltip>
-                  <Tooltip 
-                    title={product.confidence?.quantity !== undefined 
-                      ? `Quantity confidence: ${Math.round(product.confidence.quantity * 100)}%` 
+                  <Tooltip
+                    title={product.confidence?.quantity !== undefined
+                      ? `Quantity confidence: ${Math.round(product.confidence.quantity * 100)}%`
                       : ''}
                     placement="top"
                   >
                     <DebouncedTextField
-                    size="small"
-                    label="Min Qty"
-                    type="number"
-                    value={product.min_order_quantity}
+                      size="small"
+                      label="Min Qty"
+                      type="number"
+                      value={product.min_order_quantity}
                       onChange={(value) => updateProduct(product.id, 'min_order_quantity', typeof value === 'number' ? value : parseInt(String(value)) || 1)}
                       debounceMs={300}
                       parseAsNumber
-                    sx={{ flex: 1 }}
-                    InputProps={{ inputProps: { min: 1 } }}
+                      sx={{ flex: 1 }}
+                      InputProps={{ inputProps: { min: 1 } }}
                       color={product.confidence?.quantity !== undefined && product.confidence.quantity < 0.7 ? 'warning' : undefined}
-                  />
+                    />
                   </Tooltip>
                 </Box>
 
@@ -1488,8 +1504,8 @@ const BulkImportPreview: React.FC<BulkImportPreviewProps> = ({
       )}
 
       {/* Import Results Dialog */}
-      <Dialog 
-        open={showResultsDialog} 
+      <Dialog
+        open={showResultsDialog}
         onClose={handleResultsClose}
         maxWidth="sm"
         fullWidth
@@ -1551,15 +1567,15 @@ const BulkImportPreview: React.FC<BulkImportPreviewProps> = ({
         </DialogContent>
         <DialogActions>
           {importResults && importResults.failed > 0 && (
-            <Button 
+            <Button
               onClick={retryFailedImports}
               startIcon={<Refresh />}
             >
               Retry Failed
             </Button>
           )}
-          <Button 
-            variant="contained" 
+          <Button
+            variant="contained"
             onClick={handleResultsClose}
           >
             {importResults?.failed === 0 ? 'Done' : 'Close'}

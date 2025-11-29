@@ -43,20 +43,21 @@ export function AuthProvider({ children }: AuthProviderProps) {
     try {
       const adminData = localStorage.getItem('admin_session');
       console.log('🔍 Checking stored session:', adminData ? 'Found data' : 'No data');
-      
+
       if (adminData) {
         const admin = JSON.parse(adminData);
         console.log('📋 Parsed admin data:', admin);
         console.log('🔑 Admin has email?', !!admin?.email);
         console.log('🔑 Admin role:', admin?.role);
         console.log('🔑 Role check:', admin?.role === 'admin');
-        
-        // Check if role is any admin type (admin, Super Admin, etc.)
-        const isAdminRole = admin?.role && 
-          (admin.role.toLowerCase().includes('admin') || 
-           admin.role === 'admin' || 
-           admin.role === 'Super Admin');
-        
+
+        // Check if role is any admin type (admin, Super Admin, Employee, etc.)
+        const isAdminRole = admin?.role &&
+          (admin.role.toLowerCase().includes('admin') ||
+            admin.role === 'admin' ||
+            admin.role === 'Super Admin' ||
+            admin.role === 'Employee');
+
         if (admin && admin.email && isAdminRole) {
           console.log('✅ Valid admin session found, setting user');
           setUser(admin);
@@ -90,6 +91,25 @@ export function AuthProvider({ children }: AuthProviderProps) {
   };
 
   const signOut = async () => {
+    // End tracking session
+    const sessionId = localStorage.getItem('tracking_session_id');
+    if (sessionId) {
+      try {
+        await fetch('/api/admin/sessions', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            session_id: sessionId,
+            action: 'end',
+          }),
+        });
+        console.log('✅ Tracking session ended');
+      } catch (error) {
+        console.error('❌ Failed to end tracking session:', error);
+      }
+      localStorage.removeItem('tracking_session_id');
+    }
+
     localStorage.removeItem('admin_session');
     setUser(null);
     setIsAdmin(false);

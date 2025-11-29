@@ -37,6 +37,7 @@ interface ExtractedProductEditorProps {
   sellers: any[];
   categories?: string[]; // Deprecated - kept for backward compatibility
   subcategories?: { [key: string]: string[] }; // Deprecated - kept for backward compatibility
+  fullPage?: boolean; // If true, render without Dialog wrapper for full page use
 }
 
 // Constants for virtualization
@@ -49,7 +50,8 @@ const ExtractedProductEditor: React.FC<ExtractedProductEditorProps> = ({
   onClose,
   extractedProducts,
   onConfirm,
-  sellers
+  sellers,
+  fullPage = false
 }) => {
   const [editableProducts, setEditableProducts] = useState<EditableProduct[]>([]);
   const [selectedSeller, setSelectedSeller] = useState<string>('');
@@ -530,26 +532,20 @@ const ExtractedProductEditor: React.FC<ExtractedProductEditorProps> = ({
   const rowCount = Math.ceil(editableProducts.length / 2);
   const shouldVirtualize = editableProducts.length > VIRTUALIZATION_THRESHOLD;
 
-  return (
-    <Dialog 
-      open={open} 
-      onClose={onClose} 
-      maxWidth="lg" 
-      fullWidth
-      PaperProps={{
-        sx: { height: '90vh' }
-      }}
-    >
-      <DialogTitle>
-        <Typography variant="h5" component="div">
-          Edit Extracted Products ({editableProducts.length})
-        </Typography>
-        <Typography variant="body2" color="text.secondary">
-          Review and edit the extracted product details before adding to inventory
-        </Typography>
-      </DialogTitle>
+  const content = (
+    <>
+      {!fullPage && (
+        <DialogTitle>
+          <Typography variant="h5" component="div">
+            Edit Extracted Products ({editableProducts.length})
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Review and edit the extracted product details before adding to inventory
+          </Typography>
+        </DialogTitle>
+      )}
       
-      <DialogContent dividers>
+      <Box sx={fullPage ? { width: '100%' } : {}}>
         {/* Global Seller Selection */}
         <Card className="seller-selection-card" sx={{ mb: 3, bgcolor: 'primary.50' }}>
           <CardContent sx={{ pb: 3 }}>
@@ -658,9 +654,9 @@ const ExtractedProductEditor: React.FC<ExtractedProductEditorProps> = ({
             </Grid>
           )}
         </div>
-      </DialogContent>
+      </Box>
       
-      <DialogActions sx={{ p: 3 }}>
+      <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end', p: fullPage ? 0 : 3, mt: fullPage ? 3 : 0 }}>
         <Button 
           onClick={onClose} 
           startIcon={<Cancel />}
@@ -676,7 +672,25 @@ const ExtractedProductEditor: React.FC<ExtractedProductEditorProps> = ({
         >
           {loading ? 'Adding Products...' : `Add ${editableProducts.length} Products to Inventory`}
         </Button>
-      </DialogActions>
+      </Box>
+    </>
+  );
+
+  if (fullPage) {
+    return <Box>{content}</Box>;
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="xl"
+      fullWidth
+      PaperProps={{
+        sx: { height: '90vh' }
+      }}
+    >
+      {content}
     </Dialog>
   );
 };

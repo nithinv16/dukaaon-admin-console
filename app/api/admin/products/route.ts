@@ -1,10 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminQueries } from '@/lib/supabase-admin';
+import { hasPermission } from '@/lib/permissions';
+import {
+  startActivityTracking,
+  endActivityTracking,
+  trackProductCreation,
+  trackProductUpdate,
+  getClientIP
+} from '@/lib/employeeTracking';
 
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    
+
     const options = {
       page: searchParams.get('page') ? parseInt(searchParams.get('page')!) : 1,
       limit: searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : 25,
@@ -26,9 +34,13 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  let trackingId: string | undefined;
   try {
     const productData = await request.json();
-    
+    const adminId = productData.admin_id; // Admin ID should be passed from client
+    const sessionId = productData.session_id; // Session ID from login
+    const ipAddress = getClientIP(request);
+
     // Validate required fields
     if (!productData.name || !productData.description || !productData.price || !productData.seller_id) {
       return NextResponse.json(
@@ -55,9 +67,31 @@ export async function POST(request: NextRequest) {
     delete processedData.stock_level;
 
     const product = await adminQueries.addProduct(processedData);
+
+    // Track product creation if admin_id is provided
+    if (adminId && product?.id) {
+      try {
+        const tracking = await trackProductCreation(
+          adminId,
+          sessionId,
+          [product.id],
+          { product_name: product.name },
+          ipAddress
+        );
+        trackingId = tracking.operationId;
+        await endActivityTracking(trackingId, 'success');
+      } catch (trackError) {
+        console.error('Error tracking product creation:', trackError);
+        // Don't fail the request if tracking fails
+      }
+    }
+
     return NextResponse.json({ data: product, success: true });
   } catch (error: any) {
     console.error('Error adding product:', error);
+    if (trackingId) {
+      await endActivityTracking(trackingId, 'failed', error.message);
+    }
     return NextResponse.json(
       { error: error.message || 'Failed to add product' },
       { status: 500 }
@@ -66,9 +100,11 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
+  let trackingId: string | undefined;
   try {
-    const { productId, updates } = await request.json();
-    
+    const { productId, updates, admin_id, session_id } = await request.json();
+    const ipAddress = getClientIP(request);
+
     if (!productId) {
       return NextResponse.json(
         { error: 'Product ID is required' },
@@ -77,9 +113,30 @@ export async function PATCH(request: NextRequest) {
     }
 
     const product = await adminQueries.updateProduct(productId, updates);
+
+    // Track product update if admin_id is provided
+    if (admin_id && product?.id) {
+      try {
+        const tracking = await trackProductUpdate(
+          admin_id,
+          session_id,
+          product.id,
+          { updated_fields: Object.keys(updates) },
+          ipAddress
+        );
+        trackingId = tracking.operationId;
+        await endActivityTracking(trackingId, 'success');
+      } catch (trackError) {
+        console.error('Error tracking product update:', trackError);
+      }
+    }
+
     return NextResponse.json({ data: product, success: true });
   } catch (error: any) {
     console.error('Error updating product:', error);
+    if (trackingId) {
+      await endActivityTracking(trackingId, 'failed', error.message);
+    }
     return NextResponse.json(
       { error: error.message || 'Failed to update product' },
       { status: 500 }
@@ -88,10 +145,25 @@ export async function PATCH(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
+  let trackingId: string | undefined;
   try {
     const { searchParams } = new URL(request.url);
     const productId = searchParams.get('id');
     const productIds = searchParams.get('ids'); // For bulk delete
+    const adminId = searchParams.get('admin_id') ?? undefined;
+    const sessionId = searchParams.get('session_id') ?? undefined;
+    const ipAddress = getClientIP(request);
+
+    // Check permission for delete operation
+    if (adminId) {
+      const canDelete = await hasPermission(adminId, 'products', 'delete');
+      if (!canDelete) {
+        return NextResponse.json(
+          { error: 'Permission denied: You do not have permission to delete products' },
+          { status: 403 }
+        );
+      }
+    }
 
     // Support both single and bulk delete
     if (productIds) {
@@ -102,10 +174,49 @@ export async function DELETE(request: NextRequest) {
           { status: 400 }
         );
       }
+
+      // Track bulk delete
+      if (adminId) {
+        const tracking = await startActivityTracking({
+          admin_id: adminId,
+          session_id: sessionId,
+          action_type: 'delete_product',
+          entity_type: 'product',
+          items_processed: ids.length,
+          metadata: { product_ids: ids },
+          ip_address: ipAddress,
+        });
+        trackingId = tracking.operationId;
+      }
+
       const results = await adminQueries.deleteProducts(ids);
+
+      if (trackingId) {
+        await endActivityTracking(trackingId, 'success', undefined, ids.length);
+      }
+
       return NextResponse.json({ data: results, success: true });
     } else if (productId) {
+      // Track single delete
+      if (adminId) {
+        const tracking = await startActivityTracking({
+          admin_id: adminId,
+          session_id: sessionId,
+          action_type: 'delete_product',
+          entity_type: 'product',
+          entity_id: productId,
+          items_processed: 1,
+          ip_address: ipAddress,
+        });
+        trackingId = tracking.operationId;
+      }
+
       const result = await adminQueries.deleteProduct(productId);
+
+      if (trackingId) {
+        await endActivityTracking(trackingId, 'success');
+      }
+
       return NextResponse.json({ data: result, success: true });
     } else {
       return NextResponse.json(
@@ -115,6 +226,9 @@ export async function DELETE(request: NextRequest) {
     }
   } catch (error: any) {
     console.error('Error deleting product:', error);
+    if (trackingId) {
+      await endActivityTracking(trackingId, 'failed', error.message);
+    }
     return NextResponse.json(
       { error: error.message || 'Failed to delete product' },
       { status: 500 }

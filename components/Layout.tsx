@@ -33,6 +33,7 @@ import {
   Notifications,
   Settings,
   Analytics,
+  Assessment,
   ExitToApp,
   AccountCircle,
   WhatsApp,
@@ -69,6 +70,7 @@ const menuItems = [
   { text: 'Analytics', icon: <Analytics />, path: '/analytics' },
   { text: 'Database Tools', icon: <Storage />, path: '/database-tools' },
   { text: 'Audit Log', icon: <History />, path: '/audit-log' },
+  { text: 'Employee Tracking', icon: <Assessment />, path: '/employee-tracking' },
   { text: 'Seller Inventory', icon: <Store />, path: '/seller-inventory' },
   { text: 'Bulk Operations', icon: <People />, path: '/bulk-operations' },
   { text: 'Templates', icon: <Campaign />, path: '/templates' },
@@ -86,6 +88,17 @@ export default function Layout({ children }: LayoutProps) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const { user, signOut } = useAuth();
+
+  // Import and use activity tracking for logged-in employees
+  const { useActivityTracking } = React.useMemo(() => {
+    if (typeof window !== 'undefined') {
+      return require('@/lib/useActivityTracking');
+    }
+    return { useActivityTracking: () => ({}) };
+  }, []);
+
+  // Track activity for all authenticated users
+  useActivityTracking();
 
 
 

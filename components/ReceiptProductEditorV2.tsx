@@ -34,6 +34,7 @@ interface ReceiptProductEditorV2Props {
   products: ExtractedProductV2[];
   onConfirm: (products: ExtractedProductV2[]) => void;
   onCancel: () => void;
+  showTitle?: boolean; // Optional prop to show/hide title and description
 }
 
 const COMMON_UNITS = ['piece', 'pieces', 'kg', 'g', 'gm', 'l', 'ml', 'pack', 'box', 'packet', 'bottle', 'bag', 'case', 'cases'];
@@ -42,6 +43,7 @@ export default function ReceiptProductEditorV2({
   products: initialProducts,
   onConfirm,
   onCancel,
+  showTitle = true,
 }: ReceiptProductEditorV2Props) {
   const [products, setProducts] = useState<ExtractedProductV2[]>(initialProducts);
 
@@ -95,15 +97,19 @@ export default function ReceiptProductEditorV2({
 
   return (
     <Box sx={{ width: '100%', p: 3 }}>
-      <Typography variant="h5" gutterBottom>
-        Review & Edit Extracted Products
-      </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        Review the extracted products and make any necessary corrections. Unit prices will be automatically recalculated.
-      </Typography>
+      {showTitle && (
+        <>
+          <Typography variant="h5" gutterBottom>
+            Review & Edit Extracted Products
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            Review the extracted products and make any necessary corrections. Unit prices will be automatically recalculated.
+          </Typography>
+        </>
+      )}
 
       <Paper sx={{ mb: 3 }}>
-        <TableContainer sx={{ maxHeight: 600, overflowX: 'auto' }}>
+        <TableContainer sx={{ maxHeight: 'calc(100vh - 400px)', minHeight: 400, overflowX: 'auto' }}>
           <Table stickyHeader>
             <TableHead>
               <TableRow>

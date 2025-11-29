@@ -8,7 +8,13 @@ import { adminQueries } from '@/lib/supabase-admin';
 export async function GET() {
   try {
     const stats = await adminQueries.getProductStats();
-    return NextResponse.json(stats);
+    return NextResponse.json(stats, {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+      },
+    });
   } catch (error: any) {
     console.error('Error fetching product stats:', error);
     return NextResponse.json(

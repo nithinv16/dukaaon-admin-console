@@ -55,57 +55,82 @@ export default function LoginPage() {
       console.log('📦 Admin object received:', result.admin);
       console.log('📦 Admin email:', result.admin?.email);
       console.log('📦 Admin role:', result.admin?.role);
-      
-      // Check if role is any admin type (admin, Super Admin, etc.)
-      const isAdminRole = result.admin?.role && 
-        (result.admin.role.toLowerCase().includes('admin') || 
-         result.admin.role === 'admin' || 
-         result.admin.role === 'Super Admin');
-      
+
+      // Check if role is any admin type (admin, Super Admin, Employee, etc.)
+      const isAdminRole = result.admin?.role &&
+        (result.admin.role.toLowerCase().includes('admin') ||
+          result.admin.role === 'admin' ||
+          result.admin.role === 'Super Admin' ||
+          result.admin.role === 'Employee');
+
       if (!result.admin || !result.admin.email || !isAdminRole) {
         console.error('❌ Invalid admin object structure:', result.admin);
         throw new Error('Invalid admin data received from server');
       }
-      
+
       // Store admin session in localStorage
       const adminSessionData = JSON.stringify(result.admin);
       localStorage.setItem('admin_session', adminSessionData);
       console.log('💾 Stored admin session in localStorage');
-      
+
       // Verify it was stored correctly
       const stored = localStorage.getItem('admin_session');
       if (!stored) {
         throw new Error('Failed to store admin session');
       }
-      
+
       const parsedStored = JSON.parse(stored);
       console.log('✅ Verified stored session:', parsedStored);
       console.log('✅ Stored session has email?', !!parsedStored?.email);
       console.log('✅ Stored session role:', parsedStored?.role);
-      
+
       toast.success('Login successful!');
-      
+
       // Small delay to ensure localStorage is persisted
       await new Promise(resolve => setTimeout(resolve, 100));
-      
+
       // Final verification that data is in localStorage
       const verifyStored = localStorage.getItem('admin_session');
       if (!verifyStored) {
         throw new Error('Session was not persisted correctly');
       }
-      
+
       const verifyParsed = JSON.parse(verifyStored);
-      const isVerifyAdminRole = verifyParsed?.role && 
-        (verifyParsed.role.toLowerCase().includes('admin') || 
-         verifyParsed.role === 'admin' || 
-         verifyParsed.role === 'Super Admin');
-      
+      const isVerifyAdminRole = verifyParsed?.role &&
+        (verifyParsed.role.toLowerCase().includes('admin') ||
+          verifyParsed.role === 'admin' ||
+          verifyParsed.role === 'Super Admin' ||
+          verifyParsed.role === 'Employee');
+
       if (!verifyParsed?.email || !isVerifyAdminRole) {
         console.error('❌ Stored session validation failed:', verifyParsed);
         throw new Error('Stored session data is invalid');
       }
-      
+
       console.log('✅ Session validated, navigating to dashboard...');
+
+      // CREATE TRACKING SESSION
+      try {
+        const sessionResponse = await fetch('/api/admin/sessions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            admin_id: result.admin.id,
+          }),
+        });
+
+        if (sessionResponse.ok) {
+          const sessionData = await sessionResponse.json();
+          localStorage.setItem('tracking_session_id', sessionData.session_id);
+          console.log('✅ Tracking session created:', sessionData.session_id);
+        } else {
+          console.warn('⚠️ Failed to create tracking session, but continuing login');
+        }
+      } catch (error) {
+        console.error('❌ Error creating tracking session:', error);
+        // Don't fail login if tracking fails
+      }
+
       // Use window.location for a hard navigation - this causes full page reload
       // The new page will read from localStorage and initialize auth state
       window.location.replace('/');

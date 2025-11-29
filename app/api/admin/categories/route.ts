@@ -4,7 +4,7 @@ import { generateSlug } from '@/lib/categoryUtils';
 
 /**
  * GET /api/admin/categories
- * Fetches all categories and subcategories from the database
+ * Fetches all categories and subcategories from the database with product counts
  */
 export async function GET(request: NextRequest) {
   try {
@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
     // Fetch categories
     const { data: categories, error: categoriesError } = await supabase
       .from('categories')
-      .select('id, name, slug')
+      .select('id, name, slug, created_at')
       .order('name', { ascending: true });
 
     if (categoriesError) {
@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
     // Fetch subcategories
     const { data: subcategories, error: subcategoriesError } = await supabase
       .from('subcategories')
-      .select('id, category_id, name, slug')
+      .select('id, category_id, name, slug, created_at')
       .order('name', { ascending: true });
 
     if (subcategoriesError) {
@@ -38,9 +38,75 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Count products per category and subcategory
+    // Products are linked by matching the category/subcategory name (text field)
+    const { data: allProducts } = await supabase
+      .from('products')
+      .select('category, subcategory');
+
+    // Helper function for case-insensitive comparison
+    const normalizeName = (name: string) => name?.toLowerCase().trim() || '';
+
+    // Calculate product counts for categories (case-insensitive)
+    const categoryCounts: { [key: string]: number } = {};
+    if (allProducts) {
+      allProducts.forEach((product: any) => {
+        if (product.category) {
+          const normalizedCategory = normalizeName(product.category);
+          categoryCounts[normalizedCategory] = (categoryCounts[normalizedCategory] || 0) + 1;
+        }
+      });
+    }
+
+    // Calculate product counts for subcategories (case-insensitive)
+    const subcategoryCounts: { [key: string]: { [key: string]: number } } = {};
+    if (allProducts) {
+      allProducts.forEach((product: any) => {
+        if (product.category && product.subcategory) {
+          const normalizedCategory = normalizeName(product.category);
+          const normalizedSubcategory = normalizeName(product.subcategory);
+          if (!subcategoryCounts[normalizedCategory]) {
+            subcategoryCounts[normalizedCategory] = {};
+          }
+          subcategoryCounts[normalizedCategory][normalizedSubcategory] = 
+            (subcategoryCounts[normalizedCategory][normalizedSubcategory] || 0) + 1;
+        }
+      });
+    }
+
+    // Nest subcategories under categories and add product counts (case-insensitive matching)
+    const categoriesWithSubcategories = (categories || []).map((category: any) => {
+      const normalizedCategoryName = normalizeName(category.name);
+      
+      const categorySubcategories = (subcategories || [])
+        .filter((sub: any) => sub.category_id === category.id)
+        .map((sub: any) => {
+          const normalizedSubcategoryName = normalizeName(sub.name);
+          return {
+            ...sub,
+            product_count: subcategoryCounts[normalizedCategoryName]?.[normalizedSubcategoryName] || 0,
+            description: '',
+            status: 'active' as const,
+            parent_id: category.id,
+          };
+        });
+
+      return {
+        ...category,
+        description: '',
+        status: 'active' as const,
+        product_count: categoryCounts[normalizedCategoryName] || 0,
+        subcategories: categorySubcategories,
+      };
+    });
+
     return NextResponse.json({
-      categories: categories || [],
+      categories: categoriesWithSubcategories,
       subcategories: subcategories || []
+    }, {
+      headers: {
+        'Content-Type': 'application/json'
+      }
     });
   } catch (error: any) {
     console.error('Error in categories GET:', error);
@@ -183,6 +249,280 @@ export async function POST(request: NextRequest) {
     console.error('Error in categories POST:', error);
     return NextResponse.json(
       { error: error.message || 'Failed to create category' },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * PUT /api/admin/categories
+ * Updates an existing category or subcategory
+ * 
+ * Request body:
+ * - id: string (required) - The ID of the category/subcategory to update
+ * - type: 'category' | 'subcategory' (required) - The type to update
+ * - name: string (optional) - The new name
+ * - category_id: string (optional for subcategory) - New parent category ID
+ */
+export async function PUT(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { id, type, name, category_id } = body;
+
+    // Validate required fields
+    if (!id) {
+      return NextResponse.json(
+        { error: 'ID is required' },
+        { status: 400 }
+      );
+    }
+
+    if (!type || !['category', 'subcategory'].includes(type)) {
+      return NextResponse.json(
+        { error: 'Type must be either "category" or "subcategory"' },
+        { status: 400 }
+      );
+    }
+
+    const supabase = getAdminSupabaseClient();
+
+    if (type === 'category') {
+      const updateData: any = {};
+      
+      if (name && typeof name === 'string' && name.trim().length > 0) {
+        const slug = generateSlug(name.trim());
+        
+        // Check if another category with same slug exists
+        const { data: existing } = await supabase
+          .from('categories')
+          .select('id')
+          .eq('slug', slug)
+          .neq('id', id)
+          .single();
+
+        if (existing) {
+          return NextResponse.json(
+            { error: 'A category with this name already exists' },
+            { status: 409 }
+          );
+        }
+
+        updateData.name = name.trim();
+        updateData.slug = slug;
+      }
+
+      if (Object.keys(updateData).length === 0) {
+        return NextResponse.json(
+          { error: 'No valid fields to update' },
+          { status: 400 }
+        );
+      }
+
+      const { data: category, error: updateError } = await supabase
+        .from('categories')
+        .update(updateData)
+        .eq('id', id)
+        .select('id, name, slug')
+        .single();
+
+      if (updateError) {
+        console.error('Error updating category:', updateError);
+        return NextResponse.json(
+          { error: 'Failed to update category', details: updateError.message },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json({
+        success: true,
+        data: category
+      });
+    } else {
+      // Update subcategory
+      const updateData: any = {};
+      
+      if (name && typeof name === 'string' && name.trim().length > 0) {
+        updateData.name = name.trim();
+        updateData.slug = generateSlug(name.trim());
+      }
+
+      if (category_id) {
+        // Verify parent category exists
+        const { data: parentCategory, error: parentError } = await supabase
+          .from('categories')
+          .select('id')
+          .eq('id', category_id)
+          .single();
+
+        if (parentError || !parentCategory) {
+          return NextResponse.json(
+            { error: 'Parent category not found' },
+            { status: 404 }
+          );
+        }
+
+        updateData.category_id = category_id;
+      }
+
+      if (Object.keys(updateData).length === 0) {
+        return NextResponse.json(
+          { error: 'No valid fields to update' },
+          { status: 400 }
+        );
+      }
+
+      // Check for duplicate slug if name is being updated
+      if (updateData.slug) {
+        const { data: currentSubcategory } = await supabase
+          .from('subcategories')
+          .select('category_id')
+          .eq('id', id)
+          .single();
+
+        const parentCategoryId = updateData.category_id || currentSubcategory?.category_id;
+
+        if (parentCategoryId) {
+          const { data: existing } = await supabase
+            .from('subcategories')
+            .select('id')
+            .eq('category_id', parentCategoryId)
+            .eq('slug', updateData.slug)
+            .neq('id', id)
+            .single();
+
+          if (existing) {
+            return NextResponse.json(
+              { error: 'A subcategory with this name already exists in this category' },
+              { status: 409 }
+            );
+          }
+        }
+      }
+
+      const { data: subcategory, error: updateError } = await supabase
+        .from('subcategories')
+        .update(updateData)
+        .eq('id', id)
+        .select('id, category_id, name, slug')
+        .single();
+
+      if (updateError) {
+        console.error('Error updating subcategory:', updateError);
+        return NextResponse.json(
+          { error: 'Failed to update subcategory', details: updateError.message },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json({
+        success: true,
+        data: subcategory
+      });
+    }
+  } catch (error: any) {
+    console.error('Error in categories PUT:', error);
+    return NextResponse.json(
+      { error: error.message || 'Failed to update category' },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * DELETE /api/admin/categories
+ * Deletes a category or subcategory
+ * 
+ * Request body:
+ * - id: string (required) - The ID of the category/subcategory to delete
+ * - type: 'category' | 'subcategory' (required) - The type to delete
+ */
+export async function DELETE(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { id, type } = body;
+
+    // Validate required fields
+    if (!id) {
+      return NextResponse.json(
+        { error: 'ID is required' },
+        { status: 400 }
+      );
+    }
+
+    if (!type || !['category', 'subcategory'].includes(type)) {
+      return NextResponse.json(
+        { error: 'Type must be either "category" or "subcategory"' },
+        { status: 400 }
+      );
+    }
+
+    const supabase = getAdminSupabaseClient();
+
+    if (type === 'category') {
+      // Check if category has subcategories
+      const { data: subcategories, error: subError } = await supabase
+        .from('subcategories')
+        .select('id')
+        .eq('category_id', id)
+        .limit(1);
+
+      if (subError) {
+        console.error('Error checking subcategories:', subError);
+        return NextResponse.json(
+          { error: 'Failed to check subcategories', details: subError.message },
+          { status: 500 }
+        );
+      }
+
+      if (subcategories && subcategories.length > 0) {
+        return NextResponse.json(
+          { error: 'Cannot delete category with existing subcategories. Please delete or move subcategories first.' },
+          { status: 400 }
+        );
+      }
+
+      // Delete category
+      const { error: deleteError } = await supabase
+        .from('categories')
+        .delete()
+        .eq('id', id);
+
+      if (deleteError) {
+        console.error('Error deleting category:', deleteError);
+        return NextResponse.json(
+          { error: 'Failed to delete category', details: deleteError.message },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: 'Category deleted successfully'
+      });
+    } else {
+      // Delete subcategory
+      const { error: deleteError } = await supabase
+        .from('subcategories')
+        .delete()
+        .eq('id', id);
+
+      if (deleteError) {
+        console.error('Error deleting subcategory:', deleteError);
+        return NextResponse.json(
+          { error: 'Failed to delete subcategory', details: deleteError.message },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: 'Subcategory deleted successfully'
+      });
+    }
+  } catch (error: any) {
+    console.error('Error in categories DELETE:', error);
+    return NextResponse.json(
+      { error: error.message || 'Failed to delete category' },
       { status: 500 }
     );
   }

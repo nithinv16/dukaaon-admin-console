@@ -125,15 +125,22 @@ export default function ReceiptScanner({ onScanComplete, onCancel, provider = 'a
       // Extract base64 from data URL
       const base64Image = selectedImage.split(',')[1];
 
-      // Call scan API with provider specification
+      // Get admin and session info for tracking
+      const adminSession = localStorage.getItem('admin_session');
+      const sessionId = localStorage.getItem('tracking_session_id');
+      const admin = adminSession ? JSON.parse(adminSession) : null;
+
+      // Call scan API with provider specification and tracking info
       const response = await fetch('/api/admin/scan-receipt', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           image: base64Image,
-          provider: provider // Specify OCR provider
+          provider: provider, // Specify OCR provider
+          admin_id: admin?.id, // For tracking
+          session_id: sessionId, // For tracking
         }),
       });
 

@@ -27,6 +27,7 @@ import {
   ListItemText,
   ListItemAvatar,
   Divider,
+  CircularProgress,
 } from '@mui/material';
 import {
   DataGrid,
@@ -45,6 +46,9 @@ import {
   Inventory,
   ExpandMore,
   ExpandLess,
+  DragIndicator,
+  ShoppingCart,
+  Close,
 } from '@mui/icons-material';
 import { adminQueries, queries } from '@/lib/supabase-browser';
 import toast from 'react-hot-toast';
@@ -84,9 +88,38 @@ export default function CategoriesPage() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
+  const [filterType, setFilterType] = useState<'all' | 'category' | 'subcategory'>('all');
   const [selectedCategory, setSelectedCategory] = useState<CategoryData | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
+  
+  // Edit dialog states
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editMode, setEditMode] = useState<'category' | 'subcategory'>('category');
+  const [editFormData, setEditFormData] = useState({ name: '', categoryId: '' });
+  
+  // Add dialog states
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [addMode, setAddMode] = useState<'category' | 'subcategory'>('category');
+  const [addFormData, setAddFormData] = useState({ name: '', categoryId: '' });
+  
+  // Delete confirmation
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; type: 'category' | 'subcategory'; name: string } | null>(null);
+  
+  // Add subcategory dialog
+  const [addSubcategoryDialogOpen, setAddSubcategoryDialogOpen] = useState(false);
+  const [selectedCategoryForSubcategory, setSelectedCategoryForSubcategory] = useState<CategoryData | null>(null);
+  const [newSubcategoryName, setNewSubcategoryName] = useState('');
+  
+  // Drag and drop states
+  const [draggedItem, setDraggedItem] = useState<{ type: 'product' | 'subcategory'; id: string; data: any } | null>(null);
+  const [dragOverTarget, setDragOverTarget] = useState<{ type: 'category' | 'subcategory'; id: string } | null>(null);
+  const [products, setProducts] = useState<any[]>([]);
+  const [productsLoading, setProductsLoading] = useState(false);
+  const [showProductsPanel, setShowProductsPanel] = useState(false);
+  const [selectedCategoryForProducts, setSelectedCategoryForProducts] = useState<string | null>(null);
+  const [selectedSubcategoryForProducts, setSelectedSubcategoryForProducts] = useState<string | null>(null);
 
   useEffect(() => {
     loadCategories();
@@ -96,14 +129,15 @@ export default function CategoriesPage() {
   const loadCategories = async () => {
     try {
       setLoading(true);
-      const result = await queries.getCategories();
-      setCategories(result || []);
+      const result = await adminQueries.getCategories();
+      // The API returns { categories: [...], subcategories: [...] }
+      // Categories already have subcategories nested
+      const categoriesData = result?.categories || [];
+      setCategories(categoriesData);
     } catch (error) {
       console.error('Error loading categories:', error);
       toast.error('Failed to load categories');
-      // Fallback to mock data if Supabase fails - use dynamic generation
-      const mockCategories = generateMockCategoryData(defaultCategorySubcategoryMap);
-      setCategories(mockCategories);
+      setCategories([]);
     } finally {
       setLoading(false);
     }
@@ -111,13 +145,10 @@ export default function CategoriesPage() {
 
   const loadStats = async () => {
     try {
-      // For now, use calculated stats from mock data since getCategoryStats doesn't exist
-      const mockCategories = generateMockCategoryData(defaultCategorySubcategoryMap);
-      const calculatedStats = calculateCategoryStats(mockCategories);
-      setStats(calculatedStats);
+      const statsData = await adminQueries.getCategoryStats();
+      setStats(statsData);
     } catch (error) {
       console.error('Error loading stats:', error);
-      // Fallback to default stats
       setStats({
         totalCategories: 0,
         activeCategories: 0,
@@ -137,11 +168,274 @@ export default function CategoriesPage() {
     setExpandedCategories(newExpanded);
   };
 
+  const handleEditCategory = (category: CategoryData) => {
+    setEditMode('category');
+    setEditFormData({ name: category.name, categoryId: '' });
+    setSelectedCategory(category);
+    setEditDialogOpen(true);
+  };
+
+  const handleEditSubcategory = (subcategory: CategoryData) => {
+    setEditMode('subcategory');
+    setEditFormData({ name: subcategory.name, categoryId: subcategory.parent_id || '' });
+    setSelectedCategory(subcategory);
+    setEditDialogOpen(true);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!selectedCategory || !editFormData.name.trim()) {
+      toast.error('Please enter a name');
+      return;
+    }
+
+    try {
+      if (editMode === 'category') {
+        await adminQueries.updateCategory(selectedCategory.id, editFormData.name.trim());
+        toast.success('Category updated successfully');
+      } else {
+        await adminQueries.updateSubcategory(selectedCategory.id, editFormData.name.trim(), editFormData.categoryId || undefined);
+        toast.success('Subcategory updated successfully');
+      }
+      setEditDialogOpen(false);
+      loadCategories();
+      loadStats();
+    } catch (error: any) {
+      console.error('Error updating:', error);
+      toast.error(error.message || 'Failed to update');
+    }
+  };
+
+  const handleDeleteCategory = (category: CategoryData) => {
+    setDeleteTarget({ id: category.id, type: 'category', name: category.name });
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteSubcategory = (subcategory: CategoryData) => {
+    setDeleteTarget({ id: subcategory.id, type: 'subcategory', name: subcategory.name });
+    setDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+
+    try {
+      if (deleteTarget.type === 'category') {
+        await adminQueries.deleteCategory(deleteTarget.id);
+        toast.success('Category deleted successfully');
+      } else {
+        await adminQueries.deleteSubcategory(deleteTarget.id);
+        toast.success('Subcategory deleted successfully');
+      }
+      setDeleteDialogOpen(false);
+      setDeleteTarget(null);
+      loadCategories();
+      loadStats();
+    } catch (error: any) {
+      console.error('Error deleting:', error);
+      toast.error(error.message || 'Failed to delete');
+    }
+  };
+
+  const handleAddCategory = () => {
+    setAddMode('category');
+    setAddFormData({ name: '', categoryId: '' });
+    setAddDialogOpen(true);
+  };
+
+  const handleAddSubcategory = (category: CategoryData) => {
+    setSelectedCategoryForSubcategory(category);
+    setNewSubcategoryName('');
+    setAddSubcategoryDialogOpen(true);
+  };
+
+  const handleSaveAddCategory = async () => {
+    if (!addFormData.name.trim()) {
+      toast.error('Please enter a category name');
+      return;
+    }
+
+    try {
+      await adminQueries.createCategory(addFormData.name.trim());
+      toast.success('Category created successfully');
+      setAddDialogOpen(false);
+      loadCategories();
+      loadStats();
+    } catch (error: any) {
+      console.error('Error creating category:', error);
+      toast.error(error.message || 'Failed to create category');
+    }
+  };
+
+  const handleSaveAddSubcategory = async () => {
+    if (!newSubcategoryName.trim() || !selectedCategoryForSubcategory) {
+      toast.error('Please enter a subcategory name');
+      return;
+    }
+
+    try {
+      await adminQueries.createSubcategory(newSubcategoryName.trim(), selectedCategoryForSubcategory.id);
+      toast.success('Subcategory created successfully');
+      setAddSubcategoryDialogOpen(false);
+      setSelectedCategoryForSubcategory(null);
+      setNewSubcategoryName('');
+      // Expand the category to show the new subcategory
+      setExpandedCategories(prev => new Set(prev).add(selectedCategoryForSubcategory.id));
+      loadCategories();
+      loadStats();
+    } catch (error: any) {
+      console.error('Error creating subcategory:', error);
+      toast.error(error.message || 'Failed to create subcategory');
+    }
+  };
+
+  // Load products for a category/subcategory
+  const loadProducts = async (category?: string, subcategory?: string) => {
+    try {
+      setProductsLoading(true);
+      const result = await adminQueries.getProductsByCategory(category, subcategory, 100);
+      setProducts(result?.products || []);
+    } catch (error) {
+      console.error('Error loading products:', error);
+      toast.error('Failed to load products');
+      setProducts([]);
+    } finally {
+      setProductsLoading(false);
+    }
+  };
+
+  // Drag handlers
+  const handleDragStart = (e: React.DragEvent, type: 'product' | 'subcategory', id: string, data: any) => {
+    setDraggedItem({ type, id, data });
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', JSON.stringify({ type, id }));
+    // Add visual feedback
+    if (e.currentTarget instanceof HTMLElement) {
+      e.currentTarget.style.opacity = '0.5';
+    }
+  };
+
+  const handleDragEnd = (e: React.DragEvent) => {
+    setDraggedItem(null);
+    setDragOverTarget(null);
+    // Reset visual feedback
+    if (e.currentTarget instanceof HTMLElement) {
+      e.currentTarget.style.opacity = '1';
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent, type: 'category' | 'subcategory', id: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverTarget({ type, id });
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverTarget(null);
+  };
+
+  const handleDrop = async (e: React.DragEvent, targetType: 'category' | 'subcategory', targetId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverTarget(null);
+
+    if (!draggedItem) return;
+
+    try {
+      if (draggedItem.type === 'product') {
+        // Moving a product
+        const targetCategory = categories.find(c => c.id === targetId);
+        const targetSubcategory = categories
+          .flatMap(c => c.subcategories || [])
+          .find(s => s.id === targetId);
+
+        if (targetType === 'category' && targetCategory) {
+          await adminQueries.updateProductCategory(
+            [draggedItem.id],
+            targetCategory.name,
+            null // Clear subcategory when moving to category
+          );
+          toast.success(`Product moved to ${targetCategory.name}`);
+        } else if (targetType === 'subcategory' && targetSubcategory) {
+          const parentCategory = categories.find(c => 
+            c.subcategories?.some(s => s.id === targetId)
+          );
+          if (parentCategory) {
+            await adminQueries.updateProductCategory(
+              [draggedItem.id],
+              parentCategory.name,
+              targetSubcategory.name
+            );
+            toast.success(`Product moved to ${parentCategory.name} > ${targetSubcategory.name}`);
+          }
+        }
+
+        // Reload products if panel is open
+        if (showProductsPanel) {
+          loadProducts(selectedCategoryForProducts || undefined, selectedSubcategoryForProducts || undefined);
+        }
+      } else if (draggedItem.type === 'subcategory') {
+        // Moving a subcategory
+        if (targetType === 'category') {
+          await adminQueries.moveSubcategory(draggedItem.id, targetId);
+          toast.success('Subcategory moved successfully');
+        } else {
+          toast.error('Subcategories can only be moved to categories, not to other subcategories');
+          return;
+        }
+      }
+
+      // Reload categories to reflect changes
+      loadCategories();
+      loadStats();
+      setDraggedItem(null);
+    } catch (error: any) {
+      console.error('Error handling drop:', error);
+      toast.error(error.message || 'Failed to move item');
+      setDraggedItem(null);
+    }
+  };
+
+  const handleCategoryClick = (category: CategoryData) => {
+    setSelectedCategoryForProducts(category.name);
+    setSelectedSubcategoryForProducts(null);
+    setShowProductsPanel(true);
+    loadProducts(category.name, undefined);
+  };
+
+  const handleSubcategoryClick = (subcategory: CategoryData, parentCategory: CategoryData) => {
+    setSelectedCategoryForProducts(parentCategory.name);
+    setSelectedSubcategoryForProducts(subcategory.name);
+    setShowProductsPanel(true);
+    loadProducts(parentCategory.name, subcategory.name);
+  };
+
   const getStatusColor = (status: string) => {
     return status === 'active' ? 'success' : 'default';
   };
 
   const columns: GridColDef[] = [
+    {
+      field: 'type',
+      headerName: 'Type',
+      width: 120,
+      minWidth: 100,
+      flex: 0,
+      hideable: false,
+      renderCell: (params: GridRenderCellParams) => {
+        const isSubcategory = !!params.row.parent_id;
+        return (
+          <Chip
+            label={isSubcategory ? 'Subcategory' : 'Category'}
+            color={isSubcategory ? 'secondary' : 'primary'}
+            size="small"
+            variant="filled"
+          />
+        );
+      },
+    },
     {
       field: 'image_url',
       headerName: 'Icon',
@@ -149,32 +443,62 @@ export default function CategoriesPage() {
       minWidth: 60,
       flex: 0,
       hideable: false,
-      renderCell: (params: GridRenderCellParams) => (
-        <Avatar
-          src={params.value}
-          alt={params.row.name}
-          sx={{ width: 40, height: 40 }}
-        >
-          <Category />
-        </Avatar>
-      ),
+      renderCell: (params: GridRenderCellParams) => {
+        const isSubcategory = !!params.row.parent_id;
+        return (
+          <Avatar
+            src={params.value}
+            alt={params.row.name}
+            sx={{ 
+              width: 40, 
+              height: 40,
+              bgcolor: isSubcategory ? 'secondary.main' : 'primary.main'
+            }}
+          >
+            <Category />
+          </Avatar>
+        );
+      },
     },
     {
       field: 'name',
-      headerName: 'Category Name',
+      headerName: 'Name',
       minWidth: 180,
       flex: 1,
       hideable: false,
-      renderCell: (params: GridRenderCellParams) => (
-        <Box>
-          <Typography variant="body2" fontWeight="medium" noWrap>
-            {params.value}
-          </Typography>
-          <Typography variant="caption" color="text.secondary" noWrap>
-            {params.row.description}
-          </Typography>
-        </Box>
-      ),
+      renderCell: (params: GridRenderCellParams) => {
+        const isSubcategory = !!params.row.parent_id;
+        const parentCategory = isSubcategory 
+          ? categories.find(c => c.subcategories?.some(s => s.id === params.row.id))
+          : null;
+        
+        return (
+          <Box sx={{ pl: isSubcategory ? 4 : 0 }}>
+            {isSubcategory && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                {parentCategory?.name || 'Parent Category'}
+              </Typography>
+            )}
+            <Typography 
+              variant="body2" 
+              fontWeight={isSubcategory ? "regular" : "medium"} 
+              noWrap
+              sx={{ 
+                fontStyle: isSubcategory ? 'italic' : 'normal',
+                color: isSubcategory ? 'text.secondary' : 'text.primary'
+              }}
+            >
+              {isSubcategory && '↳ '}
+              {params.value}
+            </Typography>
+            {params.row.description && (
+              <Typography variant="caption" color="text.secondary" noWrap>
+                {params.row.description}
+              </Typography>
+            )}
+          </Box>
+        );
+      },
     },
     {
       field: 'product_count',
@@ -222,36 +546,97 @@ export default function CategoriesPage() {
       field: 'actions',
       headerName: 'Actions',
       width: 150,
-      renderCell: (params: GridRenderCellParams) => (
-        <Box>
-          <IconButton
-            size="small"
-            onClick={() => {
-              setSelectedCategory(params.row);
-              setDialogOpen(true);
-            }}
-          >
-            <Visibility />
-          </IconButton>
-          <IconButton size="small">
-            <Edit />
-          </IconButton>
-          <IconButton size="small" color="error">
-            <Delete />
-          </IconButton>
-        </Box>
-      ),
+      renderCell: (params: GridRenderCellParams) => {
+        const isSubcategory = !!params.row.parent_id;
+        return (
+          <Box>
+            <IconButton
+              size="small"
+              onClick={() => {
+                setSelectedCategory(params.row);
+                setDialogOpen(true);
+              }}
+              title="View details"
+            >
+              <Visibility />
+            </IconButton>
+            <IconButton
+              size="small"
+              onClick={() => {
+                if (isSubcategory) {
+                  handleEditSubcategory(params.row);
+                } else {
+                  handleEditCategory(params.row);
+                }
+              }}
+              title="Edit"
+            >
+              <Edit />
+            </IconButton>
+            <IconButton
+              size="small"
+              color="error"
+              onClick={() => {
+                if (isSubcategory) {
+                  handleDeleteSubcategory(params.row);
+                } else {
+                  handleDeleteCategory(params.row);
+                }
+              }}
+              title="Delete"
+            >
+              <Delete />
+            </IconButton>
+          </Box>
+        );
+      },
     },
   ];
 
-  // Flatten categories for DataGrid
-  const flattenedCategories = Array.isArray(categories) ? categories.reduce((acc: CategoryData[], category) => {
-    acc.push(category);
+  // Prepare data for DataGrid - separate categories and subcategories but show them together
+  let flattenedCategories = Array.isArray(categories) ? categories.reduce((acc: any[], category) => {
+    // Add category first
+    acc.push({
+      ...category,
+      parent_id: undefined, // Ensure no parent_id for categories
+      type: 'category', // Add type field for sorting/filtering
+      typeSort: 0, // Sort order: categories first
+    });
+    // Then add its subcategories
     if (category.subcategories && category.subcategories.length > 0) {
-      acc.push(...category.subcategories);
+      acc.push(...category.subcategories.map(sub => ({
+        ...sub,
+        parent_id: category.id, // Ensure parent_id is set
+        type: 'subcategory', // Add type field for sorting/filtering
+        typeSort: 1, // Sort order: subcategories second
+      })));
     }
     return acc;
-  }, [] as CategoryData[]) : [];
+  }, [] as any[]) : [];
+
+  // Filter by type if needed
+  if (filterType !== 'all') {
+    flattenedCategories = flattenedCategories.filter(item => {
+      const isSubcategory = !!item.parent_id;
+      if (filterType === 'category') return !isSubcategory;
+      if (filterType === 'subcategory') return isSubcategory;
+      return true;
+    });
+  }
+
+  // Filter by status if needed
+  if (filterStatus !== 'all') {
+    flattenedCategories = flattenedCategories.filter(item => item.status === filterStatus);
+  }
+
+  // Filter by search term if needed
+  if (searchTerm) {
+    const searchLower = searchTerm.toLowerCase();
+    flattenedCategories = flattenedCategories.filter(item => 
+      item.name.toLowerCase().includes(searchLower) ||
+      item.description?.toLowerCase().includes(searchLower)
+    );
+  }
 
   return (
     <Box sx={{ p: { xs: 2, sm: 3 } }}>
@@ -339,21 +724,44 @@ export default function CategoriesPage() {
 
       <Grid container spacing={3}>
         {/* Category Tree View */}
-        <Grid item xs={12} md={4}>
+        <Grid item xs={12} md={showProductsPanel ? 3 : 4}>
           <Card>
             <CardContent>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
                 <Typography variant="h6">Category Tree</Typography>
-                <Button startIcon={<Add />} size="small">
+                <Button startIcon={<Add />} size="small" onClick={handleAddCategory}>
                   Add Category
                 </Button>
               </Box>
+              <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
+                💡 Drag products and subcategories to reorganize. Click categories/subcategories to view products.
+              </Typography>
               <List>
                 {Array.isArray(categories) && categories.map((category) => (
                   <React.Fragment key={category.id}>
                     <ListItem
                       button
-                      onClick={() => toggleCategoryExpansion(category.id)}
+                      onClick={() => {
+                        toggleCategoryExpansion(category.id);
+                        handleCategoryClick(category);
+                      }}
+                      onDragOver={(e) => handleDragOver(e, 'category', category.id)}
+                      onDragLeave={handleDragLeave}
+                      onDrop={(e) => handleDrop(e, 'category', category.id)}
+                      sx={{
+                        cursor: 'pointer',
+                        backgroundColor: dragOverTarget?.type === 'category' && dragOverTarget?.id === category.id
+                          ? 'action.selected'
+                          : 'transparent',
+                        border: dragOverTarget?.type === 'category' && dragOverTarget?.id === category.id
+                          ? '2px dashed'
+                          : 'none',
+                        borderColor: dragOverTarget?.type === 'category' && dragOverTarget?.id === category.id
+                          ? 'primary.main'
+                          : 'transparent',
+                        borderRadius: 1,
+                        transition: 'all 0.2s ease',
+                      }}
                     >
                       <ListItemAvatar>
                         <Avatar>
@@ -371,10 +779,65 @@ export default function CategoriesPage() {
                     {expandedCategories.has(category.id) && category.subcategories && (
                       <Box sx={{ pl: 4 }}>
                         {category.subcategories.map((subcategory) => (
-                          <ListItem key={subcategory.id} sx={{ py: 0.5 }}>
+                          <ListItem 
+                            key={subcategory.id} 
+                            sx={{ 
+                              py: 0.5,
+                              cursor: 'move',
+                              backgroundColor: dragOverTarget?.type === 'subcategory' && dragOverTarget?.id === subcategory.id
+                                ? 'action.selected'
+                                : 'transparent',
+                              border: dragOverTarget?.type === 'subcategory' && dragOverTarget?.id === subcategory.id
+                                ? '2px dashed'
+                                : 'none',
+                              borderColor: dragOverTarget?.type === 'subcategory' && dragOverTarget?.id === subcategory.id
+                                ? 'primary.main'
+                                : 'transparent',
+                              borderRadius: 1,
+                              transition: 'all 0.2s ease',
+                            }}
+                            draggable
+                            onDragStart={(e) => handleDragStart(e, 'subcategory', subcategory.id, subcategory)}
+                            onDragEnd={handleDragEnd}
+                            onDragOver={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              handleDragOver(e, 'subcategory', subcategory.id);
+                            }}
+                            onDragLeave={handleDragLeave}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              handleDrop(e, 'subcategory', subcategory.id);
+                            }}
+                            onClick={() => handleSubcategoryClick(subcategory, category)}
+                            secondaryAction={
+                              <Box>
+                                <IconButton
+                                  size="small"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleEditSubcategory(subcategory);
+                                  }}
+                                >
+                                  <Edit fontSize="small" />
+                                </IconButton>
+                                <IconButton
+                                  size="small"
+                                  color="error"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteSubcategory(subcategory);
+                                  }}
+                                >
+                                  <Delete fontSize="small" />
+                                </IconButton>
+                              </Box>
+                            }
+                          >
                             <ListItemAvatar>
                               <Avatar sx={{ width: 32, height: 32 }}>
-                                <Category fontSize="small" />
+                                <DragIndicator fontSize="small" sx={{ cursor: 'move' }} />
                               </Avatar>
                             </ListItemAvatar>
                             <ListItemText
@@ -385,6 +848,28 @@ export default function CategoriesPage() {
                             />
                           </ListItem>
                         ))}
+                        <Box sx={{ pl: 2, py: 1 }}>
+                          <Button
+                            size="small"
+                            startIcon={<Add />}
+                            onClick={() => handleAddSubcategory(category)}
+                            sx={{ fontSize: '0.75rem' }}
+                          >
+                            Add Subcategory
+                          </Button>
+                        </Box>
+                      </Box>
+                    )}
+                    {expandedCategories.has(category.id) && (!category.subcategories || category.subcategories.length === 0) && (
+                      <Box sx={{ pl: 4, py: 1 }}>
+                        <Button
+                          size="small"
+                          startIcon={<Add />}
+                          onClick={() => handleAddSubcategory(category)}
+                          sx={{ fontSize: '0.75rem' }}
+                        >
+                          Add Subcategory
+                        </Button>
                       </Box>
                     )}
                     <Divider />
@@ -395,13 +880,95 @@ export default function CategoriesPage() {
           </Card>
         </Grid>
 
+        {/* Products Panel */}
+        {showProductsPanel && (
+          <Grid item xs={12} md={3}>
+            <Card>
+              <CardContent>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                  <Typography variant="h6">
+                    Products
+                    {selectedSubcategoryForProducts && (
+                      <Typography variant="caption" display="block" color="text.secondary">
+                        {selectedCategoryForProducts} &gt; {selectedSubcategoryForProducts}
+                      </Typography>
+                    )}
+                    {!selectedSubcategoryForProducts && selectedCategoryForProducts && (
+                      <Typography variant="caption" display="block" color="text.secondary">
+                        {selectedCategoryForProducts}
+                      </Typography>
+                    )}
+                  </Typography>
+                  <IconButton size="small" onClick={() => setShowProductsPanel(false)}>
+                    <Close />
+                  </IconButton>
+                </Box>
+                {productsLoading ? (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+                    <CircularProgress size={24} />
+                  </Box>
+                ) : products.length === 0 ? (
+                  <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', p: 3 }}>
+                    No products found
+                  </Typography>
+                ) : (
+                  <List dense sx={{ maxHeight: 600, overflow: 'auto' }}>
+                    {products.map((product: any) => (
+                      <ListItem
+                        key={product.id}
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, 'product', product.id, product)}
+                        onDragEnd={handleDragEnd}
+                        sx={{
+                          cursor: 'move',
+                          mb: 0.5,
+                          borderRadius: 1,
+                          border: '1px solid',
+                          borderColor: 'divider',
+                          '&:hover': {
+                            backgroundColor: 'action.hover',
+                          },
+                        }}
+                      >
+                        <ListItemAvatar>
+                          <Avatar
+                            src={product.image_url}
+                            sx={{ width: 40, height: 40 }}
+                          >
+                            <ShoppingCart />
+                          </Avatar>
+                        </ListItemAvatar>
+                        <ListItemText
+                          primary={
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <DragIndicator fontSize="small" sx={{ color: 'text.secondary' }} />
+                              <Typography variant="body2" noWrap sx={{ flex: 1 }}>
+                                {product.name}
+                              </Typography>
+                            </Box>
+                          }
+                          secondary={
+                            <Typography variant="caption" color="text.secondary">
+                              ₹{product.price || 0} • Stock: {product.stock_available || 0}
+                            </Typography>
+                          }
+                        />
+                      </ListItem>
+                    ))}
+                  </List>
+                )}
+              </CardContent>
+            </Card>
+          </Grid>
+        )}
+
         {/* Categories Table */}
-        <Grid item xs={12} md={8}>
+        <Grid item xs={12} md={showProductsPanel ? 6 : 8}>
           <Card>
             <CardContent>
               {/* Filters */}
               <Grid container spacing={2} alignItems="center" sx={{ mb: 3 }}>
-                <Grid item xs={12} sm={6} md={6}>
+                <Grid item xs={12} sm={4} md={4}>
                   <TextField
                     fullWidth
                     placeholder="Search categories..."
@@ -413,7 +980,21 @@ export default function CategoriesPage() {
                     }}
                   />
                 </Grid>
-                <Grid item xs={6} sm={3} md={4}>
+                <Grid item xs={6} sm={3} md={2}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>Type</InputLabel>
+                    <Select
+                      value={filterType}
+                      onChange={(e) => setFilterType(e.target.value as 'all' | 'category' | 'subcategory')}
+                      label="Type"
+                    >
+                      <MenuItem value="all">All Types</MenuItem>
+                      <MenuItem value="category">Categories</MenuItem>
+                      <MenuItem value="subcategory">Subcategories</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={6} sm={2} md={2}>
                   <FormControl fullWidth size="small">
                     <InputLabel>Status</InputLabel>
                     <Select
@@ -427,18 +1008,18 @@ export default function CategoriesPage() {
                     </Select>
                   </FormControl>
                 </Grid>
-                <Grid item xs={6} sm={3} md={2}>
+                <Grid item xs={12} sm={3} md={4}>
                   <Button
                     fullWidth
                     variant="contained"
                     startIcon={<Add />}
                     size="small"
-                    onClick={() => toast('Add category feature coming soon!')}
+                    onClick={handleAddCategory}
                     sx={{
                       fontSize: { xs: '0.75rem', sm: '0.875rem' },
                     }}
                   >
-                    Add
+                    Add Category
                   </Button>
                 </Grid>
               </Grid>
@@ -448,9 +1029,16 @@ export default function CategoriesPage() {
                 columns={columns}
                 loading={loading}
                 pageSizeOptions={[10, 25, 50, 100]}
+                getRowId={(row) => row.id}
                 initialState={{
                   pagination: {
                     paginationModel: { page: 0, pageSize: 25 },
+                  },
+                  sorting: {
+                    sortModel: [
+                      { field: 'typeSort', sort: 'asc' }, // Categories first (0), then subcategories (1)
+                      { field: 'name', sort: 'asc' },
+                    ],
                   },
                   columns: {
                     columnVisibilityModel: {
@@ -476,6 +1064,15 @@ export default function CategoriesPage() {
                       borderBottom: 1,
                       borderColor: 'divider',
                     },
+                    '& .MuiDataGrid-row': {
+                      '&:hover': {
+                        backgroundColor: 'action.hover',
+                      },
+                      // Style subcategories differently
+                      '&[data-subcategory="true"]': {
+                        backgroundColor: 'action.hover',
+                      },
+                    },
                   },
                   '& .MuiDataGrid-toolbarContainer': {
                     padding: { xs: 1, sm: 2 },
@@ -483,6 +1080,9 @@ export default function CategoriesPage() {
                       fontSize: { xs: '0.75rem', sm: '0.875rem' },
                     },
                   },
+                }}
+                getRowClassName={(params) => {
+                  return params.row.parent_id ? 'subcategory-row' : 'category-row';
                 }}
               />
             </CardContent>
@@ -548,7 +1148,142 @@ export default function CategoriesPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDialogOpen(false)}>Close</Button>
-          <Button variant="contained">Edit Category</Button>
+          {selectedCategory && !selectedCategory.parent_id && (
+            <Button 
+              variant="contained"
+              onClick={() => {
+                setDialogOpen(false);
+                handleEditCategory(selectedCategory);
+              }}
+            >
+              Edit Category
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
+
+      {/* Edit Dialog */}
+      <Dialog open={editDialogOpen} onClose={() => setEditDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>
+          Edit {editMode === 'category' ? 'Category' : 'Subcategory'}
+        </DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField
+              label="Name"
+              value={editFormData.name}
+              onChange={(e) => setEditFormData(prev => ({ ...prev, name: e.target.value }))}
+              fullWidth
+              required
+              autoFocus
+            />
+            {editMode === 'subcategory' && (
+              <FormControl fullWidth>
+                <InputLabel>Parent Category</InputLabel>
+                <Select
+                  value={editFormData.categoryId}
+                  onChange={(e) => setEditFormData(prev => ({ ...prev, categoryId: e.target.value }))}
+                  label="Parent Category"
+                >
+                  {categories.map((cat) => (
+                    <MenuItem key={cat.id} value={cat.id}>
+                      {cat.name}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" onClick={handleSaveEdit}>Save</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Add Category Dialog */}
+      <Dialog open={addDialogOpen} onClose={() => setAddDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>
+          Add New Category
+        </DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField
+              label="Category Name"
+              value={addFormData.name}
+              onChange={(e) => setAddFormData(prev => ({ ...prev, name: e.target.value }))}
+              fullWidth
+              required
+              autoFocus
+              placeholder="Enter category name"
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAddDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" onClick={handleSaveAddCategory}>Add Category</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Add Subcategory Dialog */}
+      <Dialog open={addSubcategoryDialogOpen} onClose={() => {
+        setAddSubcategoryDialogOpen(false);
+        setSelectedCategoryForSubcategory(null);
+        setNewSubcategoryName('');
+      }} maxWidth="sm" fullWidth>
+        <DialogTitle>
+          Add Subcategory to {selectedCategoryForSubcategory?.name}
+        </DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField
+              label="Subcategory Name"
+              value={newSubcategoryName}
+              onChange={(e) => setNewSubcategoryName(e.target.value)}
+              fullWidth
+              required
+              autoFocus
+              placeholder="Enter subcategory name"
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => {
+            setAddSubcategoryDialogOpen(false);
+            setSelectedCategoryForSubcategory(null);
+            setNewSubcategoryName('');
+          }}>Cancel</Button>
+          <Button variant="contained" onClick={handleSaveAddSubcategory}>Add Subcategory</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onClose={() => {
+        setDeleteDialogOpen(false);
+        setDeleteTarget(null);
+      }}>
+        <DialogTitle>Confirm Delete</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Are you sure you want to delete this {deleteTarget?.type}? 
+            <br />
+            <strong>{deleteTarget?.name}</strong>
+            <br />
+            {deleteTarget?.type === 'category' && (
+              <Alert severity="warning" sx={{ mt: 2 }}>
+                Note: You cannot delete a category that has subcategories. Please delete or move subcategories first.
+              </Alert>
+            )}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => {
+            setDeleteDialogOpen(false);
+            setDeleteTarget(null);
+          }}>Cancel</Button>
+          <Button variant="contained" color="error" onClick={handleConfirmDelete}>
+            Delete
+          </Button>
         </DialogActions>
       </Dialog>
     </Box>

@@ -99,7 +99,7 @@ export default function CloneInventoryPage() {
       console.log('Loaded sellers in clone-inventory:', sellers);
       console.log('Sellers count:', sellers?.length || 0);
       console.log('Sellers sample:', sellers?.[0]);
-      
+
       if (sellers && Array.isArray(sellers)) {
         // Filter out any invalid sellers and ensure they have an id and business_name
         const validSellers = sellers.filter(seller => {
@@ -109,14 +109,14 @@ export default function CloneInventoryPage() {
           }
           return isValid;
         });
-        
+
         console.log('Valid sellers count:', validSellers.length);
         console.log('Valid sellers sample:', validSellers[0] ? {
           id: validSellers[0].id,
           business_name: validSellers[0].business_name,
           display_name: validSellers[0].display_name
         } : null);
-        
+
         setSellers(validSellers);
         if (validSellers.length === 0) {
           console.warn('No valid sellers found');
@@ -140,17 +140,17 @@ export default function CloneInventoryPage() {
     try {
       setLoading(true);
       console.log('Loading products for seller:', sellerId);
-      
+
       // Fetch products for the selected seller
       const response = await adminQueries.getProducts({
         seller_id: sellerId,
         limit: 1000, // Get all products for this seller
       });
-      
+
       console.log('Products response:', response);
       const sellerProducts = response.products || [];
       console.log('Products found:', sellerProducts.length);
-      
+
       const cloneProducts: CloneProduct[] = sellerProducts.map((product: Product & { seller_id?: string }) => {
         // Log each product to verify all fields are present
         console.log('Product data:', {
@@ -166,17 +166,17 @@ export default function CloneInventoryPage() {
           status: product.status,
           image_url: product.image_url
         });
-        
+
         return {
           ...product,
           selected: false,
           newPrice: product.price || 0
         };
       });
-      
+
       console.log('Clone products prepared:', cloneProducts.length);
       setProducts(cloneProducts);
-      
+
       if (cloneProducts.length === 0) {
         toast('No products found for this seller', { icon: 'ℹ️' });
       }
@@ -190,13 +190,13 @@ export default function CloneInventoryPage() {
   };
 
   const handleProductSelect = (productId: string, selected: boolean) => {
-    setProducts(prev => prev.map(product => 
+    setProducts(prev => prev.map(product =>
       product.id === productId ? { ...product, selected } : product
     ));
   };
 
   const handlePriceChange = (productId: string, newPrice: number) => {
-    setProducts(prev => prev.map(product => 
+    setProducts(prev => prev.map(product =>
       product.id === productId ? { ...product, newPrice } : product
     ));
   };
@@ -207,7 +207,7 @@ export default function CloneInventoryPage() {
 
   const handleCloneProducts = async () => {
     const selectedProducts = products.filter(p => p.selected);
-    
+
     if (selectedProducts.length === 0) {
       toast.error('Please select at least one product to clone');
       return;
@@ -225,6 +225,12 @@ export default function CloneInventoryPage() {
 
     try {
       setCloning(true);
+
+      // Get admin and session info for tracking
+      const adminSession = localStorage.getItem('admin_session');
+      const sessionId = localStorage.getItem('tracking_session_id');
+      const admin = adminSession ? JSON.parse(adminSession) : null;
+
       let successCount = 0;
       let errorCount = 0;
 
@@ -284,16 +290,19 @@ export default function CloneInventoryPage() {
             stock_available: product.stock_available ?? 0,
             unit: product.unit || 'piece',
             min_order_quantity: product.min_quantity || product.min_order_quantity || 1,
-            status: product.status || 'available'
+            status: product.status || 'available',
+            // Add tracking info
+            admin_id: admin?.id,
+            session_id: sessionId,
           };
 
           console.log('Cloning product:', product.name, 'to seller:', toSeller);
           console.log('Product data being sent:', JSON.stringify(productData, null, 2));
-          
+
           const result = await adminQueries.addProduct(productData);
-          
+
           console.log('Add product result:', result);
-          
+
           // Check if result has success property or if data/id exists (API returns { data, success: true })
           if (result?.success === true || result?.data || result?.id) {
             console.log('Successfully cloned product:', product.name);
@@ -315,14 +324,14 @@ export default function CloneInventoryPage() {
       if (successCount > 0) {
         toast.success(`Successfully cloned ${successCount} product(s)`);
       }
-      
+
       if (errorCount > 0) {
         toast.error(`Failed to clone ${errorCount} product(s)`);
       }
 
       // Reset selections after cloning
       setProducts(prev => prev.map(product => ({ ...product, selected: false })));
-      
+
     } catch (error) {
       console.error('Error cloning products:', error);
       toast.error('Failed to clone products');
@@ -336,10 +345,10 @@ export default function CloneInventoryPage() {
   const someSelected = selectedCount > 0 && selectedCount < products.length;
 
   const getSellerDisplayName = (seller: Seller) => {
-    return seller.display_name || 
-           seller.business_name || 
-           seller.phone_number || 
-           'Unknown Seller';
+    return seller.display_name ||
+      seller.business_name ||
+      seller.phone_number ||
+      'Unknown Seller';
   };
 
   return (
@@ -359,7 +368,7 @@ export default function CloneInventoryPage() {
         <Typography variant="h6" gutterBottom>
           Select Sellers
         </Typography>
-        
+
         <Grid container spacing={3}>
           <Grid item xs={12} md={6}>
             <FormControl fullWidth disabled={loadingSellers}>
@@ -398,7 +407,7 @@ export default function CloneInventoryPage() {
               </Select>
             </FormControl>
           </Grid>
-          
+
           <Grid item xs={12} md={6}>
             <FormControl fullWidth disabled={loadingSellers}>
               <InputLabel id="to-seller-select-label">To Seller</InputLabel>
@@ -452,11 +461,11 @@ export default function CloneInventoryPage() {
             <Typography variant="h6">
               Products ({products.length})
             </Typography>
-            
+
             {products.length > 0 && (
               <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-                <Chip 
-                  label={`${selectedCount} selected`} 
+                <Chip
+                  label={`${selectedCount} selected`}
                   color={selectedCount > 0 ? 'primary' : 'default'}
                   size="small"
                 />
