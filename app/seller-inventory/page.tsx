@@ -32,6 +32,7 @@ import {
   Edit,
   Search,
   CloudUpload,
+  Delete,
 } from '@mui/icons-material';
 import { adminQueries } from '@/lib/supabase-browser';
 import toast from 'react-hot-toast';
@@ -51,6 +52,11 @@ export default function SellerInventoryPage() {
   const [totalProducts, setTotalProducts] = useState(0);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<any>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [productToDelete, setProductToDelete] = useState<any>(null);
+  const [productsToDelete, setProductsToDelete] = useState<any[]>([]);
+  const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
+  const [deleting, setDeleting] = useState(false);
   
   // Bulk import state
   const [bulkImportDialogOpen, setBulkImportDialogOpen] = useState(false);
@@ -150,6 +156,68 @@ export default function SellerInventoryPage() {
     } catch (error: any) {
       console.error('Error updating product:', error);
       toast.error(error.message || 'Failed to update product');
+    }
+  };
+
+  const handleDeleteClick = (product: any) => {
+    setProductToDelete(product);
+    setProductsToDelete([product]);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleBulkDeleteClick = () => {
+    if (selectedProductIds.length === 0) {
+      toast.error('Please select at least one product to delete');
+      return;
+    }
+    
+    const selectedProducts = products.filter(p => selectedProductIds.includes(p.id));
+    setProductToDelete(null);
+    setProductsToDelete(selectedProducts);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    const isBulkDelete = productsToDelete.length > 1;
+    const productIds = productsToDelete.map(p => p.id);
+
+    if (productIds.length === 0) return;
+
+    try {
+      setDeleting(true);
+      const adminId = localStorage.getItem('admin_id') || undefined;
+      const sessionId = localStorage.getItem('session_id') || undefined;
+      
+      const url = new URL('/api/admin/products', window.location.origin);
+      if (isBulkDelete) {
+        url.searchParams.set('ids', productIds.join(','));
+      } else {
+        url.searchParams.set('id', productIds[0]);
+      }
+      if (adminId) url.searchParams.set('admin_id', adminId);
+      if (sessionId) url.searchParams.set('session_id', sessionId);
+
+      const response = await fetch(url.toString(), {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to delete product(s)');
+      }
+
+      const count = productIds.length;
+      toast.success(`Successfully deleted ${count} product${count > 1 ? 's' : ''}!`);
+      setDeleteDialogOpen(false);
+      setProductToDelete(null);
+      setProductsToDelete([]);
+      setSelectedProductIds([]);
+      loadSellerProducts();
+    } catch (error: any) {
+      console.error('Error deleting product(s):', error);
+      toast.error(error.message || 'Failed to delete product(s)');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -290,8 +358,17 @@ export default function SellerInventoryPage() {
             size="small"
             color="primary"
             onClick={() => handleEditProduct(params.row)}
+            title="Edit product"
           >
             <Edit />
+          </IconButton>
+          <IconButton
+            size="small"
+            color="error"
+            onClick={() => handleDeleteClick(params.row)}
+            title="Delete product"
+          >
+            <Delete />
           </IconButton>
         </Box>
       ),
@@ -413,6 +490,21 @@ export default function SellerInventoryPage() {
                         Bulk Import
                       </Button>
                     </Grid>
+                    {selectedProductIds.length > 0 && (
+                      <Grid item xs={12} sm={2}>
+                        <Button
+                          variant="contained"
+                          color="error"
+                          startIcon={<Delete />}
+                          onClick={handleBulkDeleteClick}
+                          disabled={!selectedSeller || selectedProductIds.length === 0}
+                          fullWidth
+                          size="small"
+                        >
+                          Delete ({selectedProductIds.length})
+                        </Button>
+                      </Grid>
+                    )}
                   </Grid>
                 </CardContent>
               </Card>
@@ -431,7 +523,12 @@ export default function SellerInventoryPage() {
                     }}
                     rowCount={totalProducts}
                     paginationMode="server"
-                    disableRowSelectionOnClick
+                    disableRowSelectionOnClick={false}
+                    checkboxSelection
+                    rowSelectionModel={selectedProductIds}
+                    onRowSelectionModelChange={(newSelection) => {
+                      setSelectedProductIds(newSelection as string[]);
+                    }}
                     slots={{ toolbar: GridToolbar }}
                     getRowId={(row) => row.id}
                   />
@@ -525,6 +622,102 @@ export default function SellerInventoryPage() {
           </Button>
           <Button onClick={handleSaveProduct} variant="contained">
             Save
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Delete Product Confirmation Dialog */}
+      <Dialog
+        open={deleteDialogOpen}
+        onClose={() => {
+          if (!deleting) {
+            setDeleteDialogOpen(false);
+            setProductToDelete(null);
+            setProductsToDelete([]);
+          }
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          {productsToDelete.length > 1 ? `Delete ${productsToDelete.length} Products` : 'Delete Product'}
+        </DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            {productsToDelete.length > 1 
+              ? `Are you sure you want to delete ${productsToDelete.length} products? This action cannot be undone.`
+              : 'Are you sure you want to delete this product? This action cannot be undone.'}
+          </Alert>
+          
+          {productsToDelete.length === 1 && productsToDelete[0] && (
+            <Stack spacing={1}>
+              <Typography variant="body1">
+                <strong>Product Name:</strong> {productsToDelete[0].name}
+              </Typography>
+              {productsToDelete[0].category && (
+                <Typography variant="body2" color="text.secondary">
+                  <strong>Category:</strong> {productsToDelete[0].category}
+                </Typography>
+              )}
+              <Typography variant="body2" color="text.secondary">
+                <strong>Price:</strong> ₹{productsToDelete[0].price?.toLocaleString() || '0'}
+              </Typography>
+            </Stack>
+          )}
+
+          {productsToDelete.length > 1 && (
+            <Box sx={{ maxHeight: 300, overflowY: 'auto', mt: 1 }}>
+              <Typography variant="subtitle2" gutterBottom>
+                Selected Products ({productsToDelete.length}):
+              </Typography>
+              <Stack spacing={1}>
+                {productsToDelete.map((product, index) => (
+                  <Box
+                    key={product.id}
+                    sx={{
+                      p: 1.5,
+                      border: '1px solid',
+                      borderColor: 'divider',
+                      borderRadius: 1,
+                      bgcolor: 'grey.50',
+                    }}
+                  >
+                    <Typography variant="body2" fontWeight="medium">
+                      {index + 1}. {product.name}
+                    </Typography>
+                    {product.category && (
+                      <Typography variant="caption" color="text.secondary" display="block">
+                        Category: {product.category}
+                      </Typography>
+                    )}
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      Price: ₹{product.price?.toLocaleString() || '0'}
+                    </Typography>
+                  </Box>
+                ))}
+              </Stack>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button 
+            onClick={() => {
+              setDeleteDialogOpen(false);
+              setProductToDelete(null);
+              setProductsToDelete([]);
+            }}
+            disabled={deleting}
+          >
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleDeleteConfirm} 
+            variant="contained" 
+            color="error"
+            disabled={deleting}
+            startIcon={deleting ? undefined : <Delete />}
+          >
+            {deleting ? 'Deleting...' : `Delete ${productsToDelete.length > 1 ? `(${productsToDelete.length})` : ''}`}
           </Button>
         </DialogActions>
       </Dialog>

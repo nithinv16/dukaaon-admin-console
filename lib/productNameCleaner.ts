@@ -29,21 +29,36 @@ export function cleanProductName(rawName: string): string {
   // Pattern: "R/18063200" or "/18063200"
   cleaned = cleaned.replace(/\bR\/\s*\d{6,}\b/gi, '');
   cleaned = cleaned.replace(/\/\s*\d{6,}\b/gi, '');
-  
+
   // Pattern: Alphanumeric codes like "1K508301" (letter followed by 6+ digits)
   cleaned = cleaned.replace(/\b[A-Z]\d{6,}\b/gi, '');
-  
+
   // Pattern: Long numeric codes (8+ digits) - likely barcodes
   cleaned = cleaned.replace(/\b\d{8,}\b/g, '');
-  
+
   // Pattern: Alphanumeric codes with slashes like "A/B123456"
   cleaned = cleaned.replace(/\b[A-Z0-9]+\/[A-Z0-9]{6,}\b/gi, '');
 
-  // Remove prices (decimal numbers with optional currency)
-  cleaned = cleaned.replace(/\$?\s*\d+[,.]?\d*\.?\d{0,2}\s*/g, '');
+  // IMPROVED: Remove standalone prices ONLY (not product specs)
+  // Only remove numbers that look like prices:
+  // - Have currency symbols: ₹150, $99.99, Rs.50
+  // - Standalone decimals with 2 places: 150.00, 99.99
+  // - But PRESERVE: 40G, 500ML, RS 45, RS.10, 1KG
 
-  // Remove unit codes (PCS, KG, G, ML, L, etc.)
-  cleaned = cleaned.replace(/\b(PCS|PC|PIECES?|KG|G|GRAM|GRAMS?|ML|MILLILITER|L|LITER|LITRE|BOX|CARTON|PACK|BOTTLE|CAN|TIN|DOZEN|DZ)\b/gi, '');
+  // Remove currency-prefixed prices: ₹150, $99.99, Rs.50, Rs 45
+  cleaned = cleaned.replace(/[₹$]\s*\d+[,.]?\d*/g, '');
+  cleaned = cleaned.replace(/\bRs\.?\s*\d+[,.]?\d*/gi, '');
+
+  // Remove standalone decimal prices (but not "RS.45" or "RS 45" which are part of product names)
+  // Only remove if it's a number with 2 decimal places standing alone
+  cleaned = cleaned.replace(/\b\d+\.\d{2,}\b/g, '');
+
+  // Remove trailing prices at the end: " 150.00" or " 99.99"
+  cleaned = cleaned.replace(/\s+\d+[,.]?\d{2,}\s*$/g, '');
+
+  // Remove unit codes (PCS, KG, G, ML, L, etc.) - but keep them if part of product spec
+  // Only remove if standalone: " PCS " but keep "40G" or "1KG"
+  cleaned = cleaned.replace(/\b(PCS|PC|PIECES?|GRAM|GRAMS?|MILLILITER|LITER|LITRE|BOX|CARTON|PACK|BOTTLE|CAN|TIN|DOZEN|DZ)\b/gi, '');
 
   // Remove reference codes (R/, REF:, etc.) - but only if followed by codes
   cleaned = cleaned.replace(/\b(REF|REFERENCE|R):\s*[A-Z0-9]+\b/gi, '');
@@ -56,7 +71,7 @@ export function cleanProductName(rawName: string): string {
   // Pattern: "51G R/18063200" or "51G R" at the end (weight followed by reference code)
   cleaned = cleaned.replace(/\s+\d+[A-Z]{1,2}\s+[A-Z]\/\s*[\dA-Z]+\s*$/i, ''); // "51G R/18063200"
   cleaned = cleaned.replace(/\s+\d+[A-Z]{1,2}\s+[A-Z]\s*$/i, ''); // "51G R" (reference code, not part of name)
-  
+
   // Remove standalone reference codes like "R/" or "/" followed by codes at the end
   cleaned = cleaned.replace(/\s+[A-Z]\/\s*[\dA-Z]+\s*$/i, '');
 
@@ -66,9 +81,9 @@ export function cleanProductName(rawName: string): string {
   // Remove leading/trailing special characters (but keep & for product names like "FRUIT&NUT")
   cleaned = cleaned.replace(/^[^a-zA-Z0-9&]+|[^a-zA-Z0-9&]+$/g, '');
 
-  // Remove remaining long numeric-only segments (4+ digits that aren't part of product name)
-  // But preserve numbers that are clearly part of product names (like "51G" in context)
-  cleaned = cleaned.replace(/\s+\d{4,}\s+/g, ' ');
+  // Remove remaining standalone long numeric segments (6+ digits)
+  // But preserve product specs like "40G", "RS 45", "500ML"
+  cleaned = cleaned.replace(/\b\d{6,}\b/g, '');
 
   // Final cleanup
   cleaned = cleaned.replace(/\s+/g, ' ').trim();
@@ -88,7 +103,7 @@ export function extractProductNameFromLine(line: string): string {
 
   // First, try to clean the entire line
   let cleaned = cleanProductName(line);
-  
+
   // If cleaning produced a reasonable result, return it
   if (cleaned && cleaned.length >= 3 && /[A-Za-z]/.test(cleaned)) {
     // Ensure it starts with a letter
@@ -100,7 +115,7 @@ export function extractProductNameFromLine(line: string): string {
 
   // If cleaning didn't work well, try splitting and finding the best part
   const parts = line.split(/[|\t]/).map(part => part.trim()).filter(Boolean);
-  
+
   let bestMatch = '';
   let bestScore = 0;
 

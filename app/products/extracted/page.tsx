@@ -40,44 +40,52 @@ export default function ExtractedProductsPage() {
     // Load extracted products from sessionStorage
     const storedProducts = sessionStorage.getItem('extractedProducts');
     const storedReceiptResult = sessionStorage.getItem('extractedReceiptResult');
-    
-    if (storedProducts) {
-      try {
-        const parsed = JSON.parse(storedProducts);
-        // Check if it's V2 format (has unit field) or old format
-        if (parsed.length > 0 && 'unit' in parsed[0]) {
-          setProductsV2(parsed);
-          setProductType('v2');
-        } else {
-          setProductsOld(parsed);
-          setProductType('old');
-        }
-      } catch (error) {
-        console.error('Error parsing stored products:', error);
-        toast.error('Failed to load extracted products');
-        router.push('/products');
-      }
-    } else if (storedReceiptResult) {
-      try {
-        const result: ScanReceiptResponse = JSON.parse(storedReceiptResult);
-        if (result.products && result.products.length > 0) {
-          setProductsOld(result.products);
-          setReceiptMetadata(result.metadata);
-          setProductType('old');
-        } else {
-          toast.error('No products found in receipt');
+
+    const loadAndValidateProducts = async () => {
+      if (storedProducts) {
+        try {
+          const parsed = JSON.parse(storedProducts);
+          // Check if it's V2 format (has unit field) or old format
+          if (parsed.length > 0 && 'unit' in parsed[0]) {
+            // V2 format - validate categories client-side
+            const { validateAndCorrectCategories } = await import('@/lib/categoryMapping');
+            console.log('🔍 Validating categories for extracted products...');
+            const validatedProducts = await validateAndCorrectCategories(parsed);
+            setProductsV2(validatedProducts);
+            setProductType('v2');
+          } else {
+            setProductsOld(parsed);
+            setProductType('old');
+          }
+        } catch (error) {
+          console.error('Error parsing stored products:', error);
+          toast.error('Failed to load extracted products');
           router.push('/products');
         }
-      } catch (error) {
-        console.error('Error parsing stored receipt result:', error);
-        toast.error('Failed to load extracted products');
+      } else if (storedReceiptResult) {
+        try {
+          const result: ScanReceiptResponse = JSON.parse(storedReceiptResult);
+          if (result.products && result.products.length > 0) {
+            setProductsOld(result.products);
+            setReceiptMetadata(result.metadata);
+            setProductType('old');
+          } else {
+            toast.error('No products found in receipt');
+            router.push('/products');
+          }
+        } catch (error) {
+          console.error('Error parsing stored receipt result:', error);
+          toast.error('Failed to load extracted products');
+          router.push('/products');
+        }
+      } else {
+        // No products found, redirect back
+        toast.error('No extracted products found');
         router.push('/products');
       }
-    } else {
-      // No products found, redirect back
-      toast.error('No extracted products found');
-      router.push('/products');
-    }
+    };
+
+    loadAndValidateProducts();
 
     // Load sellers
     const loadSellers = async () => {
@@ -150,28 +158,71 @@ export default function ExtractedProductsPage() {
       const addPromises = productsToAdd.map(async (product) => {
         const productData = {
           name: product.name,
-          description: product.name || 'Product extracted from receipt',
+          description: product.description || product.name || 'Product extracted from receipt',
           price: product.unitPrice || (product.netAmount / product.quantity) || 0,
-          category: category || '',
-          subcategory: subcategory || '',
+          category: product.category || category || '',
+          subcategory: product.subcategory || subcategory || '',
           seller_id: selectedSellerId,
-          stock_available: product.quantity || 0,
+          stock_available: product.stockAvailable ?? 100, // Use stock field with default 100
           unit: product.unit || 'piece',
-          min_order_quantity: 1,
-          images: [],
+          min_order_quantity: product.minOrderQuantity || 1,
+          images: product.imageUrl ? [product.imageUrl] : [],
           status: 'available'
         };
-        
+
         return adminQueries.addProduct(productData);
       });
-      
+
       await Promise.all(addPromises);
-      
+
       toast.success(`Successfully added ${productsToAdd.length} products to inventory!`);
-      
+
+      // 🧠 AI LEARNING: Capture corrections for feedback loop
+      try {
+        const { captureProductCorrections } = await import('@/lib/feedbackLearning');
+
+        // Convert ExtractedProductV2 to ExtractedProduct format
+        const originalProducts = productsV2.map(p => ({
+          name: p.name,
+          description: p.description,
+          category: p.category,
+          subcategory: p.subcategory,
+          quantity: p.quantity,
+          unit: p.unit,
+          unitPrice: p.unitPrice,
+          confidence: p.confidence,
+        }));
+
+        const submittedProductsForLearning = editedProducts.map(p => ({
+          name: p.name,
+          description: p.description || p.name,
+          category: p.category || category,
+          subcategory: p.subcategory || subcategory,
+          quantity: p.quantity,
+          unit: p.unit,
+          unitPrice: p.unitPrice,
+        }));
+
+        const result = await captureProductCorrections(
+          originalProducts,
+          submittedProductsForLearning,
+          {
+            receiptId: `receipt_${Date.now()}`,
+            sellerId: selectedSellerId,
+          }
+        );
+
+        if (result.success && result.capturedCount > 0) {
+          console.log(`✅ AI Learning: Captured ${result.capturedCount} corrections`);
+        }
+      } catch (learningError) {
+        // Don't fail the main flow if learning fails
+        console.error('⚠️ Failed to capture corrections for AI learning:', learningError);
+      }
+
       // Set flag to indicate products were added
       sessionStorage.setItem('productsAdded', 'true');
-      
+
       // Clear sessionStorage and navigate back
       sessionStorage.removeItem('extractedProducts');
       router.push('/products');
@@ -246,17 +297,17 @@ export default function ExtractedProductsPage() {
           images: [],
           status: 'available'
         };
-        
+
         return adminQueries.addProduct(productData);
       });
-      
+
       await Promise.all(addPromises);
-      
+
       toast.success(`Successfully added ${productsToAdd.length} products to inventory!`);
-      
+
       // Set flag to indicate products were added
       sessionStorage.setItem('productsAdded', 'true');
-      
+
       // Clear sessionStorage and navigate back
       sessionStorage.removeItem('extractedProducts');
       sessionStorage.removeItem('extractedReceiptResult');
@@ -302,7 +353,7 @@ export default function ExtractedProductsPage() {
       </Box>
 
       <Paper sx={{ p: 3, mb: 3 }}>
-        <FormControl fullWidth sx={{ mb: 2 }}>
+        <FormControl fullWidth>
           <InputLabel>Select Seller *</InputLabel>
           <Select
             value={selectedSellerId}
@@ -315,30 +366,6 @@ export default function ExtractedProductsPage() {
                 {seller.business_name || seller.display_name || seller.phone_number || `Seller ${seller.id}`}
               </MenuItem>
             ))}
-          </Select>
-        </FormControl>
-
-        <FormControl fullWidth sx={{ mb: 2 }}>
-          <InputLabel>Category (Optional)</InputLabel>
-          <Select
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            label="Category (Optional)"
-          >
-            <MenuItem value="">None</MenuItem>
-            {/* Add categories here if needed */}
-          </Select>
-        </FormControl>
-
-        <FormControl fullWidth>
-          <InputLabel>Subcategory (Optional)</InputLabel>
-          <Select
-            value={subcategory}
-            onChange={(e) => setSubcategory(e.target.value)}
-            label="Subcategory (Optional)"
-          >
-            <MenuItem value="">None</MenuItem>
-            {/* Add subcategories here if needed */}
           </Select>
         </FormControl>
       </Paper>

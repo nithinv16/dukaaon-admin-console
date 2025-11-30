@@ -361,6 +361,29 @@ const BulkImportPreview: React.FC<BulkImportPreviewProps> = ({
         // Auto-detect unit from product name (use AI-extracted unit if available)
         const detectedUnit = product.unit || detectUnitFromProductName(product.name);
 
+        // Use CSV/Excel category/subcategory if provided, otherwise use matched categories
+        const finalCategory = product.category || matchedCategory?.name || '';
+        const finalSubcategory = product.subcategory || matchedSubcategory?.name || '';
+        
+        // If CSV/Excel provided category, try to find matching category object
+        let finalMatchedCategory = matchedCategory;
+        let finalMatchedSubcategory = matchedSubcategory;
+        
+        if (product.category && !matchedCategory) {
+          // Try to find category from CSV/Excel value
+          finalMatchedCategory = categories.find(c => 
+            c.name.toLowerCase().trim() === product.category?.toLowerCase().trim()
+          );
+          
+          // If category found and subcategory provided, try to find matching subcategory
+          if (finalMatchedCategory && product.subcategory) {
+            finalMatchedSubcategory = subcategories.find(s => 
+              s.category_id === finalMatchedCategory!.id &&
+              s.name.toLowerCase().trim() === product.subcategory?.toLowerCase().trim()
+            );
+          }
+        }
+
         return {
           ...product,
           id: generateProductId(),
@@ -368,18 +391,18 @@ const BulkImportPreview: React.FC<BulkImportPreviewProps> = ({
           hasError: false,
           uploadingImage: false,
           stock_level: product.stock_level || 100,
-          category: matchedCategory?.name || product.category || '',
-          subcategory: matchedSubcategory?.name || product.subcategory || '',
+          category: finalCategory,
+          subcategory: finalSubcategory,
           unit: detectedUnit,
           brand: product.brand || '',
           aiExtracted: product.aiExtracted,
           needsReview: product.needsReview,
           confidence: product.confidence,
           categoryValue: {
-            category: matchedCategory?.name || product.category || '',
-            categoryId: matchedCategory?.id,
-            subcategory: matchedSubcategory?.name || product.subcategory || '',
-            subcategoryId: matchedSubcategory?.id
+            category: finalCategory,
+            categoryId: finalMatchedCategory?.id,
+            subcategory: finalSubcategory,
+            subcategoryId: finalMatchedSubcategory?.id
           }
         };
       });

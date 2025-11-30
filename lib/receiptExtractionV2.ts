@@ -13,7 +13,7 @@
  * No fallback methods - ensures highest quality extraction through AI
  */
 
-import { analyzeReceiptStructureAWS, validateAWSConfig } from './awsTextract';
+import { analyzeReceiptStructureV2, validateAWSConfig } from './awsTextract';
 import { extractProductNameFromLine, cleanProductName } from './productNameCleaner';
 import { invokeEnhancedModel, ENHANCED_BEDROCK_CONFIG } from './awsBedrockEnhanced';
 import { parseBedrockJSON } from './awsBedrock';
@@ -28,7 +28,12 @@ export interface ExtractedProductV2 {
   unitPrice: number; // Calculated: netAmount / quantity
   confidence: number; // 0-1 confidence score
   needsReview: boolean; // Flag if confidence is low
-  rowIndex: number; // Original row index in table
+  rowIndex: number; // Original row index from receipt
+  description?: string; // AI-generated intelligent description
+  category?: string; // Product category
+  subcategory?: string; // Product subcategory
+  stockAvailable?: number; // Stock available for the product (default: 100)
+  imageUrl?: string; // Product image (base64 or URL)
 }
 
 export interface ReceiptExtractionResultV2 {
@@ -113,7 +118,7 @@ function identifyProductTableColumns(
   confidence: number;
 } {
   const normalizedHeaders = headers.map(h => h.toLowerCase().trim());
-  
+
   let productNameIndex: number | null = null;
   let quantityIndex: number | null = null;
   let unitIndex: number | null = null;
@@ -177,7 +182,7 @@ function identifyProductTableColumns(
         .reduce((a, b) => a + b, 0) / Math.min(3, sampleRows.length);
       return { index: colIdx, avgLength };
     });
-    
+
     columnLengths.sort((a, b) => b.avgLength - a.avgLength);
     if (columnLengths[0] && columnLengths[0].avgLength > 10) {
       productNameIndex = columnLengths[0].index;
@@ -230,7 +235,7 @@ function identifyProductTableColumns(
  */
 function shouldSkipLine(line: string, lineIndex: number, totalLines: number): boolean {
   const trimmed = line.trim();
-  
+
   // Skip empty lines
   if (!trimmed) return true;
 
@@ -243,10 +248,10 @@ function shouldSkipLine(line: string, lineIndex: number, totalLines: number): bo
 
   // Skip if it's clearly a header line (usually first 5 lines)
   if (lineIndex < 5) {
-    if (trimmed.toLowerCase().includes('gstin') || 
-        trimmed.toLowerCase().includes('address') ||
-        trimmed.toLowerCase().includes('phone') ||
-        /^\d{2}\/\d{2}\/\d{4}$/.test(trimmed)) {
+    if (trimmed.toLowerCase().includes('gstin') ||
+      trimmed.toLowerCase().includes('address') ||
+      trimmed.toLowerCase().includes('phone') ||
+      /^\d{2}\/\d{2}\/\d{4}$/.test(trimmed)) {
       return true;
     }
   }
@@ -254,9 +259,9 @@ function shouldSkipLine(line: string, lineIndex: number, totalLines: number): bo
   // Skip if it's clearly a total/footer line (usually last 5 lines)
   if (lineIndex >= totalLines - 5) {
     if (trimmed.toLowerCase().includes('total') ||
-        trimmed.toLowerCase().includes('grand') ||
-        trimmed.toLowerCase().includes('net amount') ||
-        trimmed.toLowerCase().includes('authorised')) {
+      trimmed.toLowerCase().includes('grand') ||
+      trimmed.toLowerCase().includes('net amount') ||
+      trimmed.toLowerCase().includes('authorised')) {
       return true;
     }
   }
@@ -264,178 +269,189 @@ function shouldSkipLine(line: string, lineIndex: number, totalLines: number): bo
   return false;
 }
 
-/**
- * Extract products from table using intelligent column mapping
- */
-function extractProductsFromTable(
-  headers: string[],
-  rows: any[][],
-  textractBlocks?: any[]
-): ExtractedProductV2[] {
-  const products: ExtractedProductV2[] = [];
-
-  // Identify columns
-  const columnMapping = identifyProductTableColumns(headers, rows.slice(0, 5));
-
-  if (!columnMapping.productNameIndex && columnMapping.productNameIndex !== 0) {
-    console.warn('Could not identify product name column');
-    return [];
-  }
-
-  // Extract products from each row
-  for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
-    const row = rows[rowIndex];
-    
-    // Get product name
-    const productNameCell = row[columnMapping.productNameIndex!];
-    if (!productNameCell) continue;
-
-    const rawProductName = productNameCell.toString().trim();
-    
-    // Clean product name using our cleaner
-    const cleanedName = extractProductNameFromLine(rawProductName);
-    if (!cleanedName || cleanedName.length < 2) continue;
-
-    // Get quantity
-    let quantity = 1;
-    if (columnMapping.quantityIndex !== null && columnMapping.quantityIndex !== undefined) {
-      const qtyCell = row[columnMapping.quantityIndex];
-      if (qtyCell) {
-        const qtyText = qtyCell.toString().trim().replace(/[^\d.]/g, '');
-        quantity = parseFloat(qtyText) || 1;
-      }
-    }
-
-    // Get unit
-    let unit = 'piece';
-    if (columnMapping.unitIndex !== null && columnMapping.unitIndex !== undefined) {
-      const unitCell = row[columnMapping.unitIndex];
-      if (unitCell) {
-        const unitText = unitCell.toString().trim().toLowerCase();
-        if (unitText && unitText !== 'nos' && unitText !== 'pcs') {
-          unit = unitText;
-        }
-      }
-    } else {
-      // Try to extract unit from quantity cell or product name
-      if (columnMapping.quantityIndex !== null) {
-        const qtyCell = row[columnMapping.quantityIndex];
-        if (qtyCell) {
-          const qtyText = qtyCell.toString().trim().toLowerCase();
-          const unitMatch = qtyText.match(/\b(pcs|pieces|kg|g|gm|ml|l|pack|box|bags|cas|case|cases)\b/i);
-          if (unitMatch) {
-            unit = unitMatch[1].toLowerCase();
-          }
-        }
-      }
-    }
-
-    // Get net amount
-    let netAmount = 0;
-    if (columnMapping.amountIndex !== null && columnMapping.amountIndex !== undefined) {
-      const amountCell = row[columnMapping.amountIndex];
-      if (amountCell) {
-        const amountText = amountCell.toString().trim().replace(/[^\d.]/g, '');
-        netAmount = parseFloat(amountText) || 0;
-      }
-    }
-
-    // Calculate unit price
-    const unitPrice = quantity > 0 ? netAmount / quantity : 0;
-
-    // Calculate confidence based on data completeness
-    let confidence = 0.8;
-    if (!columnMapping.quantityIndex && quantity === 1) confidence -= 0.1;
-    if (!columnMapping.amountIndex || netAmount === 0) confidence -= 0.2;
-    if (cleanedName.length < 5) confidence -= 0.1;
-
-    // Skip if essential data is missing
-    if (netAmount === 0 && unitPrice === 0) continue;
-
-    products.push({
-      id: `prod_${Date.now()}_${rowIndex}`,
-      name: cleanedName,
-      quantity,
-      unit,
-      netAmount,
-      unitPrice,
-      confidence: Math.max(0, Math.min(1, confidence)),
-      needsReview: confidence < 0.7,
-      rowIndex,
-    });
-  }
-
-  return products;
-}
+// Fallback extraction functions removed as per requirements
+// Scan Receipt 2.0 uses ONLY AWS Textract + Claude Sonnet 4.5 (no fallback)
 
 /**
- * Fallback extraction from text lines when AI is not available
- * Attempts pattern matching to extract products from unstructured text
+ * Direct vision-based product extraction using Claude Sonnet 4.5
+ * Sends the receipt image directly to Claude without AWS Textract preprocessing
+ * This is used when Textract fails to identify the product table correctly
  */
-function extractProductsFromTextLines(textLines: string[]): ExtractedProductV2[] {
-  const products: ExtractedProductV2[] = [];
-  
-  // Pattern to match: ProductName Quantity Price or ProductName Price
-  const productLinePattern = /(.+?)\s+(\d+(?:\.\d+)?)\s+(?:x|X|\*|×)\s+(\d+\.\d{2})/i;
-  const productPricePattern = /(.+?)\s+(\d+\.\d{2})/;
-  
-  for (let i = 0; i < textLines.length; i++) {
-    const line = textLines[i].trim();
-    
-    // Skip header/footer/metadata lines
-    if (shouldSkipLine(line, i, textLines.length)) continue;
-    
-    // Skip lines that are clearly not products
-    if (line.length < 5 || /^(total|subtotal|tax|gst|cgst|sgst|discount|grand)/i.test(line)) {
-      continue;
-    }
-    
-    // Try pattern matching
-    let match = line.match(productLinePattern);
-    let productName = '';
-    let quantity = 1;
-    let netAmount = 0;
-    
-    if (match) {
-      productName = match[1].trim();
-      quantity = parseFloat(match[2]) || 1;
-      netAmount = parseFloat(match[3]) || 0;
-    } else {
-      // Try simpler pattern: ProductName Price
-      match = line.match(productPricePattern);
-      if (match) {
-        productName = match[1].trim();
-        netAmount = parseFloat(match[2]) || 0;
-      }
-    }
-    
-    // Clean and validate product name
-    if (productName && netAmount > 0) {
-      const cleanedName = extractProductNameFromLine(productName);
-      if (cleanedName && cleanedName.length >= 3) {
-        const unitPrice = quantity > 0 ? netAmount / quantity : netAmount;
-        
-        products.push({
-          id: `prod_${Date.now()}_${i}`,
-          name: cleanProductName(cleanedName),
-          quantity,
-          unit: 'piece',
-          netAmount,
-          unitPrice,
-          confidence: 0.6, // Lower confidence for fallback
-          needsReview: true,
-          rowIndex: i,
-        });
-      }
-    }
+async function extractProductsWithVision(
+  imageBuffer: Buffer
+): Promise<ExtractedProductV2[]> {
+  const { invokeEnhancedModelWithVision } = await import('./awsBedrockEnhanced');
+
+  const prompt = `You are an expert at extracting product data from receipt images. Analyze this receipt image and extract ALL products.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎯 YOUR MISSION: Extract EVERY SINGLE product from the receipt
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📜 CRITICAL INSTRUCTIONS:
+
+1️⃣  FIND THE PRODUCT TABLE:
+   • Look for the table with individual product rows (usually 10-50 rows)
+   • Each row has: Product Name, Quantity (Pcs), Net Amount
+   • IGNORE footer sections (declarations, signatures, etc.)
+   • IGNORE tax summary tables (CGST/SGST breakdowns)
+
+2️⃣  EXTRACT FROM EVERY ROW:
+   • Product Name: COMPLETE description from the "Description" or "Item Description" column
+   • Quantity: From "Pcs" or "Pieces" column  
+   • Net Amount: From "Net Amt" or "Net Amount" column
+   • Calculate: unitPrice = netAmount / quantity
+
+3️⃣  IMPORTANT CALCULATIONS:
+   unitPrice = Net Amount ÷ Quantity
+   
+   Example: If Net Amt=166.67 and Pcs=5, then unitPrice=33.33
+
+4️⃣  PRODUCT NAME EXTRACTION RULES:
+   ⚠️  CRITICAL: Extract the COMPLETE product name/description EXACTLY as shown in the receipt!
+   
+   ✓ KEEP ALL THESE in the product name:
+      • Product brand/name (e.g., "CDM", "FIVE STAR", "DAIRY MILK")
+      • Weights/sizes (e.g., "40G", "100G", "1KG", "500ML")
+      • Pricing info (e.g., "RS 45", "RS.10", "MRP 20")
+      • Variant names (e.g., "S.SET", "BDKU", "FLOAV")
+      • Pack types (e.g., "PRICING", "FAMILY PACK")
+   
+   ✗ REMOVE ONLY THESE:
+      • HSN codes (numeric codes like "19041000", "33051090")
+      • PCode/Product codes (like "PCode: 80813857")
+      • UPC codes (like "UPC: 60")
+      • Batch numbers (like "Batch: 2021011")
+   
+   📋 EXAMPLES:
+      ✓ CORRECT: "CDM 40G RS 45 PRICING"
+      ✗ WRONG: "CDMG RS.PRICING"
+      
+      ✓ CORRECT: "FIVE STAR 40 30 20 10"
+      ✗ WRONG: "FIVE STAR"
+      
+      ✓ CORRECT: "DAIRY MILK 100G RS.60"
+      ✗ WRONG: "DAIRY MILK"
+
+5️⃣  DO NOT EXTRACT:
+   ✗ Channel names ("Traditional", "Small A Traditional")
+   ✗ Footer text ("Declaration:", "FOR KANBROS", "Signatory")
+   ✗ Tax summary rows
+   ✗ Header metadata (STN, CIN, GSTN, addresses)
+
+6️⃣  INTELLIGENT DESCRIPTION GENERATION:
+   🎯 For EACH product, generate a smart, human-friendly description
+   
+   Transform abbreviated receipt text into readable product descriptions:
+   
+   📋 TRANSFORMATION EXAMPLES:
+      Receipt: "CDM 40G RS 45 PRICING"
+      → description: "Cadbury Dairy Milk 40G MRP ₹45"
+      
+      Receipt: "FIVE STAR 40 30 20 10"
+      → description: "Five Star Chocolate Multi-pack (40g, 30g, 20g, 10g)"
+      
+      Receipt: "AASHIRVAAD 1KG RS.80"
+      → description: "Aashirvaad Atta 1KG MRP ₹80"
+      
+      Receipt: "MAGGI NOODLES 70G RS.12"
+      → description: "Maggi 2-Minute Noodles 70G MRP ₹12"
+   
+   ✓ USE YOUR KNOWLEDGE:
+      • Expand abbreviations: CDM → Cadbury Dairy Milk
+      • Add product category if obvious: "Chocolate", "Atta", "Noodles"
+      • Format weights properly: 40G → 40G, 1KG → 1KG
+      • Standardize price format: RS 45 → MRP ₹45
+      • Proper capitalization: "dairy milk" → "Dairy Milk"
+   
+   ⚠️ KEEP IT ACCURATE:
+      • Only expand abbreviations you're CONFIDENT about
+      • If unsure, keep original name with proper formatting
+      • Don't invent details not in the receipt
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📤 RESPONSE FORMAT (CRITICAL)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⚠️  RESPOND WITH ONLY A JSON ARRAY - NO MARKDOWN, NO CODE BLOCKS, NO EXPLANATIONS
+
+Your response must START with [ and END with ]
+
+Format:
+[
+  {
+    "name": "Product Name Here",
+    "description": "Intelligent human-friendly description",
+    "category": "Category Name",
+    "subcategory": "Subcategory Name",
+    "quantity": 5,
+    "unit": "pieces",
+    "netAmount": 166.67,
+    "unitPrice": 33.33,
+    "confidence": 0.90
+  },
+  ... (repeat for EVERY product row)
+]
+
+🔴 CRITICAL:
+• Extract ALL products from the itemized table
+• If you see 30 product rows, return 30 products
+• DO NOT stop at just 1 or 2 products!
+• Include BOTH "name" and "description" for EVERY product!
+
+START YOUR RESPONSE WITH [`;
+
+  console.log('🖼️ Using Claude Vision (direct image analysis, bypassing Textract)');
+
+  const response = await invokeEnhancedModelWithVision(imageBuffer, prompt, {
+    maxTokens: 4096,
+    temperature: 0.1,
+  });
+
+  if (!response.success || !response.content) {
+    throw new Error(`Vision extraction failed: ${response.error || 'Unknown error'}`);
   }
-  
-  return products;
+
+  console.log('📝 Vision AI Response preview:', response.content.substring(0, 500));
+
+  // Parse JSON response
+  const { parseBedrockJSON } = await import('./awsBedrock');
+  const parsed = parseBedrockJSON<ExtractedProductV2[]>(response.content);
+
+  if (!parsed || !Array.isArray(parsed)) {
+    throw new Error('Failed to parse vision extraction result as JSON array');
+  }
+
+  console.log(`✅ Vision extracted ${parsed.length} products`);
+
+  // Validate and map products
+  const validProducts = parsed
+    .filter(p => {
+      if (!p.name || typeof p.name !== 'string') return false;
+      if (p.quantity <= 0 || p.netAmount <= 0) return false;
+      return true;
+    })
+    .map((p, idx) => ({
+      id: `prod_${Date.now()}_${idx}`,
+      name: cleanProductName(p.name),
+      description: p.description || cleanProductName(p.name), // AI-generated description or fallback to cleaned name
+      category: p.category || '',
+      subcategory: p.subcategory || '',
+      quantity: p.quantity || 1,
+      unit: p.unit || 'pieces',
+      netAmount: p.netAmount || 0,
+      unitPrice: p.unitPrice || (p.netAmount && p.quantity ? p.netAmount / p.quantity : 0),
+      confidence: p.confidence || 0.85,
+      needsReview: (p.confidence || 0.85) < 0.7,
+      rowIndex: idx,
+    }));
+
+  return validProducts;
 }
 
 /**
  * AI-powered product extraction using Claude Sonnet 4.5
- * Analyzes the entire receipt structure and extracts only products
+ * Analyzes AWS Textract structure and extracts products
  * Uses model: anthropic.claude-sonnet-4-5-20250929-v1:0 (inference profile)
  * Note: This requires Anthropic use case approval in AWS Bedrock
  */
@@ -448,19 +464,28 @@ async function extractProductsWithAI(
   // Process tables to extract structured data with headers and rows
   let tableContext = 'No table structure detected';
   let formattedTables: any[] = [];
-  
+
   if (tables.length > 0) {
     // Find the largest table (usually the main product table)
+    // Use rowCount if available (from V2 enhanced extraction), otherwise fall back to cell count
     const sortedTables = [...tables].sort((a, b) => {
-      const aCells = (a.cells && Array.isArray(a.cells)) ? a.cells.length : 0;
-      const bCells = (b.cells && Array.isArray(b.cells)) ? b.cells.length : 0;
-      return bCells - aCells;
+      const aRows = a.rowCount || ((a.cells && Array.isArray(a.cells)) ? a.cells.length : 0);
+      const bRows = b.rowCount || ((b.cells && Array.isArray(b.cells)) ? b.cells.length : 0);
+      return bRows - aRows;
     });
-    
+
     // Process the largest tables (main product table is usually the largest)
     for (const table of sortedTables.slice(0, 2)) {
-      if (table.cells && Array.isArray(table.cells)) {
-        // Group cells by row
+      let rows: any[][] = [];
+
+      // Use structuredRows if available (from V2 enhanced extraction)
+      if (table.structuredRows && Array.isArray(table.structuredRows)) {
+        // Use the pre-structured rows from V2 extraction
+        rows = table.structuredRows.map((row: any[]) =>
+          row.map((cell: any) => (cell.Text || cell.text || '').toString().trim())
+        );
+      } else if (table.cells && Array.isArray(table.cells)) {
+        // Fallback to manual grouping for backward compatibility
         const rowMap = new Map<number, any[]>();
         table.cells.forEach((cell: any) => {
           const rowIdx = cell.RowIndex || 0;
@@ -469,207 +494,263 @@ async function extractProductsWithAI(
           }
           rowMap.get(rowIdx)!.push(cell);
         });
-        
+
         // Sort rows and cells
         const sortedRows = Array.from(rowMap.keys()).sort((a, b) => a - b);
-        const rows: any[][] = [];
-        
+
         sortedRows.forEach((rowIdx) => {
           const cells = rowMap.get(rowIdx)!;
           cells.sort((a, b) => (a.ColumnIndex || 0) - (b.ColumnIndex || 0));
-          rows.push(cells.map(c => c.Text || ''));
+          rows.push(cells.map(c => (c.Text || c.text || '').toString().trim()));
         });
-        
-        // Identify header row (usually first row)
-        if (rows.length > 0) {
-          const headerRow = rows[0] || [];
-          const dataRows = rows.slice(1);
-          
-          // Check if this looks like a product table
-          const hasProductColumns = headerRow.some((h: string) => 
-            /item|description|product|particulars|goods|name/i.test(h)
-          );
-          const hasQuantityColumns = headerRow.some((h: string) => 
-            /pcs|pieces|qty|quantity|nos/i.test(h)
-          );
-          const hasAmountColumns = headerRow.some((h: string) => 
-            /net|amount|amt|total|price/i.test(h)
-          );
-          
-          // Skip summary/tax tables - look for headers like CGST, SGST, Tax Slab, etc.
-          const isSummaryTable = headerRow.some((h: string) => 
-            /cgst|sgst|tax slab|particulars.*cgst|tax.*slab/i.test(h)
-          );
-          
-          // Filter out rows that are clearly not products (metadata, headers, totals)
-          const filteredRows = dataRows.filter((row: string[]) => {
-            const rowText = row.join(' ').toLowerCase();
-            // Skip if row contains only metadata
-            if (/channel|traditional|small|sectorized|stn|cin|gstn|pan|dl|fssai/i.test(rowText)) {
-              return false;
-            }
-            // Skip if row is mostly empty or contains only codes
-            const nonEmptyCells = row.filter(cell => cell && cell.trim().length > 0);
-            if (nonEmptyCells.length < 3) return false;
-            return true;
-          });
-          
-          if (!isSummaryTable && hasProductColumns && filteredRows.length > 0) {
-            formattedTables.push({
-              tableType: 'PRODUCT_TABLE',
-              headers: headerRow,
-              rowCount: filteredRows.length,
-              sampleRows: filteredRows.slice(0, 5), // First 5 rows as examples
-              allRows: filteredRows // Include all filtered rows for full extraction
-            });
-          } else if (!isSummaryTable && filteredRows.length > 10 && hasQuantityColumns) {
-            // Large table with quantity column might be product table
-            formattedTables.push({
-              tableType: 'POSSIBLE_PRODUCT_TABLE',
-              headers: headerRow,
-              rowCount: filteredRows.length,
-              sampleRows: filteredRows.slice(0, 5),
-              allRows: filteredRows
-            });
+      }
+
+      // Identify header row (usually first row)
+      if (rows.length > 0) {
+        const headerRow = rows[0] || [];
+        const dataRows = rows.slice(1);
+
+        // Check if this looks like a product table
+        const hasProductColumns = headerRow.some((h: string) =>
+          /item|description|product|particulars|goods|name/i.test(h)
+        );
+        const hasQuantityColumns = headerRow.some((h: string) =>
+          /pcs|pieces|qty|quantity|nos/i.test(h)
+        );
+        const hasAmountColumns = headerRow.some((h: string) =>
+          /net|amount|amt|total|price/i.test(h)
+        );
+
+        // Skip summary/tax tables - look for headers like CGST, SGST, Tax Slab, etc.
+        const isSummaryTable = headerRow.some((h: string) =>
+          /cgst|sgst|tax slab|particulars.*cgst|tax.*slab/i.test(h)
+        );
+
+        // Filter out rows that are clearly not products (metadata, headers, totals)
+        const filteredRows = dataRows.filter((row: string[]) => {
+          const rowText = row.join(' ').toLowerCase();
+          // Skip if row contains only metadata
+          if (/channel|traditional|small|sectorized|stn|cin|gstn|pan|dl|fssai/i.test(rowText)) {
+            return false;
           }
+          // Skip if row is mostly empty or contains only codes
+          const nonEmptyCells = row.filter(cell => cell && cell.trim().length > 0);
+          if (nonEmptyCells.length < 3) return false;
+          return true;
+        });
+
+        if (!isSummaryTable && hasProductColumns && filteredRows.length > 0) {
+          // Calculate a quality score for this table
+          const hasHighRowCount = filteredRows.length >= 10;
+          const hasAllKeyColumns = hasProductColumns && hasQuantityColumns && hasAmountColumns;
+          const qualityScore = (hasHighRowCount ? 2 : 0) + (hasAllKeyColumns ? 3 : 1);
+
+          formattedTables.push({
+            tableType: 'PRODUCT_TABLE',
+            headers: headerRow,
+            rowCount: filteredRows.length,
+            sampleRows: filteredRows.slice(0, 3), // First 3 rows as examples only
+            allRows: filteredRows,
+            qualityScore // Add quality score for better sorting
+          });
+        } else if (!isSummaryTable && filteredRows.length > 5 && hasQuantityColumns) {
+          formattedTables.push({
+            tableType: 'POSSIBLE_PRODUCT_TABLE',
+            headers: headerRow,
+            rowCount: filteredRows.length,
+            sampleRows: filteredRows.slice(0, 3),
+            allRows: filteredRows,
+            qualityScore: 1
+          });
+        } else if (!isSummaryTable && filteredRows.length > 3) {
+          // Lower priority for tables without clear product indicators
+          formattedTables.push({
+            tableType: 'POSSIBLE_PRODUCT_TABLE',
+            headers: headerRow,
+            rowCount: filteredRows.length,
+            sampleRows: filteredRows.slice(0, 3),
+            allRows: filteredRows,
+            qualityScore: 0.5
+          });
         }
       }
     }
-    
-    // Format tables for AI with clear structure
-    if (formattedTables.length > 0) {
-      // Prioritize PRODUCT_TABLE over POSSIBLE_PRODUCT_TABLE
-      formattedTables.sort((a, b) => {
-        if (a.tableType === 'PRODUCT_TABLE' && b.tableType !== 'PRODUCT_TABLE') return -1;
-        if (b.tableType === 'PRODUCT_TABLE' && a.tableType !== 'PRODUCT_TABLE') return 1;
-        return b.rowCount - a.rowCount; // Sort by row count (largest first)
-      });
-      
-      tableContext = formattedTables.map((table, idx) => {
-        // Format all rows for complete extraction
-        const allRowsFormatted = table.allRows.map((row: string[], i: number) => 
-          `Row ${i + 1}: ${JSON.stringify(row)}`
-        ).join('\n');
-        
-        return `TABLE ${idx + 1} (${table.tableType}, ${table.rowCount} product rows):
-Headers: ${JSON.stringify(table.headers)}
-
-ALL PRODUCT ROWS (extract from ALL of these):
-${allRowsFormatted}`;
-      }).join('\n\n---\n\n');
-    } else {
-      tableContext = 'No product table structure detected in receipt data';
-    }
   }
-  
+
+  // Format tables for AI with clear structure
+  if (formattedTables.length > 0) {
+    // Prioritize by quality score, then by type, then by row count
+    formattedTables.sort((a, b) => {
+      // First, sort by quality score (highest first)
+      if (a.qualityScore !== b.qualityScore) {
+        return b.qualityScore - a.qualityScore;
+      }
+      // Then by table type
+      if (a.tableType === 'PRODUCT_TABLE' && b.tableType !== 'PRODUCT_TABLE') return -1;
+      if (b.tableType === 'PRODUCT_TABLE' && a.tableType !== 'PRODUCT_TABLE') return 1;
+      // Finally by row count (largest first)
+      return b.rowCount - a.rowCount;
+    });
+
+    console.log(`📊 Table prioritization:`, formattedTables.map(t => ({
+      type: t.tableType,
+      rows: t.rowCount,
+      quality: t.qualityScore,
+      headers: t.headers.slice(0, 5)
+    })));
+
+    // Send ONLY the best table to AI (to avoid confusion with footer/summary tables)
+    const bestTable = formattedTables[0];
+
+    tableContext = (() => {
+      const table = bestTable;
+      const idx = 0;
+      // Identify column indices for better clarity
+      const headers = table.headers;
+      let productNameColIdx = -1;
+      let qtyColIdx = -1;
+      let netAmtColIdx = -1;
+
+      // Find key column indices
+      headers.forEach((header: string, i: number) => {
+        const h = header.toLowerCase();
+        if (h.includes('item') || h.includes('description') || h.includes('product') || h.includes('name')) {
+          productNameColIdx = i;
+        }
+        if (h.includes('pcs') || h.includes('pieces') || h.includes('qty') || h.includes('quantity')) {
+          qtyColIdx = i;
+        }
+        if (h.includes('net') && (h.includes('amt') || h.includes('amount'))) {
+          netAmtColIdx = i;
+        }
+      });
+
+      // Format all rows with clear column mappings
+      const allRowsFormatted = table.allRows.map((row: string[], i: number) => {
+        const productName = productNameColIdx >= 0 ? row[productNameColIdx] : '';
+        const qty = qtyColIdx >= 0 ? row[qtyColIdx] : '';
+        const netAmt = netAmtColIdx >= 0 ? row[netAmtColIdx] : '';
+        return `  Row ${i + 1}: Product="${productName}", Pcs="${qty}", NetAmt="${netAmt}" [Full Row: ${JSON.stringify(row)}]`;
+      }).join('\n');
+
+      return `📊 TABLE ${idx + 1} - ${table.tableType}
+Table has ${table.rowCount} product rows
+
+🔑 COLUMN HEADERS:
+${JSON.stringify(table.headers)}
+
+⚡ KEY COLUMN INDICES:
+- Product Name Column: ${productNameColIdx} (${productNameColIdx >= 0 ? headers[productNameColIdx] : 'NOT FOUND'})
+- Quantity Column (Pcs): ${qtyColIdx} (${qtyColIdx >= 0 ? headers[qtyColIdx] : 'NOT FOUND'})
+- Net Amount Column: ${netAmtColIdx} (${netAmtColIdx >= 0 ? headers[netAmtColIdx] : 'NOT FOUND'})
+
+📋 ALL ${table.rowCount} PRODUCT ROWS (YOU MUST EXTRACT ALL ${table.rowCount} PRODUCTS):
+${allRowsFormatted}
+
+✅ EXTRACTION REQUIREMENT: Return exactly ${table.rowCount} products from the ${table.rowCount} rows above.`;
+    })(); // Execute IIFE to format single table
+  } else {
+    tableContext = 'No product table structure detected in receipt data';
+  }
+
   const textContext = textLines.slice(0, 50).join('\n'); // Limit text context
 
-  const prompt = `You are an expert receipt extraction assistant. Your task is to extract ONLY product information from the ITEMIZED PRODUCT TABLE in the receipt.
+  const prompt = `You are an expert at extracting product data from receipt tables. Your ONLY task is to extract ALL products from the itemized product table.
 
-CRITICAL REQUIREMENTS - READ CAREFULLY:
-1. Find the ITEMIZED PRODUCT TABLE - this is the table with individual product rows, NOT the summary/tax table
-2. The itemized table will have:
-   - A column for product names (like "Item Description", "Item Name", "Product Name")
-   - A column for quantities (like "Pcs", "Pieces", "Qty")
-   - A column for net amounts (like "Net Amt", "Net Amount")
-   - Multiple rows (usually 10-50 rows) each representing ONE product
-3. IGNORE completely these tables/sections:
-   - Summary tables showing CGST/SGST tax breakdowns by tax slab
-   - Summary tables with "Particulars", "Pcs" showing aggregated totals
-   - Header metadata (STN, CIN, GSTN, PAN, DL No, FSSAI, address, phone)
-   - CHANNEL field (like "Traditional", "Small A Traditional") - this is NOT a product
-   - Initiative/discount sections
-   - Terms and conditions
-   - Footer text
-4. Extract ONLY from the ITEMIZED PRODUCT TABLE rows (each row = one product)
-5. Product names must be cleaned (remove HSN codes, PCode, UPC, barcodes, SKUs, serial numbers)
-6. Extract quantity from the "Pcs" or "Pieces" column (this is per-product quantity, NOT total pieces)
-7. Extract net amount from "Net Amt" or "Net Amount" column (this is per-product total)
-8. Calculate unit price = net amount / quantity
-9. You MUST extract ALL products from the itemized table (usually 10-50 products)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎯 YOUR MISSION: Extract EVERY SINGLE product from the product table below
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-COLUMN MAPPING INSTRUCTIONS:
-- Product Name: Look for columns like "Item Description", "Item Name", "Product Name", "Description", "Particulars", "Goods"
-- Quantity: Look for columns like "Pcs", "Pieces", "Qty", "Quantity", "Nos"
-- Net Amount: Look for columns like "Net Amt", "Net Amount", "Amount", "Total", "Net"
-- Unit: Usually "pieces" or "pcs" - can be found in unit column or inferred
+📜 CRITICAL RULES (READ BEFORE STARTING):
 
-EXAMPLE RECEIPT FORMAT:
-Table with headers: ["Sl", "HSN", "PCode", "Item Description", "MRP", "Cs", "Pcs", "UPC", "Pc Price", "Gross Amt", "SCH Amt", "Taxable Amt", "GST %", "Net Amt"]
-Row: ["1", "33051090", "80813857", "H&S Daily Cool Rs 2 20S", "40", "0", "1", "60", "25.57", "25.57", "0.64", "24.93", "18.00", "29.41"]
-Extract: { name: "H&S Daily Cool Rs 2 20S", quantity: 1, unit: "pieces", netAmount: 29.41, unitPrice: 29.41 }
+1️⃣  EXTRACT FROM THE RIGHT TABLE:
+   ✓ Use the ITEMIZED PRODUCT TABLE (has individual product names in each row)
+   ✗ SKIP summary tables (CGST/SGST tax breakdowns)
+   ✗ SKIP header metadata (STN, CIN, GSTN, addresses, phone numbers)
+   ✗ SKIP footer sections (terms, totals, signatures)
+  1️⃣  EXTRACT FROM THE RIGHT TABLE:
+     ✓ Use the ITEMIZED PRODUCT TABLE (has individual product names in each row)
+     ✗ SKIP summary tables (CGST/SGST tax breakdowns)
+     ✗ SKIP header metadata (STN, CIN, GSTN, addresses, phone numbers)
+     ✗ SKIP footer sections (terms, totals, signatures)
 
-Table with headers: ["Item Description", "Pcs", "Net Amount"]
-Row: ["ELITE MAIDA 500 gm", "5", "166.67"]
-Extract: { name: "ELITE MAIDA 500 gm", quantity: 5, unit: "pieces", netAmount: 166.67, unitPrice: 33.33 }
+  2️⃣  PROCESS EVERY SINGLE ROW:
+     • If the table has 5 rows → extract 5 products
+     • If the table has 29 rows → extract 29 products
+     • DO NOT stop after extracting 1 or 2 products!
+     • Process EVERY row listed in the "ALL PRODUCT ROWS" section below
 
-RECEIPT TABLE DATA (find the main product table):
+  3️⃣  EXTRACT THESE FIELDS FOR EACH PRODUCT:
+     • name: Clean product name (remove HSN, PCode, UPC, barcodes, serial numbers BUT KEEP weights, sizes, variants)
+     • description: Generate intelligent human-friendly description
+     • quantity: Number from "Pcs" or "Pieces" column (must be > 0)
+     • unit: Usually "pieces" (or "pcs", "kg", "g", "l", etc. if specified)
+     • netAmount: Number from "Net Amt" or "Net Amount" column (must be > 0)
+     • unitPrice: Calculate as netAmount ÷ quantity
+     • confidence: 0.85-0.95 (based on data quality)
+
+  4️⃣  INTELLIGENT DESCRIPTION GENERATION:
+     Transform abbreviated product names into human-friendly descriptions:
+     
+     Examples:
+     • "CDM 40G RS 45 PRICING" → "Cadbury Dairy Milk 40G MRP ₹45"
+     • "FIVE STAR 40 30 20 10" → "Five Star Chocolate Multi-pack (40g, 30g, 20g, 10g)"
+     • "AASHIRVAAD 1KG RS.80" → "Aashirvaad Atta 1KG MRP ₹80"
+
+  5️⃣  PRICE CALCULATION FORMULA:
+     unitPrice = netAmount / quantity
+     
+     Example: If NetAmt=166.67 and Pcs=5, then unitPrice=166.67/5=33.33
+
+  6️⃣  CLEAN PRODUCT NAMES:
+     ✓ Keep: "CDM 40G RS 45", "Parle-G 100g", "Maggi 70G RS.12"
+     ✗ Remove: HSN codes (like "33051090")
+     ✗ Remove: PCode (like "80813857")
+     ✗ Remove: UPC (like "60")
+     ✗ Remove: Serial numbers, barcodes
+
+  7️⃣  IGNORE THESE (NOT products):
+     ✗ "Traditional" (this is a channel name, not a product)
+     ✗ "Small A Traditional" (channel classification)
+   ✗ Tax slab rows (CGST/SGST percentages)
+     ✗ Rows with only codes and no product names
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 RECEIPT TABLE DATA
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 ${tableContext}
 
-TEXT LINES (for context):
-${textContext}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📝 EXTRACTION INSTRUCTIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-STEP-BY-STEP INSTRUCTIONS:
-1. Look at the table headers to identify which table is the ITEMIZED PRODUCT TABLE
-   - It will have columns like: Sl, HSN, PCode, Item Description, MRP, Cs, Pcs, Net Amt
-   - It will have MANY rows (10-50 rows), each row representing one product
-   - DO NOT confuse with summary tables that have "Particulars", "CGST", "SGST" headers
+  STEP 1: Identify the product table
+     → Look for the table with columns like: "Item Description", "Pcs", "Net Amt"
+     → This table has MULTIPLE rows (each row = 1 product)
 
-2. For EACH row in the itemized product table:
-   - Extract product name from "Item Description" or similar column
-   - Extract quantity from "Pcs" column (individual product quantity, not total)
-   - Extract net amount from "Net Amt" column (individual product amount)
-   - Clean the product name (remove HSN, PCode, UPC codes, serial numbers)
-   - Calculate unit price = net amount / quantity
+  STEP 2: For EACH row in the product table, extract:
+     → Product Name (clean it: remove codes)
+     → Quantity from "Pcs" column
+     → Net Amount from "Net Amt" column
+     → Calculate: unitPrice = netAmount / quantity
 
-3. Skip rows that are:
-   - Header rows (containing column names)
-   - Empty rows
-   - Summary/total rows (containing words like "Total", "Subtotal", "Grand Total")
-   - Tax breakdown rows (containing CGST, SGST, GST percentages)
-   - Metadata rows (containing channel names, addresses, etc.)
+  STEP 3: Return ALL products as a JSON array
+     → MUST return same number of products as there are rows in the table
+     → DO NOT return just 1 product if there are 20 rows!
 
-4. IMPORTANT: Extract ALL products from the itemized table
-   - A receipt typically has 10-50 individual products
-   - DO NOT stop at just 1 product
-   - Return an array with ALL products found
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📤 RESPONSE FORMAT (CRITICAL)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-5. DO NOT extract from:
-   - Summary tables showing tax breakdowns
-   - CHANNEL field (e.g., "Traditional" is NOT a product)
-   - Header metadata sections
+• Count the rows in the table above
+• Your JSON array MUST have the SAME number of objects as there are product rows
+• If table has N rows, return N products in the array
+• Extracting only 1 product when there are 20+ rows is WRONG
 
-CRITICAL: You MUST return ONLY valid JSON. Do not include any markdown formatting, code blocks, explanations, or other text.
-Return a JSON array in this exact format:
-[
-  {
-    "name": "cleaned product name",
-    "quantity": 1,
-    "unit": "pieces",
-    "netAmount": 100.0,
-    "unitPrice": 100.0,
-    "confidence": 0.95
-  }
-]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-IMPORTANT: 
-- Start your response with [ (opening bracket)
-- End your response with ] (closing bracket)
-- Do NOT wrap in markdown code blocks (no code fences or formatting)
-- Do NOT include any text before or after the JSON array
-- Return ONLY the JSON array, nothing else
-
-CRITICAL EXTRACTION RULES:
-- Extract from the ITEMIZED PRODUCT TABLE only (not summary tables, not metadata)
-- DO NOT extract from: CHANNEL fields, header information, summary tables, tax tables
-- Extract ALL product rows from the table (usually 10-50 products per receipt)
-- Clean product names thoroughly: remove HSN codes, PCode, UPC, serial numbers, barcodes
-- Extract quantity from Pcs/Pieces/Qty column (must be > 0)
-- Extract netAmount from Net Amt/Net Amount column (must be > 0)
-- Calculate unitPrice = netAmount / quantity
-- Skip rows that are: empty, headers, totals, tax calculations, or contain only metadata
-- Set confidence 0.8-0.95 for good extractions
-- Return ALL products found in the product table (do not stop at just one product)`;
+START YOUR RESPONSE WITH [`;
 
   // Try Claude Sonnet 4.5 (use case details already submitted, model is accessible)
   let response = await invokeEnhancedModel(prompt, {
@@ -680,9 +761,9 @@ CRITICAL EXTRACTION RULES:
   // Check for errors - since model is accessible, errors might indicate other issues
   if (!response.success || !response.content) {
     const errorMsg = response.error || 'AI extraction failed';
-    
+
     console.error('❌ Claude Sonnet 4.5 invocation failed:', errorMsg);
-    
+
     // If error mentions use case details but model is accessible, check for other issues
     if (errorMsg.includes('use case details') || errorMsg.includes('ResourceNotFoundException')) {
       throw new Error(`Claude Sonnet 4.5 model access error: ${errorMsg}
@@ -697,7 +778,7 @@ To verify:
 - Verify model ID in Model Catalog
 - Ensure model is enabled in your region`);
     }
-    
+
     throw new Error(`AI extraction failed: ${errorMsg}`);
   }
 
@@ -715,7 +796,7 @@ To verify:
 
   // Log first 500 characters of response for debugging
   console.log('📝 AI Response preview:', response.content.substring(0, 500));
-  
+
   // Try to parse JSON
   const parsed = parseBedrockJSON<ExtractedProductV2[]>(response.content);
   if (!parsed || !Array.isArray(parsed)) {
@@ -723,7 +804,7 @@ To verify:
     console.error('📄 Full response content (first 1000 chars):', response.content.substring(0, 1000));
     throw new Error(`Failed to parse AI extraction result. Response was not valid JSON. The AI model may have returned an error message or unexpected format. Content preview: ${response.content.substring(0, 200)}`);
   }
-  
+
   console.log(`✅ Successfully parsed ${parsed.length} products from AI response`);
 
   // Filter and validate extracted products
@@ -733,7 +814,7 @@ To verify:
       if (!p.name || typeof p.name !== 'string') return false;
       const cleanedName = cleanProductName(p.name);
       if (!cleanedName || cleanedName.length < 3) return false;
-      
+
       // Filter out metadata fields that were incorrectly extracted
       const nameLower = cleanedName.toLowerCase().trim();
       const invalidPatterns = [
@@ -748,7 +829,7 @@ To verify:
         /^(cgst|sgst|igst|gst|tax)$/i,
         /^(particulars|total|subtotal|grand total)$/i,
       ];
-      
+
       // Check if the name matches any invalid pattern
       for (const pattern of invalidPatterns) {
         if (pattern.test(nameLower)) {
@@ -756,30 +837,33 @@ To verify:
           return false;
         }
       }
-      
+
       // Additional validation: product names should have at least one letter and be reasonably descriptive
       if (cleanedName.length < 5) {
         // Very short names (less than 5 chars) are likely codes or metadata
         console.warn(`Filtered out product name (too short): ${cleanedName}`);
         return false;
       }
-      
+
       // Must contain at least one letter (not just numbers)
       if (!/[A-Za-z]/.test(cleanedName)) {
         console.warn(`Filtered out product name (no letters): ${cleanedName}`);
         return false;
       }
-      
+
       // Validate quantity and amount
       const quantity = p.quantity || 1;
       const netAmount = p.netAmount || 0;
       if (quantity <= 0 || netAmount <= 0) return false;
-      
+
       return true;
     })
     .map((p, idx) => ({
       id: `prod_${Date.now()}_${idx}`,
       name: cleanProductName(p.name),
+      description: p.description || cleanProductName(p.name), // AI-generated description or fallback to cleaned name
+      category: p.category || '',
+      subcategory: p.subcategory || '',
       quantity: p.quantity || 1,
       unit: p.unit || 'piece',
       netAmount: p.netAmount || 0,
@@ -788,16 +872,16 @@ To verify:
       needsReview: (p.confidence || 0.8) < 0.7,
       rowIndex: idx,
     }));
-  
+
   // Log warning if too few products extracted
   if (validProducts.length === 1) {
     console.warn(`⚠️ Only 1 product extracted - this may be incorrect. Product: ${validProducts[0]?.name}`);
   }
-  
+
   if (validProducts.length === 0 && parsed.length > 0) {
     console.warn(`⚠️ All ${parsed.length} extracted products were filtered out as invalid`);
   }
-  
+
   return validProducts;
 }
 
@@ -817,32 +901,17 @@ export async function extractProductsFromReceiptV2(
   }
 
   try {
-    // Step 1: Extract structure using AWS Textract
-    const textractResult = await analyzeReceiptStructureAWS(imageBuffer);
-
-    if (!textractResult.textLines.length && !textractResult.tables.length) {
-      return {
-        success: false,
-        products: [],
-        confidence: 0,
-        error: 'No text detected in the image',
-      };
-    }
+    // Use Claude Vision for direct image analysis (bypassing Textract)
+    // This is more reliable when receipts have complex table structures
+    console.log('📸 Starting vision-based extraction with Claude Sonnet 4.5...');
 
     let products: ExtractedProductV2[] = [];
 
-    // Step 2: Use AI extraction exclusively (AWS Textract + AI)
-    // This ensures the best accuracy by combining AWS Textract's structured data with AI intelligence
-    // AI extraction uses Claude Sonnet 4.5 and requires Anthropic use case approval in AWS Bedrock
     try {
-      products = await extractProductsWithAI(
-        textractResult.textLines,
-        textractResult.tables,
-        textractResult
-      );
-    } catch (aiError: any) {
-      const errorMsg = aiError.message || String(aiError);
-      
+      products = await extractProductsWithVision(imageBuffer);
+    } catch (visionError: any) {
+      const errorMsg = visionError.message || String(visionError);
+
       // Provide helpful error message with updated AWS Bedrock information
       if (errorMsg.includes('use case details') || errorMsg.includes('Anthropic') || errorMsg.includes('approval')) {
         return {
@@ -877,7 +946,7 @@ Method 2 - Model Catalog:
 Note: Using Claude Sonnet 4.5 exclusively for best extraction quality.`,
         };
       }
-      
+
       return {
         success: false,
         products: [],
@@ -919,7 +988,7 @@ Scan Receipt 2.0 uses AWS Textract + Claude Sonnet 4.5 exclusively for best extr
   } catch (error: any) {
     console.error('Error in receipt extraction V2:', error);
     const errorMsg = error.message || String(error);
-    
+
     // Provide helpful error message for Anthropic approval issue
     if (errorMsg.includes('use case details') || errorMsg.includes('Anthropic')) {
       return {
@@ -929,7 +998,7 @@ Scan Receipt 2.0 uses AWS Textract + Claude Sonnet 4.5 exclusively for best extr
         error: 'Claude Sonnet 4.5 requires Anthropic use case approval in AWS Bedrock Console. Please complete the approval form in AWS Bedrock Console (https://console.aws.amazon.com/bedrock/), then try again. Scan Receipt 2.0 uses AWS Textract + AI exclusively for better extraction accuracy.',
       };
     }
-    
+
     return {
       success: false,
       products: [],

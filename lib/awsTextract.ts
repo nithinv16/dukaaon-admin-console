@@ -83,6 +83,7 @@ export async function extractTextFromImageAWS(imageBuffer: Buffer): Promise<stri
 }
 
 // Enhanced function to analyze document structure using AWS Textract
+// This is used by the OLD Scan Receipt - DO NOT MODIFY
 export async function analyzeReceiptStructureAWS(imageBuffer: Buffer): Promise<{
   tables: any[];
   keyValuePairs: any[];
@@ -150,6 +151,168 @@ export async function analyzeReceiptStructureAWS(imageBuffer: Buffer): Promise<{
     return { tables, keyValuePairs, textLines };
   } catch (error) {
     console.error('Error analyzing document structure with AWS Textract:', error);
+    throw error;
+  }
+}
+
+/**
+ * Enhanced AWS Textract function specifically for Scan Receipt 2.0
+ * Focuses on comprehensive table extraction to capture ALL product rows
+ * Uses more detailed table parsing to ensure no rows are missed
+ */
+export async function analyzeReceiptStructureV2(imageBuffer: Buffer): Promise<{
+  tables: any[];
+  keyValuePairs: any[];
+  textLines: string[];
+}> {
+  if (!textractClient) {
+    throw new Error('AWS Textract client is not initialized. Please check your AWS configuration.');
+  }
+
+  try {
+    const command = new AnalyzeDocumentCommand({
+      Document: {
+        Bytes: imageBuffer,
+      },
+      FeatureTypes: ['TABLES', 'FORMS'],
+    });
+
+    const response = await textractClient.send(command);
+    const tables: any[] = [];
+    const keyValuePairs: any[] = [];
+    const textLines: string[] = [];
+
+    if (!response.Blocks) {
+      return { tables, keyValuePairs, textLines };
+    }
+
+    // Create a map of all blocks by ID for efficient lookup
+    const blockMap = new Map<string, Block>();
+    response.Blocks.forEach(block => {
+      if (block.Id) {
+        blockMap.set(block.Id, block);
+      }
+    });
+
+    // Extract text lines
+    const lineBlocks = response.Blocks.filter(block => block.BlockType === 'LINE');
+    for (const block of lineBlocks) {
+      if (block.Text) {
+        textLines.push(block.Text);
+      }
+    }
+
+    // Extract key-value pairs
+    const keyValueBlocks = response.Blocks.filter(block => block.BlockType === 'KEY_VALUE_SET');
+    for (const kvBlock of keyValueBlocks) {
+      if (kvBlock.EntityTypes?.includes('KEY')) {
+        keyValuePairs.push({
+          id: kvBlock.Id,
+          text: kvBlock.Text,
+          confidence: kvBlock.Confidence || 0
+        });
+      }
+    }
+
+    // Enhanced table extraction for Scan Receipt 2.0
+    // Extract ALL tables with comprehensive cell extraction
+    const tableBlocks = response.Blocks.filter(block => block.BlockType === 'TABLE');
+    
+    for (const tableBlock of tableBlocks) {
+      if (!tableBlock.Relationships) continue;
+
+      // Get all cell IDs from table relationships
+      const cellIds = tableBlock.Relationships
+        .filter(rel => rel.Type === 'CHILD')
+        .flatMap(rel => rel.Ids || []);
+
+      // Extract all cells with full details
+      const cellBlocks: any[] = [];
+      for (const cellId of cellIds) {
+        const cellBlock = blockMap.get(cellId);
+        if (cellBlock && cellBlock.BlockType === 'CELL') {
+          // Get cell text from relationships if available
+          let cellText = cellBlock.Text || '';
+          
+          // If cell has child relationships (for merged cells or complex content)
+          if (cellBlock.Relationships) {
+            const childIds = cellBlock.Relationships
+              .filter(rel => rel.Type === 'CHILD')
+              .flatMap(rel => rel.Ids || []);
+            
+            // Collect text from child blocks (WORD blocks)
+            const childTexts: string[] = [];
+            for (const childId of childIds) {
+              const childBlock = blockMap.get(childId);
+              if (childBlock && childBlock.Text) {
+                childTexts.push(childBlock.Text);
+              }
+            }
+            
+            if (childTexts.length > 0) {
+              cellText = childTexts.join(' ');
+            }
+          }
+
+          cellBlocks.push({
+            ...cellBlock,
+            Text: cellText || cellBlock.Text || '',
+            RowIndex: cellBlock.RowIndex,
+            ColumnIndex: cellBlock.ColumnIndex,
+            Confidence: cellBlock.Confidence || 0
+          });
+        }
+      }
+
+      // Group cells by row and column for better structure
+      const rowMap = new Map<number, Map<number, any>>();
+      for (const cell of cellBlocks) {
+        const rowIdx = cell.RowIndex || 0;
+        const colIdx = cell.ColumnIndex || 0;
+        
+        if (!rowMap.has(rowIdx)) {
+          rowMap.set(rowIdx, new Map());
+        }
+        rowMap.get(rowIdx)!.set(colIdx, cell);
+      }
+
+      // Convert to structured format with all rows
+      const structuredRows: any[][] = [];
+      const sortedRowIndices = Array.from(rowMap.keys()).sort((a, b) => a - b);
+      
+      for (const rowIdx of sortedRowIndices) {
+        const colMap = rowMap.get(rowIdx)!;
+        const sortedColIndices = Array.from(colMap.keys()).sort((a, b) => a - b);
+        const row: any[] = [];
+        
+        for (const colIdx of sortedColIndices) {
+          row.push(colMap.get(colIdx));
+        }
+        
+        structuredRows.push(row);
+      }
+
+      // Store table with enhanced structure
+      tables.push({
+        id: tableBlock.Id,
+        cells: cellBlocks,
+        structuredRows: structuredRows, // Add structured rows for easier processing
+        rowCount: structuredRows.length,
+        columnCount: structuredRows.length > 0 ? structuredRows[0].length : 0,
+        confidence: tableBlock.Confidence || 0
+      });
+    }
+
+    // Log extraction summary
+    console.log(`📊 Scan Receipt 2.0 - AWS Textract extraction complete:`);
+    console.log(`   - Tables found: ${tables.length}`);
+    console.log(`   - Total table rows: ${tables.reduce((sum, t) => sum + (t.rowCount || 0), 0)}`);
+    console.log(`   - Text lines: ${textLines.length}`);
+    console.log(`   - Key-value pairs: ${keyValuePairs.length}`);
+
+    return { tables, keyValuePairs, textLines };
+  } catch (error) {
+    console.error('Error analyzing document structure with AWS Textract (V2):', error);
     throw error;
   }
 }
@@ -497,6 +660,7 @@ export function validateAWSConfig(): boolean {
 export default {
   extractTextFromImageAWS,
   analyzeReceiptStructureAWS,
+  analyzeReceiptStructureV2, // New function for Scan Receipt 2.0
   parseReceiptTextAWS,
   processReceiptImageAWS,
   validateAWSConfig

@@ -18,10 +18,19 @@ import {
   CircularProgress,
   IconButton,
   Alert,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Slider,
 } from '@mui/material';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import CloseIcon from '@mui/icons-material/Close';
 import CameraAltIcon from '@mui/icons-material/CameraAlt';
+import Crop from '@mui/icons-material/Crop';
+import Check from '@mui/icons-material/Check';
+import Cropper from 'react-easy-crop';
+import { getCroppedImg } from '@/lib/cropImage';
 import { ScanReceiptResponse } from '@/lib/receiptTypes';
 
 interface ReceiptScannerProps {
@@ -38,6 +47,13 @@ export default function ReceiptScanner({ onScanComplete, onCancel, provider = 'a
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Crop state
+  const [showCropModal, setShowCropModal] = useState(false);
+  const [crop, setCrop] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
+  const [croppedAreaPixels, setCroppedAreaPixels] = useState<any>(null);
+  const [originalFile, setOriginalFile] = useState<File | null>(null);
+
   // Convert file to base64
   const fileToBase64 = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -51,6 +67,96 @@ export default function ReceiptScanner({ onScanComplete, onCancel, provider = 'a
       reader.onerror = reject;
       reader.readAsDataURL(file);
     });
+  };
+
+  // Crop complete callback
+  const onCropComplete = useCallback((croppedArea: any, croppedAreaPixels: any) => {
+    setCroppedAreaPixels(croppedAreaPixels);
+  }, []);
+
+  // Handle crop and scan
+  const handleCropAndScan = async () => {
+    if (!selectedImage || !croppedAreaPixels) return;
+
+    try {
+      setShowCropModal(false);
+      setIsScanning(true);
+      setError(null);
+
+      // Get cropped image blob
+      const croppedBlob = await getCroppedImg(selectedImage, croppedAreaPixels);
+
+      // Convert blob to base64
+      const arrayBuffer = await croppedBlob.arrayBuffer();
+      const base64Image = Buffer.from(arrayBuffer).toString('base64');
+
+      // Process the cropped image
+      await processReceipt(base64Image);
+    } catch (error) {
+      console.error('Crop error:', error);
+      setError('Failed to crop image');
+      setIsScanning(false);
+    }
+  };
+
+  // Handle skip crop
+  const handleSkipCrop = async () => {
+    if (!selectedImage) return;
+
+    try {
+      setShowCropModal(false);
+      setIsScanning(true);
+      setError(null);
+
+      // Extract base64 from data URL
+      const base64Image = selectedImage.split(',')[1];
+
+      await processReceipt(base64Image);
+    } catch (error) {
+      console.error('Processing error:', error);
+      setError('Failed to process receipt');
+      setIsScanning(false);
+    }
+  };
+
+  // Process receipt with given base64 image
+  const processReceipt = async (base64Image: string) => {
+    try {
+      // Get admin and session info for tracking
+      const adminSession = localStorage.getItem('admin_session');
+      const sessionId = localStorage.getItem('tracking_session_id');
+      const admin = adminSession ? JSON.parse(adminSession) : null;
+
+      // Call scan API with provider specification and tracking info
+      const response = await fetch('/api/admin/scan-receipt', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          image: base64Image,
+          provider: provider, // Specify OCR provider
+          admin_id: admin?.id, // For tracking
+          session_id: sessionId, // For tracking
+        }),
+      });
+
+      const result: ScanReceiptResponse = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to scan receipt');
+      }
+
+      if (result.success && onScanComplete) {
+        onScanComplete(result);
+      } else if (!result.success) {
+        setError(result.error || 'Failed to extract products from receipt');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred while scanning');
+    } finally {
+      setIsScanning(false);
+    }
   };
 
   // Handle file selection
@@ -69,10 +175,16 @@ export default function ReceiptScanner({ onScanComplete, onCancel, provider = 'a
       return;
     }
 
+    // Store original file and show crop modal
+    setOriginalFile(file);
+
     // Create preview
     const reader = new FileReader();
     reader.onload = (e) => {
       setSelectedImage(e.target?.result as string);
+      setShowCropModal(true);
+      setCrop({ x: 0, y: 0 });
+      setZoom(1);
     };
     reader.readAsDataURL(file);
   }, []);
@@ -114,53 +226,7 @@ export default function ReceiptScanner({ onScanComplete, onCancel, provider = 'a
     }
   }, [handleFileSelect]);
 
-  // Handle scan submission
-  const handleScan = async () => {
-    if (!selectedImage) return;
 
-    setIsScanning(true);
-    setError(null);
-
-    try {
-      // Extract base64 from data URL
-      const base64Image = selectedImage.split(',')[1];
-
-      // Get admin and session info for tracking
-      const adminSession = localStorage.getItem('admin_session');
-      const sessionId = localStorage.getItem('tracking_session_id');
-      const admin = adminSession ? JSON.parse(adminSession) : null;
-
-      // Call scan API with provider specification and tracking info
-      const response = await fetch('/api/admin/scan-receipt', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          image: base64Image,
-          provider: provider, // Specify OCR provider
-          admin_id: admin?.id, // For tracking
-          session_id: sessionId, // For tracking
-        }),
-      });
-
-      const result: ScanReceiptResponse = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error || 'Failed to scan receipt');
-      }
-
-      if (result.success && onScanComplete) {
-        onScanComplete(result);
-      } else if (!result.success) {
-        setError(result.error || 'Failed to extract products from receipt');
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred while scanning');
-    } finally {
-      setIsScanning(false);
-    }
-  };
 
   // Clear selected image
   const handleClear = () => {
@@ -263,24 +329,76 @@ export default function ReceiptScanner({ onScanComplete, onCancel, provider = 'a
               }}
             />
           </Paper>
-
-          <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
-            {onCancel && (
-              <Button onClick={onCancel} disabled={isScanning}>
-                Cancel
-              </Button>
-            )}
-            <Button
-              variant="contained"
-              onClick={handleScan}
-              disabled={isScanning}
-              startIcon={isScanning ? <CircularProgress size={20} /> : <CameraAltIcon />}
-            >
-              {isScanning ? 'Scanning...' : 'Scan Receipt'}
-            </Button>
-          </Box>
         </Box>
       )}
+
+      {/* Crop Modal */}
+      <Dialog
+        open={showCropModal}
+        onClose={() => setShowCropModal(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Crop />
+            <Typography variant="h6">Crop Receipt Image</Typography>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ position: 'relative', width: '100%', height: 400, bgcolor: 'grey.900' }}>
+            {selectedImage && (
+              <Cropper
+                image={selectedImage}
+                crop={crop}
+                zoom={zoom}
+                onCropChange={setCrop}
+                onZoomChange={setZoom}
+                onCropComplete={onCropComplete}
+              />
+            )}
+          </Box>
+          <Box sx={{ mt: 3 }}>
+            <Typography variant="body2" gutterBottom>
+              Zoom
+            </Typography>
+            <Slider
+              value={zoom}
+              min={1}
+              max={3}
+              step={0.1}
+              onChange={(e, value) => setZoom(value as number)}
+              sx={{ mt: 1 }}
+            />
+          </Box>
+          <Alert severity="info" sx={{ mt: 2 }}>
+            Adjust the crop area to focus on the product table. Freestyle cropping enabled.
+          </Alert>
+        </DialogContent>
+        <DialogActions sx={{ p: 2, gap: 1 }}>
+          <Button
+            onClick={() => setShowCropModal(false)}
+            startIcon={<CloseIcon />}
+            color="inherit"
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleSkipCrop}
+            variant="outlined"
+          >
+            Skip Crop
+          </Button>
+          <Button
+            onClick={handleCropAndScan}
+            variant="contained"
+            startIcon={<Check />}
+            disabled={!croppedAreaPixels}
+          >
+            Crop & Scan
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

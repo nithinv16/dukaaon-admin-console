@@ -14,12 +14,22 @@ import {
   Grid,
   Chip,
   Alert,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Slider,
 } from '@mui/material';
 import {
   CloudUpload,
   Receipt,
   ArrowBack,
+  Crop,
+  Check,
+  Close,
 } from '@mui/icons-material';
+import Cropper from 'react-easy-crop';
+import { getCroppedImg } from '@/lib/cropImage';
 import { useRouter } from 'next/navigation';
 import { processReceiptImage, UnifiedExtractedProduct as ExtractedProduct } from '@/lib/unifiedOCR';
 import { adminQueries } from '@/lib/supabase-browser';
@@ -32,6 +42,13 @@ export default function ScanReceiptPage() {
   const [extractedProducts, setExtractedProducts] = useState<ExtractedProduct[]>([]);
   const [sellers, setSellers] = useState<any[]>([]);
   const [loadingSellers, setLoadingSellers] = useState(true);
+
+  // Crop state
+  const [showCropModal, setShowCropModal] = useState(false);
+  const [crop, setCrop] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
+  const [croppedAreaPixels, setCroppedAreaPixels] = useState<any>(null);
+  const [originalFile, setOriginalFile] = useState<File | null>(null);
 
   // Load sellers
   useEffect(() => {
@@ -54,41 +71,68 @@ export default function ScanReceiptPage() {
     loadSellers();
   }, []);
 
-  // Receipt scanning handler
-  const handleReceiptUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    
-    // Validate file type
-    if (!file.type.startsWith('image/')) {
-      toast.error('Please upload a valid image file');
-      return;
-    }
-    
-    // Validate file size (max 10MB)
-    if (file.size > 10 * 1024 * 1024) {
-      toast.error('Image size should be less than 10MB');
-      return;
-    }
-    
-    setReceiptProcessing(true);
-    setReceiptImage(URL.createObjectURL(file));
-    
+  // Crop complete callback
+  const onCropComplete = useCallback((croppedArea: any, croppedAreaPixels: any) => {
+    setCroppedAreaPixels(croppedAreaPixels);
+  }, []);
+
+  // Handle crop and extract
+  const handleCropAndExtract = async () => {
+    if (!receiptImage || !croppedAreaPixels) return;
+
     try {
-      // Convert File to Buffer
-      const arrayBuffer = await file.arrayBuffer();
+      setShowCropModal(false);
+      setReceiptProcessing(true);
+
+      // Get cropped image blob
+      const croppedBlob = await getCroppedImg(receiptImage, croppedAreaPixels);
+
+      // Convert blob to buffer
+      const arrayBuffer = await croppedBlob.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
-      
+
+      // Process the cropped image
+      await processReceipt(buffer);
+    } catch (error) {
+      console.error('Crop error:', error);
+      toast.error('Failed to crop image');
+      setReceiptProcessing(false);
+    }
+  };
+
+  // Handle skip crop
+  const handleSkipCrop = async () => {
+    if (!originalFile) return;
+
+    try {
+      setShowCropModal(false);
+      setReceiptProcessing(true);
+
+      // Convert File to Buffer
+      const arrayBuffer = await originalFile.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+
+      await processReceipt(buffer);
+    } catch (error) {
+      console.error('Processing error:', error);
+      toast.error('Failed to process receipt');
+      setReceiptProcessing(false);
+    }
+  };
+
+  // Process receipt with given buffer
+  const processReceipt = async (buffer: Buffer) => {
+    try {
       const result = await processReceiptImage(buffer, 'aws');
-      
+
       console.log('=== RECEIPT PROCESSING RESULT ===');
       console.log('Full result:', result);
       console.log('Products array:', result.data?.products);
       console.log('Products length:', result.data?.products?.length || 0);
-      
+
       // Clear previous results first
       setExtractedProducts([]);
-      
+
       // Small delay to ensure state is cleared
       setTimeout(() => {
         if (result.data?.products && result.data.products.length > 0) {
@@ -109,7 +153,33 @@ export default function ScanReceiptPage() {
     } finally {
       setReceiptProcessing(false);
     }
-    
+  };
+
+  // Receipt scanning handler
+  const handleReceiptUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please upload a valid image file');
+      return;
+    }
+
+    // Validate file size (max 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('Image size should be less than 10MB');
+      return;
+    }
+
+    // Store original file and show crop modal
+    setOriginalFile(file);
+    setReceiptImage(URL.createObjectURL(file));
+    setShowCropModal(true);
+    setCrop({ x: 0, y: 0 });
+    setZoom(1);
+
+
     // Clear the input
     event.target.value = '';
   };
@@ -151,7 +221,7 @@ export default function ScanReceiptPage() {
               <Typography variant="h6" gutterBottom>
                 Upload Receipt
               </Typography>
-              
+
               <input
                 accept="image/*"
                 style={{ display: 'none' }}
@@ -172,14 +242,14 @@ export default function ScanReceiptPage() {
                   {receiptProcessing ? 'Processing Receipt...' : 'Upload Receipt Image'}
                 </Button>
               </label>
-              
+
               {receiptProcessing && (
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2, mb: 3 }}>
                   <CircularProgress size={24} />
                   <Typography variant="body2">Extracting text from receipt...</Typography>
                 </Box>
               )}
-              
+
               {receiptImage && (
                 <Box sx={{ mb: 3, textAlign: 'center' }}>
                   <Typography variant="subtitle2" gutterBottom>
@@ -225,15 +295,15 @@ export default function ScanReceiptPage() {
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                   Review the extracted products below. You can edit them before adding to inventory.
                 </Typography>
-                
+
                 <Stack spacing={2} sx={{ maxHeight: 500, overflow: 'auto' }}>
                   {extractedProducts.map((product, index) => {
                     return (
-                      <Card 
-                        key={index} 
+                      <Card
+                        key={index}
                         variant="outlined"
-                        sx={{ 
-                          '&:hover': { 
+                        sx={{
+                          '&:hover': {
                             bgcolor: 'action.hover',
                             boxShadow: 2
                           }
@@ -289,7 +359,74 @@ export default function ScanReceiptPage() {
         )}
       </Grid>
 
+      {/* Crop Modal */}
+      <Dialog
+        open={showCropModal}
+        onClose={() => setShowCropModal(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Crop />
+            <Typography variant="h6">Crop Receipt Image</Typography>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ position: 'relative', width: '100%', height: 400, bgcolor: 'grey.900' }}>
+            {receiptImage && (
+              <Cropper
+                image={receiptImage}
+                crop={crop}
+                zoom={zoom}
+                onCropChange={setCrop}
+                onZoomChange={setZoom}
+                onCropComplete={onCropComplete}
+              />
+            )}
+          </Box>
+          <Box sx={{ mt: 3 }}>
+            <Typography variant="body2" gutterBottom>
+              Zoom
+            </Typography>
+            <Slider
+              value={zoom}
+              min={1}
+              max={3}
+              step={0.1}
+              onChange={(e, value) => setZoom(value as number)}
+              sx={{ mt: 1 }}
+            />
+          </Box>
+          <Alert severity="info" sx={{ mt: 2 }}>
+            Adjust the crop area to focus on the product table. This improves extraction accuracy.
+          </Alert>
+        </DialogContent>
+        <DialogActions sx={{ p: 2, gap: 1 }}>
+          <Button
+            onClick={() => setShowCropModal(false)}
+            startIcon={<Close />}
+            color="inherit"
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleSkipCrop}
+            variant="outlined"
+          >
+            Skip Crop
+          </Button>
+          <Button
+            onClick={handleCropAndExtract}
+            variant="contained"
+            startIcon={<Check />}
+            disabled={!croppedAreaPixels}
+          >
+            Crop & Extract
+          </Button>
+        </DialogActions>
+      </Dialog>
+
     </Container>
   );
 }
-

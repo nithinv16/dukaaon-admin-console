@@ -143,6 +143,9 @@ export const parseCSVFile = (file: File): Promise<ParsedProduct[]> => {
             const priceStr = row['price'] || row['unit_price'] || row['cost'] || row['amount'] || '0';
             const qtyStr = row['min_order_quantity'] || row['min_qty'] || row['quantity'] || row['qty'] || '1';
             const description = row['description'] || row['desc'] || '';
+            // Optional columns: category and subcategory
+            const category = row['category'] || row['cat'] || '';
+            const subcategory = row['subcategory'] || row['sub_category'] || row['sub_cat'] || '';
 
             if (name.trim()) {
               const price = parseFloat(priceStr.replace(/[^0-9.]/g, '')) || 0;
@@ -152,7 +155,9 @@ export const parseCSVFile = (file: File): Promise<ParsedProduct[]> => {
                 name: name.trim(),
                 price,
                 min_order_quantity,
-                description: description.trim(),
+                description: description.trim() || undefined,
+                category: category.trim() || undefined,
+                subcategory: subcategory.trim() || undefined,
                 stock_level: 100 // Default stock level as per requirements
               });
             }
@@ -211,6 +216,9 @@ export const parseExcelFile = (file: File): Promise<ParsedProduct[]> => {
           const priceStr = normalizedRow['price'] || normalizedRow['unit_price'] || normalizedRow['cost'] || normalizedRow['amount'] || '0';
           const qtyStr = normalizedRow['min_order_quantity'] || normalizedRow['min_qty'] || normalizedRow['quantity'] || normalizedRow['qty'] || '1';
           const description = normalizedRow['description'] || normalizedRow['desc'] || '';
+          // Optional columns: category and subcategory
+          const category = normalizedRow['category'] || normalizedRow['cat'] || '';
+          const subcategory = normalizedRow['subcategory'] || normalizedRow['sub_category'] || normalizedRow['sub_cat'] || '';
 
           if (name.trim()) {
             const price = parseFloat(priceStr.replace(/[^0-9.]/g, '')) || 0;
@@ -220,7 +228,9 @@ export const parseExcelFile = (file: File): Promise<ParsedProduct[]> => {
               name: name.trim(),
               price,
               min_order_quantity,
-              description: description.trim(),
+              description: description.trim() || undefined,
+              category: category.trim() || undefined,
+              subcategory: subcategory.trim() || undefined,
               stock_level: 100 // Default stock level as per requirements
             });
           }
@@ -750,9 +760,9 @@ const BulkImportDialog: React.FC<BulkImportDialogProps> = ({
         <Alert severity="info" sx={{ mt: 2 }}>
           <Typography variant="subtitle2" gutterBottom>Expected CSV/Excel Format:</Typography>
           <Typography variant="body2" component="div">
-            Columns: <code>product_name</code>, <code>price</code>, <code>min_order_quantity</code>
+            <strong>Required columns:</strong> <code>product_name</code>, <code>price</code>, <code>min_order_quantity</code>
             <br />
-            Optional: <code>description</code>
+            <strong>Optional columns:</strong> <code>description</code>, <code>category</code>, <code>subcategory</code>
           </Typography>
         </Alert>
       </DialogContent>

@@ -84,21 +84,21 @@ async function executeWebSearchTool(query: string, searchType: 'product' | 'bran
     }
 
     const searchUrl = `https://www.googleapis.com/customsearch/v1?key=${WEB_SEARCH_API_KEY}&cx=${GOOGLE_CSE_ID}&q=${encodeURIComponent(searchQuery)}&num=3`;
-    
+
     const response = await fetch(searchUrl);
     if (!response.ok) {
       return '';
     }
-    
+
     const data = await response.json();
     const results = data.items || [];
-    
+
     const snippets = results
       .slice(0, 3)
       .map((item: any) => item.snippet || item.title)
       .filter(Boolean)
       .join('\n\n');
-    
+
     return snippets || '';
   } catch (error) {
     console.warn('Web search tool execution failed:', error);
@@ -117,7 +117,7 @@ export async function invokeEnhancedModelWithTools(
   error?: string;
 }> {
   const bedrockClient = getBedrockClient();
-  
+
   if (!bedrockClient) {
     return {
       success: false,
@@ -139,7 +139,7 @@ export async function invokeEnhancedModelWithTools(
 
   for (let iteration = 0; iteration < maxIterations; iteration++) {
     let toolUsed = false;
-    
+
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
         const requestBody: any = {
@@ -160,7 +160,7 @@ export async function invokeEnhancedModelWithTools(
         const command = new InvokeModelCommand(input);
         const response = await bedrockClient.send(command);
         const responseBody = JSON.parse(new TextDecoder().decode(response.body));
-        
+
         // Check if model wants to use a tool
         const contentBlocks = responseBody.content || [];
         const toolUseBlock = contentBlocks.find((block: any) => block.type === 'tool_use');
@@ -210,7 +210,7 @@ export async function invokeEnhancedModelWithTools(
 
         // Model returned text response (no tool use)
         const content = textBlock?.text || contentBlocks.find((b: any) => b.type === 'text')?.text || '';
-        
+
         return {
           success: true,
           content,
@@ -236,7 +236,7 @@ export async function invokeEnhancedModelWithTools(
         };
       }
     }
-    
+
     // If no tool was used, we already returned above
     if (!toolUsed) {
       break;
@@ -260,7 +260,7 @@ export async function invokeEnhancedModel(
   error?: string;
 }> {
   const bedrockClient = getBedrockClient();
-  
+
   if (!bedrockClient) {
     return {
       success: false,
@@ -290,7 +290,7 @@ export async function invokeEnhancedModel(
       // The modelId should already be in inference profile format: {region}.anthropic.claude-sonnet-4-5-20250929-v1:0
       const modelIdToUse = ENHANCED_BEDROCK_CONFIG.modelId;
       console.log(`🔧 Using model ID: ${modelIdToUse} (Region: ${ENHANCED_BEDROCK_CONFIG.region})`);
-      
+
       const input: InvokeModelCommandInput = {
         modelId: modelIdToUse,
         contentType: 'application/json',
@@ -300,17 +300,17 @@ export async function invokeEnhancedModel(
 
       const command = new InvokeModelCommand(input);
       const response = await bedrockClient.send(command);
-      
+
       // Decode response body
       const responseBodyStr = new TextDecoder().decode(response.body);
-      
+
       // Log raw response for debugging (first 500 chars)
       if (responseBodyStr.length > 0) {
         console.log('📥 Raw Bedrock response preview:', responseBodyStr.substring(0, 500));
       }
-      
+
       const responseBody = JSON.parse(responseBodyStr);
-      
+
       // Extract content from Claude response format
       // Claude responses can have multiple content blocks
       let content = '';
@@ -323,7 +323,7 @@ export async function invokeEnhancedModel(
       } else if (responseBody.content?.[0]?.text) {
         content = responseBody.content[0].text;
       }
-      
+
       // Validate content
       if (!content || content.trim().length === 0) {
         console.error('❌ Empty content in Bedrock response');
@@ -343,7 +343,7 @@ export async function invokeEnhancedModel(
       const isLastAttempt = attempt === maxRetries - 1;
       const errorMessage = error instanceof Error ? error.message : String(error);
       const errorName = error?.name || '';
-      
+
       // Check if error mentions inference profile requirement (specific error for Claude Sonnet 4.5)
       if (errorMessage.includes('inference profile') || errorMessage.includes('on-demand throughput')) {
         console.error('❌ Model requires inference profile ID (not direct model ID)');
@@ -351,11 +351,11 @@ export async function invokeEnhancedModel(
         console.error('   Region prefix:', REGION_PREFIX);
         console.error('   Full region:', ENHANCED_BEDROCK_CONFIG.region);
         console.error('   Error:', errorMessage);
-        
+
         // The model ID should already be in inference profile format
         // But verify it matches the expected pattern
         const expectedFormat = `${REGION_PREFIX}.anthropic.claude-sonnet-4-5-20250929-v1:0`;
-        
+
         if (!ENHANCED_BEDROCK_CONFIG.modelId.startsWith(REGION_PREFIX + '.')) {
           return {
             success: false,
@@ -365,7 +365,7 @@ export async function invokeEnhancedModel(
 Please verify the exact inference profile ID from AWS Bedrock Console Model Catalog.`,
           };
         }
-        
+
         return {
           success: false,
           content: '',
@@ -378,14 +378,14 @@ Please verify the correct inference profile ID/ARN in AWS Bedrock Console:
 https://console.aws.amazon.com/bedrock/home?region=${ENHANCED_BEDROCK_CONFIG.region}#/inference-profiles`,
         };
       }
-      
+
       // Check if it's a ResourceNotFoundException (model ID or access issue)
       if (errorName === 'ResourceNotFoundException' || errorMessage.includes('ResourceNotFoundException')) {
         console.error('❌ ResourceNotFoundException - Model not found or incorrect model ID');
         console.error('   Model ID used:', ENHANCED_BEDROCK_CONFIG.modelId);
         console.error('   Region:', ENHANCED_BEDROCK_CONFIG.region);
         console.error('   Full error:', errorMessage);
-        
+
         // If use case details error is mentioned, provide specific guidance
         if (errorMessage.includes('use case details')) {
           return {
@@ -401,7 +401,7 @@ Since use case details are already submitted, this might indicate:
 Please verify the exact model ID from: https://console.aws.amazon.com/bedrock/home?region=${ENHANCED_BEDROCK_CONFIG.region}#/modelaccess`,
           };
         }
-        
+
         return {
           success: false,
           content: '',
@@ -410,7 +410,7 @@ Please verify the exact model ID from: https://console.aws.amazon.com/bedrock/ho
 Please verify the correct model ID from AWS Bedrock Console Model Catalog. Error: ${errorMessage}`,
         };
       }
-      
+
       const isRetryable =
         errorMessage.includes('ThrottlingException') ||
         errorMessage.includes('ServiceUnavailableException') ||
@@ -439,6 +439,161 @@ Please verify the correct model ID from AWS Bedrock Console Model Catalog. Error
   };
 }
 
+/**
+ * Invoke Claude Sonnet 4.5 with vision (image input)
+ * Sends the receipt image directly to Claude for analysis
+ * @param imageBuffer - Buffer containing the receipt image
+ * @param prompt - Text prompt describing what to extract
+ */
+export async function invokeEnhancedModelWithVision(
+  imageBuffer: Buffer,
+  prompt: string,
+  options: { maxTokens?: number; temperature?: number } = {}
+): Promise<{
+  success: boolean;
+  content: string;
+  error?: string;
+}> {
+  const bedrockClient = getBedrockClient();
+
+  if (!bedrockClient) {
+    return {
+      success: false,
+      content: '',
+      error: 'AWS Bedrock client is not initialized',
+    };
+  }
+
+  const maxRetries = 3;
+  const baseDelay = 1000;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      // Convert image buffer to base64
+      const imageBase64 = imageBuffer.toString('base64');
+
+      // Detect image media type (default to JPEG)
+      let mediaType = 'image/jpeg';
+      const header = imageBuffer.toString('hex', 0, 4);
+      if (header.startsWith('89504e47')) {
+        mediaType = 'image/png';
+      } else if (header.startsWith('47494638')) {
+        mediaType = 'image/gif';
+      } else if (header.startsWith('424d')) {
+        mediaType = 'image/bmp';
+      } else if (header.startsWith('52494646') && imageBuffer.toString('hex', 8, 12).startsWith('57454250')) {
+        mediaType = 'image/webp';
+      }
+
+      const requestBody = {
+        anthropic_version: 'bedrock-2023-05-31',
+        max_tokens: options.maxTokens || ENHANCED_BEDROCK_CONFIG.maxTokens,
+        temperature: options.temperature ?? ENHANCED_BEDROCK_CONFIG.temperature,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: mediaType,
+                  data: imageBase64,
+                },
+              },
+              {
+                type: 'text',
+                text: prompt,
+              },
+            ],
+          },
+        ],
+      };
+
+      console.log(`🖼️ Sending image to Claude Sonnet 4.5 Vision (${mediaType}, ${Math.round(imageBuffer.length / 1024)}KB)`);
+      console.log(`🔧 Using model ID: ${ENHANCED_BEDROCK_CONFIG.modelId} (Region: ${ENHANCED_BEDROCK_CONFIG.region})`);
+
+      const input: InvokeModelCommandInput = {
+        modelId: ENHANCED_BEDROCK_CONFIG.modelId,
+        contentType: 'application/json',
+        accept: 'application/json',
+        body: JSON.stringify(requestBody),
+      };
+
+      const command = new InvokeModelCommand(input);
+      const response = await bedrockClient.send(command);
+
+      // Decode response body
+      const responseBodyStr = new TextDecoder().decode(response.body);
+
+      // Log raw response for debugging (first 500 chars)
+      if (responseBodyStr.length > 0) {
+        console.log('📥 Raw Bedrock Vision response preview:', responseBodyStr.substring(0, 500));
+      }
+
+      const responseBody = JSON.parse(responseBodyStr);
+
+      // Extract content from Claude response format
+      let content = '';
+      if (responseBody.content && Array.isArray(responseBody.content)) {
+        content = responseBody.content
+          .filter((block: any) => block.type === 'text')
+          .map((block: any) => block.text || '')
+          .join('\n');
+      } else if (responseBody.content?.[0]?.text) {
+        content = responseBody.content[0].text;
+      }
+
+      // Validate content
+      if (!content || content.trim().length === 0) {
+        console.error('❌ Empty content in Bedrock Vision response');
+        console.error('📄 Full response body:', JSON.stringify(responseBody, null, 2));
+        return {
+          success: false,
+          content: '',
+          error: 'AI model returned empty content',
+        };
+      }
+
+      console.log(`✅ Claude Vision extraction successful (${content.length} chars)`);
+
+      return {
+        success: true,
+        content,
+      };
+    } catch (error: any) {
+      const isLastAttempt = attempt === maxRetries - 1;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+
+      const isRetryable =
+        errorMessage.includes('ThrottlingException') ||
+        errorMessage.includes('ServiceUnavailableException') ||
+        errorMessage.includes('InternalServerException');
+
+      if (isRetryable && !isLastAttempt) {
+        const delay = baseDelay * Math.pow(2, attempt);
+        console.warn(`Retryable error, retrying in ${delay}ms...`);
+        await sleep(delay);
+        continue;
+      }
+
+      console.error('❌ Bedrock Vision invocation error:', errorMessage);
+      return {
+        success: false,
+        content: '',
+        error: errorMessage,
+      };
+    }
+  }
+
+  return {
+    success: false,
+    content: '',
+    error: 'Max retries exceeded',
+  };
+}
+
+
 // Web search configuration
 const WEB_SEARCH_API_KEY = process.env.WEB_SEARCH_API_KEY || '';
 const USE_WEB_SEARCH = !!WEB_SEARCH_API_KEY;
@@ -457,28 +612,28 @@ async function searchWebForProduct(productName: string, brandName?: string): Pro
       return '';
     }
 
-    const searchQuery = brandName 
+    const searchQuery = brandName
       ? `${brandName} ${productName} product category`
       : `${productName} product category ecommerce`;
-    
+
     const searchUrl = `https://www.googleapis.com/customsearch/v1?key=${WEB_SEARCH_API_KEY}&cx=${GOOGLE_CSE_ID}&q=${encodeURIComponent(searchQuery)}&num=3`;
-    
+
     const response = await fetch(searchUrl);
     if (!response.ok) {
       console.warn('Web search API not available, skipping web search');
       return '';
     }
-    
+
     const data = await response.json();
     const results = data.items || [];
-    
+
     // Extract snippets from search results
     const snippets = results
       .slice(0, 3)
       .map((item: any) => item.snippet || item.title)
       .filter(Boolean)
       .join('\n\n');
-    
+
     return snippets;
   } catch (error) {
     console.warn('Web search failed, continuing without web context:', error);
@@ -502,21 +657,21 @@ async function searchWebForBrand(productName: string): Promise<string> {
 
     const searchQuery = `${productName} brand manufacturer company`;
     const searchUrl = `https://www.googleapis.com/customsearch/v1?key=${WEB_SEARCH_API_KEY}&cx=${GOOGLE_CSE_ID}&q=${encodeURIComponent(searchQuery)}&num=3`;
-    
+
     const response = await fetch(searchUrl);
     if (!response.ok) {
       return '';
     }
-    
+
     const data = await response.json();
     const results = data.items || [];
-    
+
     const snippets = results
       .slice(0, 3)
       .map((item: any) => item.snippet || item.title)
       .filter(Boolean)
       .join('\n\n');
-    
+
     return snippets;
   } catch (error) {
     console.warn('Brand web search failed:', error);
@@ -536,7 +691,7 @@ function findBestMatchingCategory(
   }
 
   const normalized = suggestedCategory.toLowerCase().trim();
-  
+
   // First try exact match (case-insensitive)
   let match = availableCategories.find(cat => cat.toLowerCase().trim() === normalized);
   if (match) return match;
@@ -551,23 +706,23 @@ function findBestMatchingCategory(
   // Try word-by-word matching
   const suggestedWords = normalized.split(/\s+/).filter(w => w.length > 3);
   let bestMatch: { category: string; score: number } | undefined;
-  
+
   for (const cat of availableCategories) {
     const catLower = cat.toLowerCase().trim();
     const catWords = catLower.split(/\s+/);
-    
+
     let score = 0;
     for (const word of suggestedWords) {
       if (catWords.some(cw => cw.includes(word) || word.includes(cw))) {
         score += word.length;
       }
     }
-    
+
     if (score > 0 && (!bestMatch || score > bestMatch.score)) {
       bestMatch = { category: cat, score };
     }
   }
-  
+
   return bestMatch?.category;
 }
 
@@ -589,7 +744,7 @@ function findBestMatchingSubcategory(
   }
 
   const normalized = suggestedSubcategory.toLowerCase().trim();
-  
+
   // Exact match
   let match = categorySubs.find(sub => sub.toLowerCase().trim() === normalized);
   if (match) return match;
@@ -751,7 +906,7 @@ function findBestMatchingBrand(
   }
 
   const normalized = suggestedBrand.toLowerCase().trim();
-  
+
   // Exact match (case-insensitive)
   let match = existingBrands.find(b => b.toLowerCase().trim() === normalized);
   if (match) {
@@ -770,11 +925,11 @@ function findBestMatchingBrand(
   // Fuzzy matching for common variations
   const suggestedWords = normalized.split(/\s+/).filter(w => w.length > 2);
   let bestMatch: { brand: string; score: number } | undefined;
-  
+
   for (const existingBrand of existingBrands) {
     const brandLower = existingBrand.toLowerCase().trim();
     const brandWords = brandLower.split(/\s+/);
-    
+
     let score = 0;
     for (const word of suggestedWords) {
       if (brandWords.some(bw => {
@@ -782,24 +937,24 @@ function findBestMatchingBrand(
         const minLength = Math.min(word.length, bw.length);
         const maxLength = Math.max(word.length, bw.length);
         if (minLength / maxLength < 0.7) return false; // Too different in length
-        
-        return bw.includes(word) || word.includes(bw) || 
-               (Math.abs(bw.length - word.length) <= 2 && bw.charAt(0) === word.charAt(0));
+
+        return bw.includes(word) || word.includes(bw) ||
+          (Math.abs(bw.length - word.length) <= 2 && bw.charAt(0) === word.charAt(0));
       })) {
         score += word.length;
       }
     }
-    
+
     if (score > 0 && (!bestMatch || score > bestMatch.score)) {
       bestMatch = { brand: existingBrand, score };
     }
   }
-  
+
   // If we found a good match, use the existing brand
   if (bestMatch && bestMatch.score > 3) {
     return { brand: bestMatch.brand, isExisting: true };
   }
-  
+
   return { brand: suggestedBrand, isExisting: false };
 }
 
@@ -827,7 +982,7 @@ export async function identifyBrandWithWebSearch(
   }
 
   try {
-    const brandsList = existingBrands.length > 0 
+    const brandsList = existingBrands.length > 0
       ? existingBrands.slice(0, 50).join(', ') + (existingBrands.length > 50 ? `, ... (${existingBrands.length} total)` : '')
       : 'None';
 
@@ -958,7 +1113,7 @@ export async function batchCategorizeWithWebSearch(
   // Process in chunks to prevent browser freezing
   for (let i = 0; i < products.length; i += CHUNK_SIZE) {
     const chunk = products.slice(i, i + CHUNK_SIZE);
-    
+
     // Process chunk
     const chunkResults = await Promise.all(
       chunk.map(async (product) => {
@@ -968,7 +1123,7 @@ export async function batchCategorizeWithWebSearch(
           categories,
           subcategories
         );
-        
+
         return {
           productName: product.name,
           category: result.category,
@@ -978,14 +1133,14 @@ export async function batchCategorizeWithWebSearch(
         };
       })
     );
-    
+
     results.push(...chunkResults);
-    
+
     // Report progress
     if (onProgress) {
       onProgress(results.length, products.length);
     }
-    
+
     // Yield to browser between chunks (except for last chunk)
     if (i + CHUNK_SIZE < products.length) {
       await yieldToBrowser();
@@ -1024,12 +1179,12 @@ export async function batchIdentifyBrandsWithWebSearch(
   // Process in chunks to prevent browser freezing
   for (let i = 0; i < products.length; i += CHUNK_SIZE) {
     const chunk = products.slice(i, i + CHUNK_SIZE);
-    
+
     // Process chunk
     const chunkResults = await Promise.all(
       chunk.map(async (product) => {
         const result = await identifyBrandWithWebSearch(product.name, existingBrands);
-        
+
         return {
           productName: product.name,
           brand: result.brand,
@@ -1039,14 +1194,14 @@ export async function batchIdentifyBrandsWithWebSearch(
         };
       })
     );
-    
+
     results.push(...chunkResults);
-    
+
     // Report progress
     if (onProgress) {
       onProgress(results.length, products.length);
     }
-    
+
     // Yield to browser between chunks (except for last chunk)
     if (i + CHUNK_SIZE < products.length) {
       await yieldToBrowser();
