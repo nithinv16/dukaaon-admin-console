@@ -50,7 +50,7 @@ export default function ExtractedProductsPage() {
             // V2 format - validate categories client-side
             const { validateAndCorrectCategories } = await import('@/lib/categoryMapping');
             console.log('🔍 Validating categories for extracted products...');
-            const validatedProducts = await validateAndCorrectCategories(parsed);
+            const validatedProducts = await validateAndCorrectCategories<ExtractedProductV2>(parsed as ExtractedProductV2[]);
             setProductsV2(validatedProducts);
             setProductType('v2');
           } else {

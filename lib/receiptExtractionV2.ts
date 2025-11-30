@@ -33,6 +33,7 @@ export interface ExtractedProductV2 {
   category?: string; // Product category
   subcategory?: string; // Product subcategory
   stockAvailable?: number; // Stock available for the product (default: 100)
+  minOrderQuantity?: number; // Minimum order quantity (default: 1)
   imageUrl?: string; // Product image (base64 or URL)
 }
 

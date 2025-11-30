@@ -83,7 +83,7 @@ export default function ReceiptProductEditorV2({
 
   // Debounced field change for better performance
   const handleFieldChange = useCallback(
-    debounce((productId: string, field: 'name' | 'quantity' | 'unit' | 'netAmount' | 'category' | 'subcategory' | 'minOrderQuantity' | 'description', value: string | number) => {
+    debounce((productId: string, field: 'name' | 'quantity' | 'unit' | 'netAmount' | 'category' | 'subcategory' | 'minOrderQuantity' | 'description' | 'stockAvailable', value: string | number) => {
       setProducts((prevProducts) =>
         prevProducts.map((product) => {
           if (product.id !== productId) return product;
@@ -111,6 +111,9 @@ export default function ReceiptProductEditorV2({
             updated.minOrderQuantity = isNaN(moq) || moq <= 0 ? 1 : moq;
           } else if (field === 'description') {
             updated.description = value as string;
+          } else if (field === 'stockAvailable') {
+            const stock = typeof value === 'string' ? parseInt(value) : value;
+            updated.stockAvailable = isNaN(stock) || stock < 0 ? 0 : stock;
           }
 
           return updated;

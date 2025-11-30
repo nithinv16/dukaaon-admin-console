@@ -148,7 +148,7 @@ export async function validateAndCorrectCategories<T extends ProductWithCategory
             }
 
             // If still no match, create new category
-            if (!category) {
+            if (!category && product.category) {
                 console.log(`➕ Creating new category: ${product.category}`);
                 const result = await adminQueries.createCategory(product.category.trim());
 
@@ -158,7 +158,7 @@ export async function validateAndCorrectCategories<T extends ProductWithCategory
                     dbCategories.categories.push(category);
                     product.category = category.name;
                 }
-            } else {
+            } else if (category) {
                 // Ensure consistent casing
                 product.category = category.name;
             }
@@ -190,7 +190,7 @@ export async function validateAndCorrectCategories<T extends ProductWithCategory
                 }
 
                 // If still no match, create new subcategory
-                if (!subcategory) {
+                if (!subcategory && product.subcategory) {
                     console.log(`➕ Creating new subcategory: ${product.subcategory} under ${category.name}`);
                     const result = await adminQueries.createSubcategory(
                         product.subcategory.trim(),
@@ -203,7 +203,7 @@ export async function validateAndCorrectCategories<T extends ProductWithCategory
                         dbCategories.subcategories.push(subcategory);
                         product.subcategory = subcategory.name;
                     }
-                } else {
+                } else if (subcategory) {
                     // Ensure consistent casing
                     product.subcategory = subcategory.name;
                 }
