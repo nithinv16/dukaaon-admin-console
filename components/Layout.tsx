@@ -56,28 +56,35 @@ interface LayoutProps {
   children: React.ReactNode;
 }
 
-const menuItems = [
-  { text: 'Dashboard', icon: <Dashboard />, path: '/' },
-  { text: 'Users', icon: <People />, path: '/users' },
-  { text: 'Orders', icon: <ShoppingCart />, path: '/orders' },
-  { text: 'Products', icon: <Inventory />, path: '/products' },
-  { text: 'Categories', icon: <Category />, path: '/categories' },
-  { text: 'Dynamic Content', icon: <Campaign />, path: '/dynamic-content' },
-  { text: 'Warnings', icon: <Warning />, path: '/warnings' },
-  { text: 'Payments', icon: <Payment />, path: '/payments' },
-  { text: 'WhatsApp', icon: <WhatsApp />, path: '/whatsapp' },
-  { text: 'Notifications', icon: <Notifications />, path: '/notifications' },
-  { text: 'Analytics', icon: <Analytics />, path: '/analytics' },
-  { text: 'Database Tools', icon: <Storage />, path: '/database-tools' },
-  { text: 'Audit Log', icon: <History />, path: '/audit-log' },
-  { text: 'Employee Tracking', icon: <Assessment />, path: '/employee-tracking' },
-  { text: 'Seller Inventory', icon: <Store />, path: '/seller-inventory' },
-  { text: 'Bulk Operations', icon: <People />, path: '/bulk-operations' },
-  { text: 'Templates', icon: <Campaign />, path: '/templates' },
-  { text: 'Send Messages', icon: <Send />, path: '/send-message' },
-  { text: 'Roles & Permissions', icon: <Security />, path: '/roles-permissions' },
-  { text: 'Admin Users', icon: <Person />, path: '/admin-users' },
-  { text: 'Settings', icon: <Settings />, path: '/settings' },
+interface MenuItem {
+  text: string;
+  icon: React.ReactElement;
+  path: string;
+  adminOnly: boolean;
+}
+
+const menuItems: MenuItem[] = [
+  { text: 'Dashboard', icon: <Dashboard />, path: '/', adminOnly: false },
+  { text: 'Users', icon: <People />, path: '/users', adminOnly: false },
+  { text: 'Orders', icon: <ShoppingCart />, path: '/orders', adminOnly: false },
+  { text: 'Products', icon: <Inventory />, path: '/products', adminOnly: false },
+  { text: 'Categories', icon: <Category />, path: '/categories', adminOnly: false },
+  { text: 'Dynamic Content', icon: <Campaign />, path: '/dynamic-content', adminOnly: false },
+  { text: 'Warnings', icon: <Warning />, path: '/warnings', adminOnly: false },
+  { text: 'Payments', icon: <Payment />, path: '/payments', adminOnly: false },
+  { text: 'WhatsApp', icon: <WhatsApp />, path: '/whatsapp', adminOnly: false },
+  { text: 'Notifications', icon: <Notifications />, path: '/notifications', adminOnly: false },
+  { text: 'Analytics', icon: <Analytics />, path: '/analytics', adminOnly: false },
+  { text: 'Database Tools', icon: <Storage />, path: '/database-tools', adminOnly: false },
+  { text: 'Audit Log', icon: <History />, path: '/audit-log', adminOnly: true },
+  { text: 'Employee Tracking', icon: <Assessment />, path: '/employee-tracking', adminOnly: true },
+  { text: 'Seller Inventory', icon: <Store />, path: '/seller-inventory', adminOnly: false },
+  { text: 'Bulk Operations', icon: <People />, path: '/bulk-operations', adminOnly: false },
+  { text: 'Templates', icon: <Campaign />, path: '/templates', adminOnly: false },
+  { text: 'Send Messages', icon: <Send />, path: '/send-message', adminOnly: false },
+  { text: 'Roles & Permissions', icon: <Security />, path: '/roles-permissions', adminOnly: true },
+  { text: 'Admin Users', icon: <Person />, path: '/admin-users', adminOnly: true },
+  { text: 'Settings', icon: <Settings />, path: '/settings', adminOnly: false },
 ];
 
 export default function Layout({ children }: LayoutProps) {
@@ -140,41 +147,50 @@ export default function Layout({ children }: LayoutProps) {
       </Toolbar>
       <Divider />
       <List>
-        {menuItems.map((item) => {
-          const isActive = pathname === item.path;
-          return (
-            <ListItem key={item.text} disablePadding>
-              <ListItemButton
-                component={Link}
-                href={item.path}
-                selected={isActive}
-                sx={{
-                  mx: 1,
-                  borderRadius: 1,
-                  '&.Mui-selected': {
-                    backgroundColor: 'primary.main',
-                    color: 'white',
-                    '&:hover': {
-                      backgroundColor: 'primary.dark',
-                    },
-                    '& .MuiListItemIcon-root': {
-                      color: 'white',
-                    },
-                  },
-                }}
-              >
-                <ListItemIcon
+        {menuItems
+          .filter((item) => {
+            // Show all items to Super Admin
+            if (user?.role === 'Super Admin') return true;
+            // Hide admin-only items from employees
+            if (item.adminOnly && user?.role === 'Employee') return false;
+            // Show everything else
+            return true;
+          })
+          .map((item) => {
+            const isActive = pathname === item.path;
+            return (
+              <ListItem key={item.text} disablePadding>
+                <ListItemButton
+                  component={Link}
+                  href={item.path}
+                  selected={isActive}
                   sx={{
-                    color: isActive ? 'white' : 'inherit',
+                    mx: 1,
+                    borderRadius: 1,
+                    '&.Mui-selected': {
+                      backgroundColor: 'primary.main',
+                      color: 'white',
+                      '&:hover': {
+                        backgroundColor: 'primary.dark',
+                      },
+                      '& .MuiListItemIcon-root': {
+                        color: 'white',
+                      },
+                    },
                   }}
                 >
-                  {item.icon}
-                </ListItemIcon>
-                <ListItemText primary={item.text} />
-              </ListItemButton>
-            </ListItem>
-          );
-        })}
+                  <ListItemIcon
+                    sx={{
+                      color: isActive ? 'white' : 'inherit',
+                    }}
+                  >
+                    {item.icon}
+                  </ListItemIcon>
+                  <ListItemText primary={item.text} />
+                </ListItemButton>
+              </ListItem>
+            );
+          })}
       </List>
     </Box>
   );

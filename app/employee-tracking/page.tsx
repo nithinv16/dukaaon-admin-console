@@ -35,6 +35,8 @@ import {
 } from '@mui/icons-material';
 import { adminQueries } from '@/lib/supabase-browser';
 import toast from 'react-hot-toast';
+import { useAuth } from '@/contexts/AuthContext';
+import { useRouter } from 'next/navigation';
 
 interface ActivitySummary {
     total_sessions: number;
@@ -78,6 +80,8 @@ interface Activity {
 }
 
 export default function EmployeeTrackingPage() {
+    const { user } = useAuth();
+    const router = useRouter();
     const [loading, setLoading] = useState(true);
     const [summary, setSummary] = useState<ActivitySummary | null>(null);
     const [sessions, setSessions] = useState<Session[]>([]);
@@ -90,6 +94,14 @@ export default function EmployeeTrackingPage() {
         start: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         end: new Date().toISOString().split('T')[0],
     });
+
+    // Access control: redirect employees
+    useEffect(() => {
+        if (user && user.role === 'Employee') {
+            toast.error('Access denied: You do not have permission to view this page');
+            router.push('/');
+        }
+    }, [user, router]);
 
     useEffect(() => {
         loadEmployees();
@@ -153,8 +165,10 @@ export default function EmployeeTrackingPage() {
         return `${hours}h ${mins}m`;
     };
 
-    const formatSeconds = (seconds: number | null) => {
-        if (!seconds) return 'N/A';
+    const formatSeconds = (seconds: number | null | undefined) => {
+        if (seconds === null || seconds === undefined) return 'N/A';
+        if (seconds < 0.01) return 'N/A';
+        if (seconds < 1) return '< 1s';
         if (seconds < 60) return `${seconds.toFixed(1)}s`;
         const mins = Math.floor(seconds / 60);
         const secs = Math.floor(seconds % 60);
@@ -163,11 +177,22 @@ export default function EmployeeTrackingPage() {
 
     const selectedEmployeeName = employees.find((e) => e.id === selectedEmployee)?.name || 'Employee';
 
+    // Show access denied for employees
+    if (user?.role === 'Employee') {
+        return (
+            <Box sx={{ p: { xs: 2, sm: 3 } }}>
+                <Alert severity="error">
+                    Access Denied: You do not have permission to view this page.
+                </Alert>
+            </Box>
+        );
+    }
+
     return (
         <Box sx={{ p: { xs: 2, sm: 3 } }}>
             <Box sx={{ mb: 3 }}>
                 <Typography variant="h4" gutterBottom>
-                    Employee Activity Tracking
+                    Employee Activity Tracking {selectedEmployee && `- ${selectedEmployeeName}`}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
                     Monitor employee productivity, work hours, and activity metrics
