@@ -46,11 +46,23 @@ export async function GET(request: NextRequest) {
       console.error('Error counting products:', productsCountError);
     }
 
+    // Get uncategorized products count (products with null category_id and subcategory_id)
+    const { count: uncategorizedProducts, error: uncategorizedCountError } = await supabase
+      .from('products')
+      .select('*', { count: 'exact', head: true })
+      .is('category_id', null)
+      .is('subcategory_id', null);
+
+    if (uncategorizedCountError) {
+      console.error('Error counting uncategorized products:', uncategorizedCountError);
+    }
+
     return NextResponse.json({
       totalCategories: totalCategories || 0,
       activeCategories: activeCategories || 0,
       totalSubcategories: totalSubcategories || 0,
       totalProducts: totalProducts || 0,
+      uncategorizedProducts: uncategorizedProducts || 0,
     });
   } catch (error: any) {
     console.error('Error in categories stats GET:', error);

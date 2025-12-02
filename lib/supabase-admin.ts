@@ -6,7 +6,7 @@ let adminSupabaseClient: any = null;
 export function getAdminSupabaseClient() {
   // Don't use cached client in production to avoid stale connections
   // Create fresh client each time
-  
+
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -48,47 +48,47 @@ export function getAdminSupabaseClient() {
 export const adminQueries = {
   async getAllUsers() {
     const supabase = getAdminSupabaseClient();
-    
+
     // Step 1: Fetch all profiles from the profiles table
     const { data: profiles, error: profilesError } = await supabase
       .from('profiles')
       .select('*')
       .order('created_at', { ascending: false });
-    
+
     if (profilesError) throw profilesError;
     if (!profiles || profiles.length === 0) return [];
-    
+
     // Step 2: Identify sellers based on role column
     // Sellers have role = 'seller' or role in ['wholesaler', 'manufacturer']
-    const sellerProfiles = profiles.filter((p: any) => 
-      p.role === 'seller' || 
-      p.role === 'wholesaler' || 
+    const sellerProfiles = profiles.filter((p: any) =>
+      p.role === 'seller' ||
+      p.role === 'wholesaler' ||
       p.role === 'manufacturer'
     );
-    
+
     console.log('getAllUsers - Profiles:', {
       total: profiles.length,
       sellers: sellerProfiles.length,
       sellerRoles: Array.from(new Set(sellerProfiles.map((p: any) => p.role)))
     });
-    
+
     // Step 3: Fetch seller_details for those sellers using user_id (foreign key)
     let sellersDetailsMap: Map<string, any> = new Map();
-    
+
     if (sellerProfiles.length > 0) {
       const sellerIds = sellerProfiles.map((p: any) => p.id).filter(Boolean);
-      
+
       const { data: sellersData, error: sellersError } = await supabase
         .from('seller_details')
         .select('user_id, business_name, owner_name, seller_type')
         .in('user_id', sellerIds);
-      
+
       if (sellersError) {
         console.error('Error fetching seller_details:', sellersError);
       } else if (sellersData && sellersData.length > 0) {
         // Create a map for quick lookup: user_id -> seller_details
         sellersDetailsMap = new Map(sellersData.map((s: any) => [s.user_id, s]));
-        
+
         console.log('getAllUsers - seller_details:', {
           fetched: sellersData.length,
           sample: sellersData[0] ? {
@@ -99,23 +99,23 @@ export const adminQueries = {
         });
       }
     }
-    
+
     // Step 4 & 5: Process users and set business_name from seller_details.business_name
     const processedUsers = profiles.map((user: any) => {
       // Parse business_details if it's a string
       const businessDetails = typeof user.business_details === 'string'
         ? JSON.parse(user.business_details || '{}')
         : user.business_details || {};
-      
+
       // Check if this user is a seller
-      const isSeller = user.role === 'seller' || 
-                      user.role === 'wholesaler' || 
-                      user.role === 'manufacturer';
-      
+      const isSeller = user.role === 'seller' ||
+        user.role === 'wholesaler' ||
+        user.role === 'manufacturer';
+
       if (isSeller) {
         // Step 5: Get seller_details for this seller
         const sellerDetail = sellersDetailsMap.get(user.id);
-        
+
         if (sellerDetail && sellerDetail.business_name) {
           // Set business_name from seller_details.business_name (primary source)
           return {
@@ -147,9 +147,9 @@ export const adminQueries = {
         };
       }
     });
-    
+
     // Debug: Log sample seller data
-    const sellers = processedUsers.filter((u: any) => 
+    const sellers = processedUsers.filter((u: any) =>
       u.role === 'seller' || u.role === 'wholesaler' || u.role === 'manufacturer'
     );
     if (sellers.length > 0) {
@@ -161,30 +161,30 @@ export const adminQueries = {
         has_seller_detail: !!sellers[0].seller_details
       });
     }
-    
+
     return processedUsers;
   },
 
   async getSellersWithDetails() {
     const supabase = getAdminSupabaseClient();
-    
+
     // Step 1: Fetch all profiles from the profiles table
     const { data: profiles, error: profilesError } = await supabase
       .from('profiles')
       .select('*')
       .order('created_at', { ascending: false });
-    
+
     if (profilesError) throw profilesError;
     if (!profiles || profiles.length === 0) return [];
-    
+
     // Step 2: Identify sellers based on role column
     // Sellers have role = 'seller' or role in ['wholesaler', 'manufacturer']
-    const sellerProfiles = profiles.filter((p: any) => 
-      p.role === 'seller' || 
-      p.role === 'wholesaler' || 
+    const sellerProfiles = profiles.filter((p: any) =>
+      p.role === 'seller' ||
+      p.role === 'wholesaler' ||
       p.role === 'manufacturer'
     );
-    
+
     console.log('getSellersWithDetails - Profiles:', {
       total: profiles.length,
       sellers: sellerProfiles.length,
@@ -192,30 +192,30 @@ export const adminQueries = {
       allRoles: Array.from(new Set(profiles.map((p: any) => p.role))),
       sampleProfile: profiles[0] ? { id: profiles[0].id, role: profiles[0].role } : null
     });
-    
+
     if (sellerProfiles.length === 0) {
       console.warn('No sellers found with roles: seller, wholesaler, or manufacturer');
       console.log('Available roles in profiles:', Array.from(new Set(profiles.map((p: any) => p.role))));
       return [];
     }
-    
+
     // Step 3: Fetch seller_details for those sellers using user_id (foreign key)
     let sellersDetailsMap: Map<string, any> = new Map();
-    
+
     if (sellerProfiles.length > 0) {
       const sellerIds = sellerProfiles.map((p: any) => p.id).filter(Boolean);
-      
+
       const { data: sellersData, error: sellersError } = await supabase
         .from('seller_details')
         .select('user_id, business_name, owner_name, seller_type')
         .in('user_id', sellerIds);
-      
+
       if (sellersError) {
         console.error('Error fetching seller_details:', sellersError);
       } else if (sellersData && sellersData.length > 0) {
         // Create a map for quick lookup: user_id -> seller_details
         sellersDetailsMap = new Map(sellersData.map((s: any) => [s.user_id, s]));
-        
+
         console.log('getSellersWithDetails - seller_details:', {
           fetched: sellersData.length,
           requested: sellerIds.length,
@@ -229,17 +229,17 @@ export const adminQueries = {
         console.warn('No seller_details found for seller IDs:', sellerIds);
       }
     }
-    
+
     // Step 4 & 5: Process sellers and set business_name from seller_details.business_name
     const enrichedSellers = sellerProfiles.map((profile: any) => {
       // Parse business_details if it's a string
       const businessDetails = typeof profile.business_details === 'string'
         ? JSON.parse(profile.business_details || '{}')
         : profile.business_details || {};
-      
+
       // Step 5: Get seller_details for this seller
       const sellerDetail = sellersDetailsMap.get(profile.id);
-      
+
       if (sellerDetail && sellerDetail.business_name) {
         // Set business_name from seller_details.business_name (primary source)
         return {
@@ -268,16 +268,16 @@ export const adminQueries = {
           ...profile,
           business_details: businessDetails,
           business_name: businessDetails.business_name || businessDetails.shopName || null,
-          display_name: businessDetails.business_name || 
-                       businessDetails.shopName || 
-                       businessDetails.shop_name ||
-                       businessDetails.name ||
-                       profile.phone_number ||
-                       'Unknown Seller',
+          display_name: businessDetails.business_name ||
+            businessDetails.shopName ||
+            businessDetails.shop_name ||
+            businessDetails.name ||
+            profile.phone_number ||
+            'Unknown Seller',
         };
       }
     });
-    
+
     // Debug: Log sample seller data
     if (enrichedSellers.length > 0) {
       console.log('getSellersWithDetails - Sample processed seller:', {
@@ -292,33 +292,33 @@ export const adminQueries = {
     } else {
       console.warn('getSellersWithDetails - No enriched sellers returned');
     }
-    
+
     // Ensure all sellers have valid IDs
     const validSellers = enrichedSellers.filter((s: any) => s && s.id);
     if (validSellers.length !== enrichedSellers.length) {
       console.warn(`Filtered out ${enrichedSellers.length - validSellers.length} sellers without valid IDs`);
     }
-    
+
     console.log('getSellersWithDetails - Returning sellers:', {
       total: validSellers.length,
       with_business_name: validSellers.filter((s: any) => s.business_name).length,
       with_display_name: validSellers.filter((s: any) => s.display_name).length
     });
-    
+
     return validSellers;
   },
 
   // Fallback method: fetch separately and join manually
   async getSellersWithDetailsFallback() {
     const supabase = getAdminSupabaseClient();
-    
+
     // Get all sellers (wholesalers and manufacturers) from profiles
     const { data: profiles, error: profilesError } = await supabase
       .from('profiles')
       .select('*')
       .in('role', ['wholesaler', 'manufacturer'])
       .order('created_at', { ascending: false });
-    
+
     if (profilesError) throw profilesError;
     if (!profiles || profiles.length === 0) return [];
 
@@ -344,7 +344,7 @@ export const adminQueries = {
     const enrichedSellers = profiles.map((profile: any) => {
       // Get seller_details via foreign key (user_id -> profiles.id)
       const sellerDetail = sellersDetailsMap[profile.id];
-      
+
       // Parse business_details if it's a string
       const businessDetails = typeof profile.business_details === 'string'
         ? JSON.parse(profile.business_details || '{}')
@@ -361,13 +361,13 @@ export const adminQueries = {
         owner_name: ownerName,
         seller_type: sellerDetail?.seller_type || null,
         // display_name should prioritize seller_details.business_name (from FK)
-        display_name: businessName || 
-                     businessDetails.business_name || 
-                     businessDetails.shopName || 
-                     businessDetails.shop_name ||
-                     businessDetails.name ||
-                     profile.phone_number ||
-                     'Unknown Seller',
+        display_name: businessName ||
+          businessDetails.business_name ||
+          businessDetails.shopName ||
+          businessDetails.shop_name ||
+          businessDetails.name ||
+          profile.phone_number ||
+          'Unknown Seller',
         business_info: {
           business_name: businessName || businessDetails.business_name || null,
           owner_name: ownerName || businessDetails.ownerName || businessDetails.owner_name || null,
@@ -405,7 +405,7 @@ export const adminQueries = {
   } = {}) {
     const supabase = getAdminSupabaseClient();
     const { page = 1, limit = 25, search, status } = options;
-    
+
     // Use Supabase foreign key joins to get retailer and seller info, plus master_orders
     // This matches the test file approach
     let ordersQuery = supabase
@@ -477,7 +477,7 @@ export const adminQueries = {
     // Apply pagination
     const from = (page - 1) * limit;
     const to = from + limit - 1;
-    
+
     ordersQuery = ordersQuery
       .order('created_at', { ascending: false })
       .range(from, to);
@@ -532,7 +532,7 @@ export const adminQueries = {
       ordersWithDetails = orders.map((order: any) => {
         // Format retailer data - prefer from direct retailer_id, fallback to master_order user_id
         let retailerData = null;
-        
+
         // First try direct retailer_id join
         if (order.retailer) {
           const businessDetails = order.retailer.business_details || {};
@@ -547,7 +547,7 @@ export const adminQueries = {
             role: order.retailer.role || null,
             business_details: businessDetails
           };
-        } 
+        }
         // Fallback to master_order's user_id (retailer profile from profiles table)
         else if (order.master_order?.user_id) {
           const masterOrderProfile = masterOrderProfiles.find(
@@ -575,25 +575,25 @@ export const adminQueries = {
         if (order.seller) {
           // First, check if we have seller_details for this seller (PRIMARY SOURCE)
           const sellerDetail = sellersDetailsMap[order.seller_id || order.seller.id];
-          
+
           // Use seller_details.business_name as PRIMARY source
           let businessName = null;
           let ownerName = null;
-          
+
           if (sellerDetail && sellerDetail.business_name) {
             businessName = sellerDetail.business_name;
             ownerName = sellerDetail.owner_name || null;
           } else {
             // Fallback to business_details if seller_details doesn't have business_name
             const businessDetails = order.seller.business_details || {};
-            businessName = businessDetails.business_name || 
-                          businessDetails.shopName || 
-                          businessDetails.shop_name ||
-                          businessDetails.name ||
-                          null;
+            businessName = businessDetails.business_name ||
+              businessDetails.shopName ||
+              businessDetails.shop_name ||
+              businessDetails.name ||
+              null;
             ownerName = businessDetails.ownerName || businessDetails.owner_name || null;
           }
-          
+
           sellerData = {
             user_id: order.seller.id,
             business_name: businessName,
@@ -612,7 +612,7 @@ export const adminQueries = {
 
       console.log('Orders with details processed:', ordersWithDetails.length);
     }
-    
+
     return {
       orders: ordersWithDetails,
       totalCount: count || 0,
@@ -624,7 +624,7 @@ export const adminQueries = {
 
   async getAnalytics() {
     const supabase = getAdminSupabaseClient();
-    
+
     // Get total orders
     const { count: totalOrders } = await supabase
       .from('orders')
@@ -680,7 +680,7 @@ export const adminQueries = {
 
   async getDashboardStats() {
     const supabase = getAdminSupabaseClient();
-    
+
     try {
       // Get recent orders with retailer info
       const { data: recentOrders } = await supabase
@@ -714,7 +714,7 @@ export const adminQueries = {
       // Calculate monthly revenue (last 30 days)
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      
+
       const { data: monthlyOrders } = await supabase
         .from('orders')
         .select('total_amount')
@@ -742,14 +742,14 @@ export const adminQueries = {
 
   async getChartData(timeFilter: string) {
     const supabase = getAdminSupabaseClient();
-    
+
     try {
       let startDate: Date;
       let dateFormat: string;
       let groupBy: 'day' | 'week' | 'month' | 'year';
 
       const now = new Date();
-      
+
       switch (timeFilter) {
         case '7days':
           startDate = subDays(now, 6);
@@ -823,7 +823,7 @@ export const adminQueries = {
       // Convert to array and format dates
       const chartData = Array.from(chartDataMap.entries()).map(([key, data]) => {
         let displayDate: string;
-        
+
         switch (groupBy) {
           case 'day':
             displayDate = format(new Date(key), dateFormat);
@@ -876,7 +876,7 @@ export const adminQueries = {
   } = {}) {
     const supabase = getAdminSupabaseClient();
     const { page = 1, limit = 25, search, category, status, seller_id } = options;
-    
+
     let query = supabase
       .from('products')
       .select('*', { count: 'exact' });
@@ -905,7 +905,7 @@ export const adminQueries = {
     // Apply pagination
     const from = (page - 1) * limit;
     const to = from + limit - 1;
-    
+
     query = query
       .order('created_at', { ascending: false })
       .range(from, to);
@@ -964,35 +964,121 @@ export const adminQueries = {
     };
   },
 
+  // Helper function to generate slug from name
+  generateSlug(name: string, existingSlugs: string[] = []): string {
+    // Create base slug: lowercase, replace spaces and special chars with hyphens
+    let slug = name
+      .toLowerCase()
+      .trim()
+      .replace(/[^\w\s-]/g, '') // Remove special characters
+      .replace(/\s+/g, '-')      // Replace spaces with hyphens
+      .replace(/-+/g, '-')       // Replace multiple hyphens with single
+      .replace(/^-+|-+$/g, '');  // Remove leading/trailing hyphens
+
+    // If slug already exists, append number
+    if (existingSlugs.includes(slug)) {
+      let counter = 1;
+      let newSlug = `${slug}-${counter}`;
+      while (existingSlugs.includes(newSlug)) {
+        counter++;
+        newSlug = `${slug}-${counter}`;
+      }
+      return newSlug;
+    }
+
+    return slug;
+  },
+
   // Helper function to get category and subcategory IDs from names
-  async getCategoryAndSubcategoryIds(categoryName: string, subcategoryName?: string): Promise<{ category_id: string | null; subcategory_id: string | null }> {
+  // Enhanced to create missing categories/subcategories automatically
+  async getCategoryAndSubcategoryIds(
+    categoryName: string,
+    subcategoryName?: string,
+    createIfMissing: boolean = true
+  ): Promise<{ category_id: string | null; subcategory_id: string | null }> {
     const supabase = getAdminSupabaseClient();
-    
+
     let categoryId: string | null = null;
     let subcategoryId: string | null = null;
-    
+
     // Get category ID by name (case-insensitive)
     if (categoryName && categoryName.trim()) {
       const normalizedCategoryName = categoryName.trim();
+
+      // First try to find existing category
       const { data: categoryData, error: categoryError } = await supabase
         .from('categories')
         .select('id')
         .ilike('name', normalizedCategoryName)
         .limit(1)
         .maybeSingle();
-      
+
       if (!categoryError && categoryData) {
         categoryId = categoryData.id;
+        console.log(`Found existing category "${categoryName}" with ID:`, categoryId);
       } else if (categoryError) {
         console.warn(`Error finding category "${categoryName}":`, categoryError.message);
+      } else if (createIfMissing) {
+        // Category not found, create it
+        console.log(`Category "${categoryName}" not found, creating new category...`);
+
+        try {
+          // Get existing slugs to avoid conflicts
+          const { data: existingCategories } = await supabase
+            .from('categories')
+            .select('slug');
+
+          const existingSlugs = (existingCategories || []).map((cat: any) => cat.slug);
+          const newSlug = this.generateSlug(normalizedCategoryName, existingSlugs);
+
+          // Insert new category
+          const { data: newCategory, error: insertError } = await supabase
+            .from('categories')
+            .insert({
+              name: normalizedCategoryName,
+              slug: newSlug,
+              description: `Auto-created category for ${normalizedCategoryName}`,
+              is_active: true
+            })
+            .select('id')
+            .single();
+
+          if (insertError) {
+            // Check if error is due to duplicate (race condition)
+            if (insertError.code === '23505') {
+              console.warn(`Race condition detected for category "${categoryName}", fetching existing...`);
+              // Another process created it, fetch the existing one
+              const { data: existingCategory } = await supabase
+                .from('categories')
+                .select('id')
+                .ilike('name', normalizedCategoryName)
+                .limit(1)
+                .maybeSingle();
+
+              if (existingCategory) {
+                categoryId = existingCategory.id;
+                console.log(`Using existing category "${categoryName}" with ID:`, categoryId);
+              }
+            } else {
+              console.error(`Error creating category "${categoryName}":`, insertError);
+            }
+          } else if (newCategory) {
+            categoryId = newCategory.id;
+            console.log(`Created new category "${categoryName}" with ID:`, categoryId);
+          }
+        } catch (error: any) {
+          console.error(`Exception creating category "${categoryName}":`, error);
+        }
       } else {
         console.warn(`Category "${categoryName}" not found in categories table`);
       }
     }
-    
+
     // Get subcategory ID by name and category_id (case-insensitive)
     if (subcategoryName && subcategoryName.trim() && categoryId) {
       const normalizedSubcategoryName = subcategoryName.trim();
+
+      // First try to find existing subcategory
       const { data: subcategoryData, error: subcategoryError } = await supabase
         .from('subcategories')
         .select('id')
@@ -1000,19 +1086,85 @@ export const adminQueries = {
         .ilike('name', normalizedSubcategoryName)
         .limit(1)
         .maybeSingle();
-      
+
       if (!subcategoryError && subcategoryData) {
         subcategoryId = subcategoryData.id;
+        console.log(`Found existing subcategory "${subcategoryName}" with ID:`, subcategoryId);
       } else if (subcategoryError) {
         console.warn(`Error finding subcategory "${subcategoryName}" for category "${categoryName}":`, subcategoryError.message);
+      } else if (createIfMissing) {
+        // Subcategory not found, create it
+        console.log(`Subcategory "${subcategoryName}" not found for category "${categoryName}", creating new subcategory...`);
+
+        try {
+          // Get existing slugs for this category to avoid conflicts
+          const { data: existingSubcategories } = await supabase
+            .from('subcategories')
+            .select('slug')
+            .eq('category_id', categoryId);
+
+          const existingSlugs = (existingSubcategories || []).map((sub: any) => sub.slug);
+          const newSlug = this.generateSlug(normalizedSubcategoryName, existingSlugs);
+
+          // Insert new subcategory
+          const { data: newSubcategory, error: insertError } = await supabase
+            .from('subcategories')
+            .insert({
+              category_id: categoryId,
+              name: normalizedSubcategoryName,
+              slug: newSlug,
+              description: `Auto-created subcategory for ${normalizedSubcategoryName}`,
+              is_active: true
+            })
+            .select('id')
+            .single();
+
+          if (insertError) {
+            // Check if error is due to duplicate (race condition)
+            if (insertError.code === '23505') {
+              console.warn(`Race condition detected for subcategory "${subcategoryName}", fetching existing...`);
+              // Another process created it, fetch the existing one
+              const { data: existingSubcategory } = await supabase
+                .from('subcategories')
+                .select('id')
+                .eq('category_id', categoryId)
+                .ilike('name', normalizedSubcategoryName)
+                .limit(1)
+                .maybeSingle();
+
+              if (existingSubcategory) {
+                subcategoryId = existingSubcategory.id;
+                console.log(`Using existing subcategory "${subcategoryName}" with ID:`, subcategoryId);
+              }
+            } else {
+              console.error(`Error creating subcategory "${subcategoryName}":`, insertError);
+            }
+          } else if (newSubcategory) {
+            subcategoryId = newSubcategory.id;
+            console.log(`Created new subcategory "${subcategoryName}" with ID:`, subcategoryId);
+          }
+        } catch (error: any) {
+          console.error(`Exception creating subcategory "${subcategoryName}":`, error);
+        }
       } else {
         console.warn(`Subcategory "${subcategoryName}" not found in subcategories table for category "${categoryName}"`);
       }
     }
-    
     return { category_id: categoryId, subcategory_id: subcategoryId };
   },
 
+  /**
+   * Add a new product to the database
+   * 
+   * This function automatically creates missing categories and subcategories:
+   * - If the category doesn't exist, it will be created with a generated slug
+   * - If the subcategory doesn't exist (and category is valid), it will be created
+   * - Both category_id and subcategory_id are automatically populated
+   * - Text fields (category, subcategory) are kept for backward compatibility
+   * 
+   * @param productData Product information including category/subcategory names
+   * @returns The created product data
+   */
   async addProduct(productData: {
     name: string;
     description: string;
@@ -1028,13 +1180,13 @@ export const adminQueries = {
     status?: string;
   }) {
     const supabase = getAdminSupabaseClient();
-    
-    // Get category and subcategory IDs from names
+
+    // Get category and subcategory IDs from names (auto-creates if missing)
     const { category_id, subcategory_id } = await this.getCategoryAndSubcategoryIds(
       productData.category,
       productData.subcategory
     );
-    
+
     // Prepare insert data with both IDs and text fields (for backward compatibility)
     const insertData: any = {
       name: productData.name,
@@ -1050,7 +1202,7 @@ export const adminQueries = {
       image_url: productData.images?.[0] || null,
       status: productData.status || 'available'
     };
-    
+
     // Add category_id and subcategory_id if they exist (columns may or may not exist in table)
     if (category_id !== null) {
       insertData.category_id = category_id;
@@ -1058,7 +1210,7 @@ export const adminQueries = {
     if (subcategory_id !== null) {
       insertData.subcategory_id = subcategory_id;
     }
-    
+
     const { data, error } = await supabase
       .from('products')
       .insert(insertData)
@@ -1071,19 +1223,19 @@ export const adminQueries = {
         console.warn('category_id/subcategory_id columns not found, using text fields only');
         delete insertData.category_id;
         delete insertData.subcategory_id;
-        
+
         const { data: retryData, error: retryError } = await supabase
           .from('products')
           .insert(insertData)
           .select()
           .single();
-        
+
         if (retryError) throw retryError;
         return retryData;
       }
       throw error;
     }
-    
+
     return data;
   },
 
@@ -1101,7 +1253,7 @@ export const adminQueries = {
     status?: string;
   }) {
     const supabase = getAdminSupabaseClient();
-    
+
     const updateData: any = {
       updated_at: new Date().toISOString()
     };
@@ -1109,21 +1261,21 @@ export const adminQueries = {
     if (updates.name !== undefined) updateData.name = updates.name;
     if (updates.description !== undefined) updateData.description = updates.description;
     if (updates.price !== undefined) updateData.price = updates.price;
-    
+
     // Handle category and subcategory updates - convert names to IDs
     if (updates.category !== undefined) {
       updateData.category = updates.category; // Keep text field for backward compatibility
-      
+
       // Get category ID from name
       const { category_id } = await this.getCategoryAndSubcategoryIds(updates.category, updates.subcategory);
       if (category_id !== null) {
         updateData.category_id = category_id;
       }
     }
-    
+
     if (updates.subcategory !== undefined) {
       updateData.subcategory = updates.subcategory; // Keep text field for backward compatibility
-      
+
       // Get subcategory ID from name (need category name for lookup)
       const categoryName = updates.category || updateData.category;
       if (categoryName) {
@@ -1133,7 +1285,7 @@ export const adminQueries = {
         }
       }
     }
-    
+
     if (updates.brand !== undefined) updateData.brand = updates.brand;
     if (updates.stock_available !== undefined) updateData.stock_available = updates.stock_available;
     if (updates.unit !== undefined) updateData.unit = updates.unit;
@@ -1157,26 +1309,26 @@ export const adminQueries = {
         console.warn('category_id/subcategory_id columns not found, using text fields only');
         delete updateData.category_id;
         delete updateData.subcategory_id;
-        
+
         const { data: retryData, error: retryError } = await supabase
           .from('products')
           .update(updateData)
           .eq('id', productId)
           .select()
           .single();
-        
+
         if (retryError) throw retryError;
         return retryData;
       }
       throw error;
     }
-    
+
     return data;
   },
 
   async deleteProduct(productId: string) {
     const supabase = getAdminSupabaseClient();
-    
+
     const { data, error } = await supabase
       .from('products')
       .delete()
@@ -1190,7 +1342,7 @@ export const adminQueries = {
 
   async deleteProducts(productIds: string[]) {
     const supabase = getAdminSupabaseClient();
-    
+
     const { data, error } = await supabase
       .from('products')
       .delete()
@@ -1211,7 +1363,7 @@ export const adminQueries = {
   } = {}) {
     const supabase = getAdminSupabaseClient();
     const { page = 1, limit = 12, search, category, status } = options;
-    
+
     let query = supabase
       .from('master_products')
       .select('*', { count: 'exact' });
@@ -1228,7 +1380,7 @@ export const adminQueries = {
 
     const from = (page - 1) * limit;
     const to = from + limit - 1;
-    
+
     query = query
       .order('created_at', { ascending: false })
       .range(from, to);
@@ -1255,7 +1407,7 @@ export const adminQueries = {
     description?: string;
   }) {
     const supabase = getAdminSupabaseClient();
-    
+
     // First, get the master product
     const { data: masterProduct, error: masterError } = await supabase
       .from('master_products')
@@ -1300,7 +1452,7 @@ export const adminQueries = {
     business_details?: any;
   }) {
     const supabase = getAdminSupabaseClient();
-    
+
     const updateData: any = {
       updated_at: new Date().toISOString()
     };
@@ -1327,7 +1479,7 @@ export const adminQueries = {
 
   async deleteUser(userId: string) {
     const supabase = getAdminSupabaseClient();
-    
+
     // Note: This will cascade delete related records if foreign keys are set up
     const { error } = await supabase
       .from('profiles')
@@ -1340,7 +1492,7 @@ export const adminQueries = {
 
   async updateOrderStatus(orderId: string, status: string, notes?: string) {
     const supabase = getAdminSupabaseClient();
-    
+
     const updateData: any = {
       status,
       updated_at: new Date().toISOString()
@@ -1364,7 +1516,7 @@ export const adminQueries = {
   // App Configuration Management
   async getConfigs(scope?: string) {
     const supabase = getAdminSupabaseClient();
-    
+
     let query = supabase
       .from('app_configs')
       .select('*')
@@ -1381,7 +1533,7 @@ export const adminQueries = {
 
   async getConfig(key: string) {
     const supabase = getAdminSupabaseClient();
-    
+
     const { data, error } = await supabase
       .from('app_configs')
       .select('*')
@@ -1394,7 +1546,7 @@ export const adminQueries = {
 
   async saveConfig(key: string, value: any, description?: string, scope: string = 'global', scopeValue?: string) {
     const supabase = getAdminSupabaseClient();
-    
+
     const { data, error } = await supabase
       .from('app_configs')
       .upsert({
@@ -1416,7 +1568,7 @@ export const adminQueries = {
 
   async deleteConfig(key: string) {
     const supabase = getAdminSupabaseClient();
-    
+
     const { error } = await supabase
       .from('app_configs')
       .delete()
@@ -1429,7 +1581,7 @@ export const adminQueries = {
   // Feature Flags Management
   async getFeatureFlags() {
     const supabase = getAdminSupabaseClient();
-    
+
     const { data, error } = await supabase
       .from('feature_flags')
       .select('*')
@@ -1441,7 +1593,7 @@ export const adminQueries = {
 
   async getFeatureFlag(id: string) {
     const supabase = getAdminSupabaseClient();
-    
+
     const { data, error } = await supabase
       .from('feature_flags')
       .select('*')
@@ -1460,7 +1612,7 @@ export const adminQueries = {
     config?: any;
   }) {
     const supabase = getAdminSupabaseClient();
-    
+
     const { data, error } = await supabase
       .from('feature_flags')
       .insert({
@@ -1484,7 +1636,7 @@ export const adminQueries = {
     description?: string;
   }) {
     const supabase = getAdminSupabaseClient();
-    
+
     const updateData: any = {
       updated_at: new Date().toISOString()
     };
@@ -1507,7 +1659,7 @@ export const adminQueries = {
 
   async deleteFeatureFlag(id: string) {
     const supabase = getAdminSupabaseClient();
-    
+
     const { error } = await supabase
       .from('feature_flags')
       .delete()
@@ -1520,7 +1672,7 @@ export const adminQueries = {
   // Dynamic Content Management
   async getContentSlots() {
     const supabase = getAdminSupabaseClient();
-    
+
     const { data, error } = await supabase
       .from('dynamic_content_slots')
       .select('*')
@@ -1537,7 +1689,7 @@ export const adminQueries = {
   } = {}) {
     const supabase = getAdminSupabaseClient();
     const { page = 1, limit = 25, search } = options;
-    
+
     let query = supabase
       .from('dynamic_content_items')
       .select('*, dynamic_content_slots(code, name)', { count: 'exact' });
@@ -1552,7 +1704,7 @@ export const adminQueries = {
 
     const from = (page - 1) * limit;
     const to = from + limit - 1;
-    
+
     query = query
       .order('created_at', { ascending: false })
       .range(from, to);
@@ -1585,7 +1737,7 @@ export const adminQueries = {
     is_active?: boolean;
   }) {
     const supabase = getAdminSupabaseClient();
-    
+
     const insertData: any = {
       slot_id: itemData.slot_id,
       type: itemData.type,
@@ -1626,7 +1778,7 @@ export const adminQueries = {
 
   async deleteContentItem(itemId: string) {
     const supabase = getAdminSupabaseClient();
-    
+
     const { error } = await supabase
       .from('dynamic_content_items')
       .delete()
@@ -1646,7 +1798,7 @@ export const adminQueries = {
   } = {}) {
     const supabase = getAdminSupabaseClient();
     const { page = 1, limit = 25, target_role, severity, type } = options;
-    
+
     // First, get the count without the join to avoid FK issues
     let countQuery = supabase
       .from('admin_messages')
@@ -1682,7 +1834,7 @@ export const adminQueries = {
 
     const from = (page - 1) * limit;
     const to = from + limit - 1;
-    
+
     query = query
       .order('created_at', { ascending: false })
       .range(from, to);
@@ -1740,7 +1892,7 @@ export const adminQueries = {
     send_via_push?: boolean;
   }) {
     const supabase = getAdminSupabaseClient();
-    
+
     const { data: message, error: messageError } = await supabase
       .from('admin_messages')
       .insert({
@@ -1794,7 +1946,7 @@ export const adminQueries = {
 
   async getMessageStats(messageId: string) {
     const supabase = getAdminSupabaseClient();
-    
+
     const { data, error } = await supabase
       .from('admin_message_statuses')
       .select('*')
@@ -1826,7 +1978,7 @@ export const adminQueries = {
   } = {}) {
     const supabase = getAdminSupabaseClient();
     const { page = 1, limit = 50, admin_id, action, entity_type } = options;
-    
+
     let query = supabase
       .from('admin_audit_log')
       .select(`
@@ -1849,7 +2001,7 @@ export const adminQueries = {
 
     const from = (page - 1) * limit;
     const to = from + limit - 1;
-    
+
     query = query
       .order('created_at', { ascending: false })
       .range(from, to);
@@ -1869,34 +2021,34 @@ export const adminQueries = {
   // Product Stats - Efficient stats calculation using database queries
   async getProductStats() {
     const supabase = getAdminSupabaseClient();
-    
+
     try {
       // Get total products count - fetch all IDs and count them directly
       // This ensures we get the actual count even if count queries are affected by RLS
       console.log('🔍 Fetching product stats with service role...');
-      
+
       // First try to get count, but if it seems wrong, fetch all and count
       const { count: totalCount, error: countError } = await supabase
         .from('products')
         .select('*', { count: 'exact', head: true });
-      
+
       // Also fetch all product IDs to verify the count
       const { data: allProductIds, error: fetchError } = await supabase
         .from('products')
         .select('id');
-      
+
       if (fetchError) {
         console.error('Error fetching product IDs:', fetchError);
         console.error('Error details:', JSON.stringify(fetchError, null, 2));
         throw fetchError;
       }
-      
+
       // Use the actual array length as the source of truth
       const actualCount = allProductIds?.length ?? totalCount ?? 0;
-      
+
       console.log('Total products count query result:', actualCount);
       console.log('Count from count query:', totalCount, 'Actual array length:', allProductIds?.length);
-      
+
       if (countError) {
         console.warn('Count query had error, using array length:', countError);
       }
@@ -1906,7 +2058,7 @@ export const adminQueries = {
         .from('products')
         .select('*', { count: 'exact', head: true })
         .eq('status', 'available');
-      
+
       if (activeError) {
         console.error('Error counting active products:', activeError);
         throw activeError;
@@ -1918,12 +2070,12 @@ export const adminQueries = {
         .from('products')
         .select('*', { count: 'exact', head: true })
         .is('stock_available', null);
-      
+
       const { count: outOfStockZero, error: outOfStockZeroError } = await supabase
         .from('products')
         .select('*', { count: 'exact', head: true })
         .eq('stock_available', 0);
-      
+
       if (outOfStockNullError) {
         console.error('Error counting out of stock (null) products:', outOfStockNullError);
         throw outOfStockNullError;
@@ -1932,7 +2084,7 @@ export const adminQueries = {
         console.error('Error counting out of stock (zero) products:', outOfStockZeroError);
         throw outOfStockZeroError;
       }
-      
+
       const outOfStockCount = (outOfStockNull ?? 0) + (outOfStockZero ?? 0);
 
       // Get low stock products count (stock_available > 0 and <= 10)
@@ -1941,7 +2093,7 @@ export const adminQueries = {
         .select('*', { count: 'exact', head: true })
         .gt('stock_available', 0)
         .lte('stock_available', 10);
-      
+
       if (lowStockError) {
         console.error('Error counting low stock products:', lowStockError);
         throw lowStockError;

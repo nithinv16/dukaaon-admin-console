@@ -177,6 +177,83 @@ interface CategoryMatcherService {
 }
 ```
 
+### 7. Product Selection Toolbar Component
+
+```typescript
+interface ProductSelectionToolbarProps {
+  selectedCount: number;
+  onClearSelection: () => void;
+  onMove: (categoryId: string, subcategoryId?: string) => Promise<void>;
+  onCopy: (categoryId: string, subcategoryId?: string) => Promise<void>;
+  categories: Category[];
+  subcategories: Subcategory[];
+}
+```
+
+### 8. Uncategorized Products Section
+
+```typescript
+interface UncategorizedProduct {
+  id: string;
+  name: string;
+  price: number;
+  image_url?: string;
+  stock_available: number;
+  previous_category?: string;
+  previous_subcategory?: string;
+}
+
+interface UncategorizedSectionProps {
+  products: UncategorizedProduct[];
+  onDragStart: (productId: string) => void;
+  onAssignCategory: (productIds: string[], category: string, subcategory?: string) => Promise<void>;
+}
+```
+
+### 9. Category Deletion Service
+
+```typescript
+interface CategoryDeletionService {
+  deleteCategory(categoryId: string): Promise<{ 
+    success: boolean; 
+    orphanedProducts: number;
+  }>;
+  deleteSubcategory(subcategoryId: string): Promise<{ 
+    success: boolean; 
+    orphanedProducts: number;
+  }>;
+}
+```
+
+### 10. Bulk Product Operations API
+
+```typescript
+// POST /api/admin/products/bulk-move
+interface BulkMoveRequest {
+  productIds: string[];
+  targetCategory: string;
+  targetSubcategory?: string;
+}
+
+interface BulkMoveResponse {
+  success: boolean;
+  movedCount: number;
+  failedProducts: Array<{ id: string; error: string }>;
+}
+
+// POST /api/admin/products/bulk-copy
+interface BulkCopyRequest {
+  productIds: string[];
+  targetCategory: string;
+  targetSubcategory?: string;
+}
+
+interface BulkCopyResponse {
+  success: boolean;
+  copiedCount: number;
+  failedProducts: Array<{ id: string; error: string }>;
+}
+
 ## Data Models
 
 ### Database Tables
@@ -258,6 +335,46 @@ orrectness Properties
 *For any* bulk import where some products fail validation, the system SHALL successfully import all valid products and continue processing after each failure.
 **Validates: Requirements 3.9, 3.10**
 
+### Property 10: Category Deletion Orphan Handling
+*For any* category with products, when the category is deleted, all products from that category SHALL be moved to "Uncategorized" with null category and subcategory values.
+**Validates: Requirements 4.1**
+
+### Property 11: Subcategory Deletion Parent Preservation
+*For any* subcategory with products, when the subcategory is deleted, all products SHALL retain their parent category assignment but have null subcategory values.
+**Validates: Requirements 4.2**
+
+### Property 12: Drag and Drop Uncategorized Products
+*For any* product in the "Uncategorized" section, the product SHALL have functional drag handlers that allow it to be dropped into any category or subcategory.
+**Validates: Requirements 4.5**
+
+### Property 13: Delete Operation Count Accuracy
+*For any* delete operation on a category or subcategory, the system SHALL recalculate and display accurate product counts for all affected categories after the operation completes.
+**Validates: Requirements 4.8**
+
+### Property 14: Selection Count Accuracy
+*For any* set of selected products, the selection toolbar SHALL display a count that exactly matches the number of selected products.
+**Validates: Requirements 5.2**
+
+### Property 15: Context Menu Category Completeness
+*For any* "Move to" or "Copy to" submenu, the submenu SHALL contain all active categories and their subcategories from the database.
+**Validates: Requirements 5.4, 5.5**
+
+### Property 16: Bulk Move Operation Correctness
+*For any* set of selected products and target category/subcategory, after a move operation, all selected products SHALL have the target category and subcategory assignments and SHALL NOT appear in the original location.
+**Validates: Requirements 5.6, 5.7**
+
+### Property 17: Bulk Copy Operation Correctness
+*For any* set of selected products and target category/subcategory, after a copy operation, the system SHALL create exact duplicates with the target category assignment while preserving the originals in their current location.
+**Validates: Requirements 5.8, 5.9**
+
+### Property 18: Multi-Product Operation Result Accuracy
+*For any* bulk operation (move or copy), the success message SHALL display a count that equals the number of successfully processed products, and the failure list SHALL contain exactly those products that failed.
+**Validates: Requirements 5.10, 5.11**
+
+### Property 19: Clear Selection Completeness
+*For any* selection state with one or more products selected, clicking "Clear Selection" SHALL result in zero products being selected.
+**Validates: Requirements 5.12**
+
 ## Error Handling
 
 ### Category API Errors
@@ -279,6 +396,18 @@ orrectness Properties
 - **Database Constraint Violation**: Log specific error, continue with next product
 - **Duplicate Product**: Offer to update existing or skip
 - **Invalid Seller**: Prevent import, require seller selection
+
+### Category Deletion Errors
+- **Category Has Subcategories**: Prevent deletion, display error message listing subcategories
+- **Database Error During Orphan Migration**: Rollback deletion, display error, keep products in original category
+- **Concurrent Modification**: Retry operation, refresh category list
+
+### Bulk Product Operation Errors
+- **Product Not Found**: Skip product, add to failed list with error message
+- **Invalid Target Category**: Prevent operation, display error
+- **Partial Failure**: Complete successful operations, display summary with failed products
+- **Database Transaction Failure**: Rollback all changes, display error, maintain original state
+- **Concurrent Product Modification**: Retry operation for affected products
 
 ## Testing Strategy
 

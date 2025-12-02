@@ -430,11 +430,14 @@ export async function PUT(request: NextRequest) {
 
 /**
  * DELETE /api/admin/categories
- * Deletes a category or subcategory
+ * Deletes a category or subcategory and handles orphaned products
  * 
  * Request body:
  * - id: string (required) - The ID of the category/subcategory to delete
  * - type: 'category' | 'subcategory' (required) - The type to delete
+ * 
+ * For categories: Sets category and subcategory to null for all products in that category
+ * For subcategories: Sets only subcategory to null, preserves parent category
  */
 export async function DELETE(request: NextRequest) {
   try {
@@ -459,25 +462,63 @@ export async function DELETE(request: NextRequest) {
     const supabase = getAdminSupabaseClient();
 
     if (type === 'category') {
-      // Check if category has subcategories
-      const { data: subcategories, error: subError } = await supabase
-        .from('subcategories')
-        .select('id')
-        .eq('category_id', id)
-        .limit(1);
+      // Get the category first
+      const { data: category, error: categoryError } = await supabase
+        .from('categories')
+        .select('id, name')
+        .eq('id', id)
+        .single();
 
-      if (subError) {
-        console.error('Error checking subcategories:', subError);
+      if (categoryError || !category) {
         return NextResponse.json(
-          { error: 'Failed to check subcategories', details: subError.message },
-          { status: 500 }
+          { error: 'Category not found' },
+          { status: 404 }
         );
       }
 
-      if (subcategories && subcategories.length > 0) {
+      // Count products that reference this category by category_id
+      const { count: productCount, error: countError } = await supabase
+        .from('products')
+        .select('id', { count: 'exact', head: true })
+        .eq('category_id', id);
+
+      if (countError) {
+        console.error('Error counting products:', countError);
+      }
+
+      const orphanedCount = productCount || 0;
+
+      // Update products to set category_id and subcategory_id to null
+      // This removes the foreign key constraint so we can delete the category
+      if (orphanedCount > 0) {
+        const { error: updateError } = await supabase
+          .from('products')
+          .update({ 
+            category_id: null, 
+            subcategory_id: null
+          })
+          .eq('category_id', id);
+
+        if (updateError) {
+          console.error('Error orphaning products:', updateError);
+          return NextResponse.json(
+            { error: 'Failed to update products before deletion', details: updateError.message },
+            { status: 500 }
+          );
+        }
+      }
+
+      // Delete all subcategories for this category
+      const { error: subDeleteError } = await supabase
+        .from('subcategories')
+        .delete()
+        .eq('category_id', id);
+
+      if (subDeleteError) {
+        console.error('Error deleting subcategories:', subDeleteError);
         return NextResponse.json(
-          { error: 'Cannot delete category with existing subcategories. Please delete or move subcategories first.' },
-          { status: 400 }
+          { error: 'Failed to delete subcategories', details: subDeleteError.message },
+          { status: 500 }
         );
       }
 
@@ -497,9 +538,53 @@ export async function DELETE(request: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        message: 'Category deleted successfully'
+        message: 'Category deleted successfully',
+        orphanedProducts: orphanedCount
       });
     } else {
+      // Get the subcategory details first
+      const { data: subcategory, error: subcategoryError } = await supabase
+        .from('subcategories')
+        .select('id, name, category_id')
+        .eq('id', id)
+        .single();
+
+      if (subcategoryError || !subcategory) {
+        return NextResponse.json(
+          { error: 'Subcategory not found' },
+          { status: 404 }
+        );
+      }
+
+      // Count products that reference this subcategory by subcategory_id
+      const { count: productCount, error: countError } = await supabase
+        .from('products')
+        .select('id', { count: 'exact', head: true })
+        .eq('subcategory_id', id);
+
+      if (countError) {
+        console.error('Error counting products:', countError);
+      }
+
+      const affectedCount = productCount || 0;
+
+      // Update products to set only subcategory_id to null, preserve category_id
+      // This removes the foreign key constraint so we can delete the subcategory
+      if (affectedCount > 0) {
+        const { error: updateError } = await supabase
+          .from('products')
+          .update({ subcategory_id: null })
+          .eq('subcategory_id', id);
+
+        if (updateError) {
+          console.error('Error updating products:', updateError);
+          return NextResponse.json(
+            { error: 'Failed to update products before deletion', details: updateError.message },
+            { status: 500 }
+          );
+        }
+      }
+
       // Delete subcategory
       const { error: deleteError } = await supabase
         .from('subcategories')
@@ -516,7 +601,8 @@ export async function DELETE(request: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        message: 'Subcategory deleted successfully'
+        message: 'Subcategory deleted successfully',
+        affectedProducts: affectedCount
       });
     }
   } catch (error: any) {

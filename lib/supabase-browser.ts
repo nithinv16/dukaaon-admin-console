@@ -589,6 +589,90 @@ export const adminQueries = {
       throw new Error(error.error || 'Failed to fetch products');
     }
     return response.json();
+  },
+
+  /**
+   * Get uncategorized products (products with null category)
+   * @param limit - Optional limit for number of products to return
+   * @returns Promise with uncategorized products
+   */
+  async getUncategorizedProducts(limit?: number): Promise<any> {
+    const params = new URLSearchParams();
+    params.append('uncategorized', 'true');
+    if (limit) params.append('limit', limit.toString());
+    
+    const response = await fetch(`/api/admin/products/by-category?${params.toString()}`);
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || 'Failed to fetch uncategorized products');
+    }
+    return response.json();
+  },
+
+  /**
+   * Bulk move products to a new category/subcategory
+   * @param productIds - Array of product IDs to move
+   * @param targetCategory - Target category name
+   * @param targetSubcategory - Optional target subcategory name
+   * @returns Promise with move operation result
+   * Requirements: 5.6, 5.7
+   */
+  async bulkMoveProducts(
+    productIds: string[],
+    targetCategory: string,
+    targetSubcategory?: string
+  ): Promise<{
+    success: boolean;
+    movedCount: number;
+    failedProducts: Array<{ id: string; error: string }>;
+  }> {
+    const response = await fetch('/api/admin/products/bulk-move', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        productIds,
+        targetCategory,
+        targetSubcategory: targetSubcategory || null
+      }),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || 'Failed to move products');
+    }
+    return response.json();
+  },
+
+  /**
+   * Bulk copy products to a new category/subcategory
+   * @param productIds - Array of product IDs to copy
+   * @param targetCategory - Target category name
+   * @param targetSubcategory - Optional target subcategory name
+   * @returns Promise with copy operation result
+   * Requirements: 5.8, 5.9
+   */
+  async bulkCopyProducts(
+    productIds: string[],
+    targetCategory: string,
+    targetSubcategory?: string
+  ): Promise<{
+    success: boolean;
+    copiedCount: number;
+    failedProducts: Array<{ id: string; error: string }>;
+  }> {
+    const response = await fetch('/api/admin/products/bulk-copy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        productIds,
+        targetCategory,
+        targetSubcategory: targetSubcategory || null
+      }),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || 'Failed to copy products');
+    }
+    return response.json();
   }
 };
 

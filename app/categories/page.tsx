@@ -75,6 +75,7 @@ interface CategoryStats {
   activeCategories: number;
   totalSubcategories: number;
   totalProducts: number;
+  uncategorizedProducts?: number;
 }
 
 export default function CategoriesPage() {
@@ -84,6 +85,7 @@ export default function CategoriesPage() {
     activeCategories: 0,
     totalSubcategories: 0,
     totalProducts: 0,
+    uncategorizedProducts: 0,
   });
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');

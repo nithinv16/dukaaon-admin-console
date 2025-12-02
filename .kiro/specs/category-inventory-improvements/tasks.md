@@ -274,3 +274,266 @@
 
 
   - Ensure all tests pass, ask the user if questions arise.
+
+- [x] 10. Implement Category Deletion with Orphan Management
+
+
+
+
+
+  - [x] 10.1 Update category deletion API to handle orphaned products
+
+    - Modify DELETE handler in `/api/admin/categories/route.ts`
+    - When deleting category, set category and subcategory to null for all products
+    - Return count of orphaned products in response
+    - _Requirements: 4.1, 4.3_
+
+
+  - [x] 10.2 Update subcategory deletion API to preserve parent category
+    - Modify DELETE handler for subcategories
+    - When deleting subcategory, set only subcategory to null, keep category
+    - Return count of affected products
+    - _Requirements: 4.2_
+
+
+  - [x] 10.3 Write property test for category deletion orphan handling
+
+    - **Property 10: Category Deletion Orphan Handling**
+    - **Validates: Requirements 4.1**
+
+
+  - [x] 10.4 Write property test for subcategory deletion
+    - **Property 11: Subcategory Deletion Parent Preservation**
+    - **Validates: Requirements 4.2**
+
+
+  - [x] 10.5 Add database methods for orphan management
+
+    - Add `deleteCategory()` method with orphan handling to supabase-browser.ts
+    - Add `deleteSubcategory()` method with orphan handling
+    - Add `getUncategorizedProducts()` method
+    - _Requirements: 4.1, 4.2, 4.4_
+
+
+  - [x] 10.6 Write property test for delete operation count accuracy
+
+
+    - **Property 13: Delete Operation Count Accuracy**
+    - **Validates: Requirements 4.8**
+-
+
+- [x] 11. Create Uncategorized Products Section
+
+
+
+
+
+  - [x] 11.1 Add Uncategorized section to Categories page
+
+
+    - Add new card/section at top of category tree
+    - Display count of uncategorized products
+    - Load uncategorized products when section is clicked
+    - _Requirements: 4.4_
+
+
+  - [x] 11.2 Implement drag and drop for uncategorized products
+
+    - Make uncategorized products draggable
+    - Allow dropping into any category or subcategory
+    - Update product category on drop
+    - _Requirements: 4.5_
+
+
+  - [x] 11.3 Write property test for uncategorized drag and drop
+
+    - **Property 12: Drag and Drop Uncategorized Products**
+    - **Validates: Requirements 4.5**
+
+  - [x] 11.4 Update context menu for category/subcategory deletion
+
+
+    - Enhance existing context menu to include delete option
+    - Show confirmation dialog before deletion
+    - Display count of products that will be orphaned
+    - _Requirements: 4.6, 4.7_
+
+- [x] 12. Implement Multi-Select Product Operations
+
+
+
+
+
+
+
+
+
+
+  - [x] 12.1 Add checkbox selection to products panel
+
+
+
+
+
+    - Add checkbox to each product item
+    - Implement select all / deselect all functionality
+    - Track selected product IDs in state
+    - _Requirements: 5.1_
+
+  - [x] 12.2 Create ProductSelectionToolbar component
+
+
+
+
+
+    - Create `components/ProductSelectionToolbar.tsx`
+    - Display count of selected products
+    - Add "Clear Selection" button
+    - Show when products are selected
+    - _Requirements: 5.2, 5.12_
+
+  - [x] 12.3 Write property test for selection count accuracy
+
+
+    - **Property 14: Selection Count Accuracy**
+    - **Validates: Requirements 5.2**
+
+  - [x] 12.4 Write property test for clear selection
+
+    - **Property 19: Clear Selection Completeness**
+    - **Validates: Requirements 5.12**
+
+
+  - [x] 12.5 Enhance context menu for multi-select operations
+
+
+
+
+    - Update ContextMenu component to support nested submenus
+    - Add "Move to" option with category/subcategory submenu
+    - Add "Copy to" option with category/subcategory submenu
+    - Disable menu when no products selected
+    - _Requirements: 5.3, 5.4, 5.5_
+
+  - [x] 12.6 Write property test for context menu completeness
+
+
+
+    - **Property 15: Context Menu Category Completeness**
+    - **Validates: Requirements 5.4, 5.5**
+
+-
+
+- [x] 13. Create Bulk Product Operations API
+
+
+
+
+
+
+  - [x] 13.1 Create bulk move API endpoint
+
+
+
+    - Create `/api/admin/products/bulk-move/route.ts`
+    - Accept array of product IDs and target category/subcategory
+    - Update all products in a transaction
+    - Return success count and failed products list
+    - _Requirements: 5.6, 5.7_
+
+
+  - [x] 13.2 Create bulk copy API endpoint
+
+
+    - Create `/api/admin/products/bulk-copy/route.ts`
+    - Accept array of product IDs and target category/subcategory
+    - Duplicate products with new category assignments
+    - Return success count and failed products list
+    - _Requirements: 5.8, 5.9_
+
+
+  - [x] 13.3 Write property test for bulk move operation
+
+    - **Property 16: Bulk Move Operation Correctness**
+    - **Validates: Requirements 5.6, 5.7**
+
+
+  - [x] 13.4 Write property test for bulk copy operation
+    - **Property 17: Bulk Copy Operation Correctness**
+    - **Validates: Requirements 5.8, 5.9**
+
+
+  - [x] 13.5 Add database methods for bulk operations
+
+
+    - Add `bulkMoveProducts()` method to supabase-browser.ts
+    - Add `bulkCopyProducts()` method
+    - Implement transaction handling for atomicity
+    - _Requirements: 5.6, 5.7, 5.8, 5.9_
+
+  - [ ]* 13.6 Write property test for operation result accuracy
+    - **Property 18: Multi-Product Operation Result Accuracy**
+    - **Validates: Requirements 5.10, 5.11**
+
+- [x] 14. Integrate Multi-Select Operations into Categories Page
+
+
+
+
+
+
+
+
+
+
+
+  - [x] 14.1 Connect ProductSelectionToolbar to page
+
+
+
+
+    - Add toolbar above products list when products selected
+    - Wire up clear selection handler
+    - _Requirements: 5.2, 5.12_
+
+
+  - [x] 14.2 Implement right-click context menu for selected products
+
+
+
+    - Detect right-click on selected products
+    - Show context menu with Move/Copy options
+    - Build category/subcategory submenu dynamically
+    - _Requirements: 5.3, 5.4, 5.5_
+
+
+
+  - [x] 14.3 Implement move operation handler
+
+
+    - Call bulk move API with selected product IDs
+    - Show loading state during operation
+    - Display success/error messages
+    - Refresh products list after operation
+    - _Requirements: 5.6, 5.7, 5.10, 5.11_
+
+
+
+  - [x] 14.4 Implement copy operation handler
+
+
+    - Call bulk copy API with selected product IDs
+    - Show loading state during operation
+    - Display success/error messages
+    - Refresh products list after operation
+    - _Requirements: 5.8, 5.9, 5.10, 5.11_
+
+- [x] 15. Final Checkpoint - Ensure all tests pass
+
+
+
+
+
+
+
+  - Ensure all tests pass, ask the user if questions arise.

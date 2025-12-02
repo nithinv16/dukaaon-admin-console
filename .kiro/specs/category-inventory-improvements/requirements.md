@@ -63,3 +63,37 @@ This document outlines the requirements for three key improvements to the admin 
 9. WHEN the user confirms the import THEN the Admin Console SHALL add all products to the selected seller's inventory
 10. WHEN a product fails to import THEN the Admin Console SHALL display an error message and continue with remaining products
 11. WHEN the import completes THEN the Admin Console SHALL display a summary of successful and failed imports
+
+### Requirement 4: Category and Product Deletion with Orphan Management
+
+**User Story:** As an admin, I want to delete categories and subcategories while preserving their products, so that I can reorganize my catalog without losing product data.
+
+#### Acceptance Criteria
+
+1. WHEN a category is deleted THEN the Admin Console SHALL move all products from that category to an "Uncategorized" section
+2. WHEN a subcategory is deleted THEN the Admin Console SHALL move all products from that subcategory to the parent category without a subcategory
+3. WHEN a category with subcategories is deleted THEN the Admin Console SHALL move all products from the category and its subcategories to "Uncategorized"
+4. WHEN the Categories page loads THEN the Admin Console SHALL display an "Uncategorized" section showing products without category assignments
+5. WHEN products are in the "Uncategorized" section THEN the Admin Console SHALL allow users to drag and drop them into categories or subcategories
+6. WHEN a user right-clicks on a category THEN the Admin Console SHALL display a context menu with delete option
+7. WHEN a user right-clicks on a subcategory THEN the Admin Console SHALL display a context menu with delete option
+8. WHEN a delete operation completes THEN the Admin Console SHALL refresh the product counts and display a success message
+
+### Requirement 5: Multi-Select Product Operations with Context Menu
+
+**User Story:** As an admin, I want to select multiple products and move or copy them to different categories using right-click menus, so that I can efficiently reorganize my product catalog.
+
+#### Acceptance Criteria
+
+1. WHEN viewing products in the products panel THEN the Admin Console SHALL allow users to select multiple products using checkboxes
+2. WHEN one or more products are selected THEN the Admin Console SHALL display a selection toolbar showing the count of selected products
+3. WHEN a user right-clicks on selected products THEN the Admin Console SHALL display a context menu with "Move to" and "Copy to" options
+4. WHEN "Move to" is selected THEN the Admin Console SHALL display a submenu with all available categories and subcategories
+5. WHEN "Copy to" is selected THEN the Admin Console SHALL display a submenu with all available categories and subcategories
+6. WHEN a target category is selected from "Move to" THEN the Admin Console SHALL update all selected products to the new category and remove them from the current view
+7. WHEN a target subcategory is selected from "Move to" THEN the Admin Console SHALL update all selected products to the new category and subcategory and remove them from the current view
+8. WHEN a target category is selected from "Copy to" THEN the Admin Console SHALL duplicate all selected products with the new category assignment
+9. WHEN a target subcategory is selected from "Copy to" THEN the Admin Console SHALL duplicate all selected products with the new category and subcategory assignment
+10. WHEN a multi-product operation completes THEN the Admin Console SHALL display a success message with the count of affected products
+11. WHEN a multi-product operation fails for some products THEN the Admin Console SHALL display which products succeeded and which failed
+12. WHEN products are selected THEN the Admin Console SHALL allow deselecting all products via a "Clear Selection" button in the toolbar
