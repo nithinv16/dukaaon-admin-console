@@ -29,11 +29,13 @@ export interface ExtractedProductV2 {
   confidence: number; // 0-1 confidence score
   needsReview: boolean; // Flag if confidence is low
   rowIndex: number; // Original row index from receipt
-  description?: string; // AI-generated intelligent description
-  category?: string; // Product category
-  subcategory?: string; // Product subcategory
+  description?: string; // AI-generated intelligent description (includes MRP if available)
+  category?: string; // Product category (suggested, not created in DB)
+  subcategory?: string; // Product subcategory (suggested, not created in DB)
+  brand?: string; // Product brand (AI-extracted from product name)
   stockAvailable?: number; // Stock available for the product (default: 100)
-  minOrderQuantity?: number; // Minimum order quantity (default: 1)
+  minOrderQuantity?: number; // Minimum order quantity (AI-suggested based on product type/price)
+  mrp?: number; // MRP if available in receipt
   imageUrl?: string; // Product image (base64 or URL)
 }
 
@@ -74,17 +76,19 @@ const QUANTITY_COLUMNS = [
   'units',
 ];
 
+// Priority order: Net Amount columns (usually last column, final amount after tax)
+// DO NOT use: Taxable, Taxable Amt, Taxable Amount (these are before tax)
 const AMOUNT_COLUMNS = [
-  'net amount',
-  'net amt',
-  'netamt',
-  'net',
-  'total',
-  'amount',
-  'amt',
-  'netrate',
-  'total amount',
-  'net value',
+  'amount',           // Highest priority - most common final amount column
+  'amt',              // Abbreviated form
+  'total',            // Total amount
+  'total amount',    // Full form
+  'net amount',       // Net amount (after tax)
+  'net amt',          // Abbreviated net amount
+  'netamt',           // No space variant
+  'net value',        // Net value
+  'net',              // Just "net" (lower priority)
+  'netrate',          // Net rate (lower priority)
 ];
 
 const UNIT_COLUMNS = [
@@ -150,15 +154,44 @@ function identifyProductTableColumns(
     }
   }
 
-  // Identify amount column
-  for (let i = 0; i < normalizedHeaders.length; i++) {
+  // Identify amount column - prioritize final amount columns (not taxable)
+  // Check from right to left (usually last column is the final amount)
+  for (let i = normalizedHeaders.length - 1; i >= 0; i--) {
     const header = normalizedHeaders[i];
+    
+    // First, check if it's a taxable column (EXCLUDE these)
+    const isTaxableColumn = /taxable/i.test(header) && !/net/i.test(header);
+    if (isTaxableColumn) {
+      continue; // Skip taxable columns
+    }
+    
+    // Check for valid amount columns (in priority order)
     for (const pattern of AMOUNT_COLUMNS) {
       if (header === pattern || header.includes(pattern)) {
         amountIndex = i;
         confidence += 0.3;
         break;
       }
+    }
+    
+    if (amountIndex !== null) break; // Found valid amount column
+  }
+  
+  // If still not found, check left to right as fallback
+  if (amountIndex === null) {
+    for (let i = 0; i < normalizedHeaders.length; i++) {
+      const header = normalizedHeaders[i];
+      const isTaxableColumn = /taxable/i.test(header) && !/net/i.test(header);
+      if (isTaxableColumn) continue;
+      
+      for (const pattern of AMOUNT_COLUMNS) {
+        if (header === pattern || header.includes(pattern)) {
+          amountIndex = i;
+          confidence += 0.2; // Lower confidence for fallback
+          break;
+        }
+      }
+      if (amountIndex !== null) break;
     }
   }
 
@@ -205,13 +238,19 @@ function identifyProductTableColumns(
     }
   }
 
-  // If amount not found, find column with price-like values
+  // If amount not found, find column with price-like values (prefer last columns)
   if (!amountIndex && sampleRows.length > 0) {
-    for (let i = 0; i < headers.length; i++) {
+    // Check from right to left (last columns are usually final amounts)
+    for (let i = headers.length - 1; i >= 0; i--) {
+      const header = normalizedHeaders[i];
+      // Skip taxable columns
+      if (/taxable/i.test(header) && !/net/i.test(header)) continue;
+      
       const hasPricePattern = sampleRows
         .slice(0, 3)
         .some(row => {
-          const val = (row[i] || '').toString();
+          const val = (row[i] || '').toString().trim();
+          // Look for decimal values (prices) but exclude very small numbers (likely quantities)
           return /^\d+\.\d{2}$/.test(val) || (parseFloat(val) > 10 && parseFloat(val) < 100000);
         });
       if (hasPricePattern) {
@@ -279,11 +318,31 @@ function shouldSkipLine(line: string, lineIndex: number, totalLines: number): bo
  * This is used when Textract fails to identify the product table correctly
  */
 async function extractProductsWithVision(
-  imageBuffer: Buffer
+  imageBuffer: Buffer,
+  productName?: string // Optional: for feedback learning
 ): Promise<ExtractedProductV2[]> {
   const { invokeEnhancedModelWithVision } = await import('./awsBedrockEnhanced');
+  const { getAvailableCategoriesForAI, buildCategoryMappingPrompt } = await import('./categoryMapping');
+  const { getFewShotExamples, buildLearningPrompt } = await import('./feedbackLearning');
+  
+  // Fetch available categories for AI mapping (but don't create new ones)
+  const { formattedPrompt: categoryPrompt } = await getAvailableCategoriesForAI();
+  const categorySection = categoryPrompt ? buildCategoryMappingPrompt(categoryPrompt) : '';
+  
+  // Fetch few-shot learning examples if product name provided
+  let learningSection = '';
+  if (productName) {
+    const examples = await getFewShotExamples(productName, { limit: 3 });
+    if (examples.length > 0) {
+      learningSection = buildLearningPrompt(examples);
+    }
+  }
 
   const prompt = `You are an expert at extracting product data from receipt images. Analyze this receipt image and extract ALL products.
+
+${learningSection}
+
+${categorySection}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🎯 YOUR MISSION: Extract EVERY SINGLE product from the receipt
@@ -300,13 +359,19 @@ async function extractProductsWithVision(
 2️⃣  EXTRACT FROM EVERY ROW:
    • Product Name: COMPLETE description from the "Description" or "Item Description" column
    • Quantity: From "Pcs" or "Pieces" column  
-   • Net Amount: From "Net Amt" or "Net Amount" column
+   • Net Amount: From "Amount", "Total", "Total Amount", "Net Amount", or "Net Amt" column (FINAL amount after tax)
+   ⚠️  DO NOT use "Taxable", "Taxable Amt", or "Taxable Amount" - these are BEFORE tax!
+   • MRP: If "MRP" or "M.R.P." column exists, extract it for description
    • Calculate: unitPrice = netAmount / quantity
 
 3️⃣  IMPORTANT CALCULATIONS:
    unitPrice = Net Amount ÷ Quantity
    
-   Example: If Net Amt=166.67 and Pcs=5, then unitPrice=33.33
+   Example: If Amount=166.67 and Pcs=5, then unitPrice=33.33
+   
+   ⚠️  CRITICAL: Use the FINAL amount column (usually last column):
+   ✓ CORRECT: "Amount", "Total", "Total Amount", "Net Amount", "Net Amt"
+   ✗ WRONG: "Taxable", "Taxable Amt", "Taxable Amount" (these are before tax!)
 
 4️⃣  PRODUCT NAME EXTRACTION RULES:
    ⚠️  CRITICAL: Extract the COMPLETE product name/description EXACTLY as shown in the receipt!
@@ -364,11 +429,13 @@ async function extractProductsWithVision(
       • Format weights properly: 40G → 40G, 1KG → 1KG
       • Standardize price format: RS 45 → MRP ₹45
       • Proper capitalization: "dairy milk" → "Dairy Milk"
+      • If MRP column exists, include it: "MRP: ₹45" or "MRP ₹45"
    
    ⚠️ KEEP IT ACCURATE:
       • Only expand abbreviations you're CONFIDENT about
       • If unsure, keep original name with proper formatting
       • Don't invent details not in the receipt
+      • Always include MRP in description if MRP column is present in receipt
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📤 RESPONSE FORMAT (CRITICAL)
@@ -382,17 +449,35 @@ Format:
 [
   {
     "name": "Product Name Here",
-    "description": "Intelligent human-friendly description",
-    "category": "Category Name",
-    "subcategory": "Subcategory Name",
+    "description": "Intelligent human-friendly description (include MRP if available)",
+    "category": "Category Name (from available list, or suggest if not available)",
+    "subcategory": "Subcategory Name (from available list, or suggest if not available)",
+    "brand": "Brand Name (extracted from product name, e.g., 'Cadbury', 'Parle', 'Nestle')",
     "quantity": 5,
     "unit": "pieces",
     "netAmount": 166.67,
     "unitPrice": 33.33,
+    "mrp": 45.00,
+    "minOrderQuantity": 12,
     "confidence": 0.90
   },
   ... (repeat for EVERY product row)
 ]
+
+⚠️ IMPORTANT FIELDS:
+• brand: Extract brand name from product name (e.g., "CDM" → "Cadbury", "Parle-G" → "Parle", "FIVE STAR" → "Cadbury")
+  - Look for common brand names at the start of product names
+  - Examples: "Cadbury Dairy Milk" → brand: "Cadbury", "Parle-G Biscuits" → brand: "Parle"
+  - If brand is not clear, leave empty or use your knowledge of Indian brands
+• mrp: Extract from "MRP" or "M.R.P." column if present (optional)
+• minOrderQuantity: Suggest appropriate minimum order quantity based on product type and price:
+  - Low price items (₹5-₹20): minOrderQuantity = 12-24
+  - Medium price items (₹20-₹50): minOrderQuantity = 6-12
+  - High price items (₹50+): minOrderQuantity = 1-6
+  - Use your knowledge of product types to suggest reasonable values
+  - ⚠️ CRITICAL: minOrderQuantity MUST NOT exceed the extracted quantity!
+    If extracted quantity is 5, minOrderQuantity should be ≤ 5 (not 12)
+    The system will automatically use the minimum of (suggested minOrderQuantity, extracted quantity)
 
 🔴 CRITICAL:
 • Extract ALL products from the itemized table
@@ -432,20 +517,32 @@ START YOUR RESPONSE WITH [`;
       if (p.quantity <= 0 || p.netAmount <= 0) return false;
       return true;
     })
-    .map((p, idx) => ({
-      id: `prod_${Date.now()}_${idx}`,
-      name: cleanProductName(p.name),
-      description: p.description || cleanProductName(p.name), // AI-generated description or fallback to cleaned name
-      category: p.category || '',
-      subcategory: p.subcategory || '',
-      quantity: p.quantity || 1,
-      unit: p.unit || 'pieces',
-      netAmount: p.netAmount || 0,
-      unitPrice: p.unitPrice || (p.netAmount && p.quantity ? p.netAmount / p.quantity : 0),
-      confidence: p.confidence || 0.85,
-      needsReview: (p.confidence || 0.85) < 0.7,
-      rowIndex: idx,
-    }));
+    .map((p, idx) => {
+      const extractedQty = p.quantity || 1;
+      const suggestedMinQty = p.minOrderQuantity;
+      // Cap minOrderQuantity at extracted quantity (if extracted qty is less, use that)
+      const finalMinQty = suggestedMinQty 
+        ? Math.min(suggestedMinQty, extractedQty)
+        : undefined;
+      
+      return {
+        id: `prod_${Date.now()}_${idx}`,
+        name: cleanProductName(p.name),
+        description: p.description || cleanProductName(p.name), // AI-generated description or fallback to cleaned name
+        category: p.category || '', // Suggested category (not created in DB during extraction)
+        subcategory: p.subcategory || '', // Suggested subcategory (not created in DB during extraction)
+        brand: p.brand || undefined, // AI-extracted brand
+        quantity: extractedQty,
+        unit: p.unit || 'pieces',
+        netAmount: p.netAmount || 0,
+        unitPrice: p.unitPrice || (p.netAmount && extractedQty ? p.netAmount / extractedQty : 0),
+        mrp: p.mrp || undefined, // MRP if extracted
+        minOrderQuantity: finalMinQty, // Capped at extracted quantity
+        confidence: p.confidence || 0.85,
+        needsReview: (p.confidence || 0.85) < 0.7,
+        rowIndex: idx,
+      };
+    });
 
   return validProducts;
 }
@@ -459,8 +556,24 @@ START YOUR RESPONSE WITH [`;
 async function extractProductsWithAI(
   textLines: string[],
   tables: any[],
-  structuredData: any
+  structuredData: any,
+  productName?: string // Optional: for feedback learning
 ): Promise<ExtractedProductV2[]> {
+  const { getAvailableCategoriesForAI, buildCategoryMappingPrompt } = await import('./categoryMapping');
+  const { getFewShotExamples, buildLearningPrompt } = await import('./feedbackLearning');
+  
+  // Fetch available categories for AI mapping (but don't create new ones)
+  const { formattedPrompt: categoryPrompt } = await getAvailableCategoriesForAI();
+  const categorySection = categoryPrompt ? buildCategoryMappingPrompt(categoryPrompt) : '';
+  
+  // Fetch few-shot learning examples if product name provided
+  let learningSection = '';
+  if (productName) {
+    const examples = await getFewShotExamples(productName, { limit: 3 });
+    if (examples.length > 0) {
+      learningSection = buildLearningPrompt(examples);
+    }
+  }
   // Build structured table context for AI
   // Process tables to extract structured data with headers and rows
   let tableContext = 'No table structure detected';
@@ -658,6 +771,10 @@ ${allRowsFormatted}
 
   const prompt = `You are an expert at extracting product data from receipt tables. Your ONLY task is to extract ALL products from the itemized product table.
 
+${learningSection}
+
+${categorySection}
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🎯 YOUR MISSION: Extract EVERY SINGLE product from the product table below
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -683,11 +800,20 @@ ${allRowsFormatted}
 
   3️⃣  EXTRACT THESE FIELDS FOR EACH PRODUCT:
      • name: Clean product name (remove HSN, PCode, UPC, barcodes, serial numbers BUT KEEP weights, sizes, variants)
-     • description: Generate intelligent human-friendly description
+     • description: Generate intelligent human-friendly description (include MRP if available)
      • quantity: Number from "Pcs" or "Pieces" column (must be > 0)
      • unit: Usually "pieces" (or "pcs", "kg", "g", "l", etc. if specified)
-     • netAmount: Number from "Net Amt" or "Net Amount" column (must be > 0)
+     • netAmount: Number from "Amount", "Total", "Total Amount", "Net Amount", or "Net Amt" column (FINAL amount after tax, must be > 0)
+     ⚠️  DO NOT use "Taxable", "Taxable Amt", or "Taxable Amount" - these are BEFORE tax!
+     • mrp: Extract from "MRP" or "M.R.P." column if present (optional)
      • unitPrice: Calculate as netAmount ÷ quantity
+     • minOrderQuantity: Suggest based on product type and price (low price: 12-24, medium: 6-12, high: 1-6)
+       ⚠️ CRITICAL: minOrderQuantity MUST NOT exceed the extracted quantity!
+       If extracted quantity is 5, minOrderQuantity should be ≤ 5 (not 12)
+       The system will automatically use the minimum of (suggested minOrderQuantity, extracted quantity)
+     • brand: Extract brand name from product name (e.g., "CDM" → "Cadbury", "Parle-G" → "Parle")
+     • category: Map to available category from list above (or suggest if not available - DO NOT create)
+     • subcategory: Map to available subcategory from list above (or suggest if not available - DO NOT create)
      • confidence: 0.85-0.95 (based on data quality)
 
   4️⃣  INTELLIGENT DESCRIPTION GENERATION:
@@ -733,8 +859,11 @@ ${tableContext}
   STEP 2: For EACH row in the product table, extract:
      → Product Name (clean it: remove codes)
      → Quantity from "Pcs" column
-     → Net Amount from "Net Amt" column
+     → Net Amount from "Amount", "Total", "Net Amount" column (FINAL amount, NOT "Taxable")
+     → MRP from "MRP" or "M.R.P." column if present
      → Calculate: unitPrice = netAmount / quantity
+     → Suggest: minOrderQuantity based on product type and price (but must not exceed extracted quantity)
+     → Map: category and subcategory from available list (or suggest if not available)
 
   STEP 3: Return ALL products as a JSON array
      → MUST return same number of products as there are rows in the table
@@ -859,20 +988,32 @@ To verify:
 
       return true;
     })
-    .map((p, idx) => ({
-      id: `prod_${Date.now()}_${idx}`,
-      name: cleanProductName(p.name),
-      description: p.description || cleanProductName(p.name), // AI-generated description or fallback to cleaned name
-      category: p.category || '',
-      subcategory: p.subcategory || '',
-      quantity: p.quantity || 1,
-      unit: p.unit || 'piece',
-      netAmount: p.netAmount || 0,
-      unitPrice: p.unitPrice || (p.netAmount && p.quantity ? p.netAmount / p.quantity : 0),
-      confidence: p.confidence || 0.8,
-      needsReview: (p.confidence || 0.8) < 0.7,
-      rowIndex: idx,
-    }));
+    .map((p, idx) => {
+      const extractedQty = p.quantity || 1;
+      const suggestedMinQty = p.minOrderQuantity;
+      // Cap minOrderQuantity at extracted quantity (if extracted qty is less, use that)
+      const finalMinQty = suggestedMinQty 
+        ? Math.min(suggestedMinQty, extractedQty)
+        : undefined;
+      
+      return {
+        id: `prod_${Date.now()}_${idx}`,
+        name: cleanProductName(p.name),
+        description: p.description || cleanProductName(p.name), // AI-generated description or fallback to cleaned name
+        category: p.category || '', // Suggested category (not created in DB during extraction)
+        subcategory: p.subcategory || '', // Suggested subcategory (not created in DB during extraction)
+        brand: p.brand || undefined, // AI-extracted brand
+        quantity: extractedQty,
+        unit: p.unit || 'piece',
+        netAmount: p.netAmount || 0,
+        unitPrice: p.unitPrice || (p.netAmount && extractedQty ? p.netAmount / extractedQty : 0),
+        mrp: p.mrp || undefined, // MRP if extracted
+        minOrderQuantity: finalMinQty, // Capped at extracted quantity
+        confidence: p.confidence || 0.8,
+        needsReview: (p.confidence || 0.8) < 0.7,
+        rowIndex: idx,
+      };
+    });
 
   // Log warning if too few products extracted
   if (validProducts.length === 1) {

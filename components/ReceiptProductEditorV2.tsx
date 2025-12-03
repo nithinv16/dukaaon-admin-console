@@ -31,9 +31,12 @@ import CloseIcon from '@mui/icons-material/Close';
 import WarningIcon from '@mui/icons-material/Warning';
 import FullscreenIcon from '@mui/icons-material/Fullscreen';
 import FullscreenExitIcon from '@mui/icons-material/FullscreenExit';
+import ImageSearchIcon from '@mui/icons-material/ImageSearch';
 import { ExtractedProductV2 } from '@/lib/receiptExtractionV2';
 import CategorySelector from './CategorySelector';
 import { debounce } from 'lodash';
+import { CircularProgress } from '@mui/material';
+import toast from 'react-hot-toast';
 
 interface ReceiptProductEditorV2Props {
   products: ExtractedProductV2[];
@@ -59,6 +62,8 @@ export default function ReceiptProductEditorV2({
   const [subcategoryInputs, setSubcategoryInputs] = useState<{ [productId: string]: string }>({});
   // Track category input per product for "Add New" functionality
   const [categoryInputs, setCategoryInputs] = useState<{ [productId: string]: string }>({});
+  // Track image fetching state per product
+  const [imageFetching, setImageFetching] = useState<{ [productId: string]: boolean }>({});
 
   // Load categories and subcategories from database using adminQueries
   React.useEffect(() => {
@@ -83,7 +88,7 @@ export default function ReceiptProductEditorV2({
 
   // Debounced field change for better performance
   const handleFieldChange = useCallback(
-    debounce((productId: string, field: 'name' | 'quantity' | 'unit' | 'netAmount' | 'category' | 'subcategory' | 'minOrderQuantity' | 'description' | 'stockAvailable', value: string | number) => {
+    debounce((productId: string, field: 'name' | 'quantity' | 'unit' | 'netAmount' | 'category' | 'subcategory' | 'brand' | 'minOrderQuantity' | 'description' | 'stockAvailable', value: string | number) => {
       setProducts((prevProducts) =>
         prevProducts.map((product) => {
           if (product.id !== productId) return product;
@@ -106,6 +111,8 @@ export default function ReceiptProductEditorV2({
             updated.category = value as string;
           } else if (field === 'subcategory') {
             updated.subcategory = value as string;
+          } else if (field === 'brand') {
+            updated.brand = value as string;
           } else if (field === 'minOrderQuantity') {
             const moq = typeof value === 'string' ? parseInt(value) : value;
             updated.minOrderQuantity = isNaN(moq) || moq <= 0 ? 1 : moq;
@@ -154,6 +161,62 @@ export default function ReceiptProductEditorV2({
     }
   };
 
+  // Fetch product image automatically using AWS Lambda + APIs
+  const handleFetchImage = useCallback(async (productId: string) => {
+    const product = products.find(p => p.id === productId);
+    if (!product || !product.name) {
+      toast.error('Product name is required to fetch image');
+      return;
+    }
+
+    // Set loading state
+    setImageFetching(prev => ({ ...prev, [productId]: true }));
+
+    try {
+      const response = await fetch('/api/admin/fetch-product-image', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          productName: product.name,
+          brand: product.brand || '',
+        }),
+      });
+
+      const result = await response.json();
+
+      if (result.success && result.imageUrl) {
+        // Update product with fetched image
+        setProducts((prevProducts) =>
+          prevProducts.map((p) =>
+            p.id === productId ? { ...p, imageUrl: result.imageUrl } : p
+          )
+        );
+        toast.success(`Image fetched from ${result.source || 'AWS Lambda'}`);
+      } else {
+        // Provide helpful error message
+        let errorMsg = result.error || 'No image found for this product';
+        if (errorMsg.includes('Function not found') || errorMsg.includes('ResourceNotFoundException')) {
+          errorMsg = 'Lambda function not deployed. Please deploy the fetch-product-image Lambda function.';
+        } else if (errorMsg.includes('not configured')) {
+          errorMsg = 'AWS credentials not configured. Please set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY.';
+        }
+        toast.error(errorMsg);
+      }
+    } catch (error) {
+      console.error('Error fetching product image:', error);
+      toast.error('Failed to fetch product image. Please try manual upload.');
+    } finally {
+      // Clear loading state
+      setImageFetching(prev => {
+        const newState = { ...prev };
+        delete newState[productId];
+        return newState;
+      });
+    }
+  }, [products]);
+
   const renderTable = () => (
     <Paper sx={{ mb: isFullscreen ? 2 : 3 }}>
       <TableContainer sx={{ maxHeight: isFullscreen ? 'calc(100vh - 150px)' : 'calc(100vh - 250px)', minHeight: 600, overflowX: 'auto' }}>
@@ -162,6 +225,7 @@ export default function ReceiptProductEditorV2({
             <TableRow>
               <TableCell sx={{ width: 80 }}>Image</TableCell>
               <TableCell sx={{ minWidth: 220, maxWidth: 300 }}>Product Name</TableCell>
+              <TableCell sx={{ width: 150 }}>Brand</TableCell>
               <TableCell sx={{ width: 220 }}>Category</TableCell>
               <TableCell sx={{ width: 220 }}>Subcategory</TableCell>
               <TableCell sx={{ width: 180 }}>Description</TableCell>
@@ -200,26 +264,63 @@ export default function ReceiptProductEditorV2({
                         component="img"
                         src={product.imageUrl}
                         alt={product.name}
-                        sx={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}
+                        sx={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 1, border: '1px solid', borderColor: 'divider', cursor: 'pointer' }}
+                        onClick={() => handleFetchImage(product.id)}
+                        title="Click to fetch new image"
                       />
                     ) : (
-                      <Box sx={{ width: 60, height: 60, bgcolor: 'grey.200', borderRadius: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <Typography variant="caption" color="text.secondary">No img</Typography>
+                      <Box
+                        sx={{
+                          width: 60,
+                          height: 60,
+                          bgcolor: 'grey.200',
+                          borderRadius: 1,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          cursor: 'pointer',
+                          position: 'relative',
+                          '&:hover': {
+                            bgcolor: 'grey.300',
+                          },
+                        }}
+                        onClick={() => handleFetchImage(product.id)}
+                        title="Click to fetch image automatically"
+                      >
+                        {imageFetching[product.id] ? (
+                          <CircularProgress size={20} />
+                        ) : (
+                          <ImageSearchIcon sx={{ fontSize: 24, color: 'text.secondary' }} />
+                        )}
                       </Box>
                     )}
-                    <Button
-                      component="label"
-                      size="small"
-                      sx={{ fontSize: '0.65rem', minWidth: 60, p: 0.5 }}
-                    >
-                      Upload
-                      <input
-                        type="file"
-                        hidden
-                        accept="image/*"
-                        onChange={(e) => handleImageUpload(product.id, e)}
-                      />
-                    </Button>
+                    <Box sx={{ display: 'flex', gap: 0.5 }}>
+                      {!product.imageUrl && (
+                        <Button
+                          size="small"
+                          onClick={() => handleFetchImage(product.id)}
+                          disabled={imageFetching[product.id]}
+                          sx={{ fontSize: '0.65rem', minWidth: 50, p: 0.5 }}
+                          startIcon={imageFetching[product.id] ? <CircularProgress size={12} /> : <ImageSearchIcon sx={{ fontSize: 14 }} />}
+                        >
+                          {imageFetching[product.id] ? 'Fetching...' : 'Fetch'}
+                        </Button>
+                      )}
+                      <Button
+                        component="label"
+                        size="small"
+                        sx={{ fontSize: '0.65rem', minWidth: 50, p: 0.5 }}
+                        disabled={imageFetching[product.id]}
+                      >
+                        Upload
+                        <input
+                          type="file"
+                          hidden
+                          accept="image/*"
+                          onChange={(e) => handleImageUpload(product.id, e)}
+                        />
+                      </Button>
+                    </Box>
                   </Box>
                 </TableCell>
                 <TableCell sx={{ maxWidth: 280 }}>
@@ -233,6 +334,23 @@ export default function ReceiptProductEditorV2({
                       title: product.name,
                       style: { fontSize: '0.8rem' }
                     }}
+                  />
+                </TableCell>
+                {/* Brand */}
+                <TableCell>
+                  <TextField
+                    size="small"
+                    defaultValue={product.brand || ''}
+                    onChange={(e) => handleFieldChange(product.id, 'brand', e.target.value)}
+                    variant="outlined"
+                    placeholder="Brand (AI suggested)"
+                    sx={{
+                      width: 145,
+                      '& .MuiInputBase-input': {
+                        padding: '6px 8px'
+                      }
+                    }}
+                    helperText={product.brand ? 'AI suggested' : undefined}
                   />
                 </TableCell>
                 {/* Category - moved before Qty */}
@@ -498,11 +616,15 @@ export default function ReceiptProductEditorV2({
                     size="small"
                     multiline
                     maxRows={3}
-                    defaultValue={product.description || ''}
+                    defaultValue={
+                      product.description || 
+                      (product.mrp ? `MRP: ₹${product.mrp.toFixed(2)}` : '')
+                    }
                     onChange={(e) => handleFieldChange(product.id, 'description', e.target.value)}
                     variant="outlined"
                     placeholder="Description"
                     sx={{ width: 175 }}
+                    helperText={product.mrp ? `MRP: ₹${product.mrp.toFixed(2)}` : undefined}
                   />
                 </TableCell>
                 {/* Min Order Quantity */}
@@ -513,9 +635,10 @@ export default function ReceiptProductEditorV2({
                     defaultValue={product.minOrderQuantity || ''}
                     onChange={(e) => handleFieldChange(product.id, 'minOrderQuantity', e.target.value)}
                     variant="outlined"
-                    placeholder="1"
+                    placeholder={product.minOrderQuantity ? String(product.minOrderQuantity) : "Auto"}
                     inputProps={{ min: 1, step: 1 }}
                     sx={{ width: 70 }}
+                    helperText={product.minOrderQuantity ? `AI suggested: ${product.minOrderQuantity}` : "AI will suggest"}
                   />
                 </TableCell>
                 {/* Unit */}

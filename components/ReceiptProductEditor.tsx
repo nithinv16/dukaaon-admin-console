@@ -9,7 +9,7 @@
 
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   Box,
   Paper,
@@ -31,6 +31,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import WarningIcon from '@mui/icons-material/Warning';
 import { ExtractedReceiptProduct } from '@/lib/receiptTypes';
 import { calculateUnitPrice } from '@/lib/unitPriceCalculator';
+import { debounce } from 'lodash';
 
 interface ReceiptProductEditorProps {
   products: ExtractedReceiptProduct[];
@@ -46,50 +47,125 @@ export default function ReceiptProductEditor({
   showTitle = true,
 }: ReceiptProductEditorProps) {
   const [products, setProducts] = useState<ExtractedReceiptProduct[]>(initialProducts);
+  
+  // Local state for immediate UI updates (for controlled inputs)
+  const [localValues, setLocalValues] = useState<{ [key: string]: { name?: string; quantity?: number; netAmount?: number } }>({});
 
-  // Update a product field
+  // Debounced update function - updates state after user stops typing
+  const debouncedUpdate = useMemo(
+    () => debounce((
+      productId: string,
+      field: 'name' | 'quantity' | 'netAmount',
+      value: string | number
+    ) => {
+      setProducts(prevProducts =>
+        prevProducts.map(product => {
+          if (product.id !== productId) return product;
+
+          const updated = { ...product };
+
+          if (field === 'name') {
+            updated.name = value as string;
+          } else if (field === 'quantity') {
+            const qty = typeof value === 'string' ? parseFloat(value) : value;
+            updated.quantity = isNaN(qty) ? 0 : qty;
+            
+            // Recalculate unit price
+            const result = calculateUnitPrice(updated.netAmount, updated.quantity);
+            updated.unitPrice = result.unitPrice;
+          } else if (field === 'netAmount') {
+            const amt = typeof value === 'string' ? parseFloat(value) : value;
+            updated.netAmount = isNaN(amt) ? 0 : amt;
+            
+            // Recalculate unit price
+            const result = calculateUnitPrice(updated.netAmount, updated.quantity);
+            updated.unitPrice = result.unitPrice;
+          }
+
+          return updated;
+        })
+      );
+      
+      // Clear local value after update
+      setLocalValues(prev => {
+        const newValues = { ...prev };
+        if (newValues[productId]) {
+          delete newValues[productId][field];
+          if (Object.keys(newValues[productId]).length === 0) {
+            delete newValues[productId];
+          }
+        }
+        return newValues;
+      });
+    }, 300), // 300ms debounce delay
+    []
+  );
+
+  // Update a product field - immediate local update + debounced state update
   const handleFieldChange = useCallback((
     productId: string,
     field: 'name' | 'quantity' | 'netAmount',
     value: string | number
   ) => {
-    setProducts(prevProducts =>
-      prevProducts.map(product => {
-        if (product.id !== productId) return product;
+    // Update local state immediately for responsive UI
+    setLocalValues(prev => ({
+      ...prev,
+      [productId]: {
+        ...prev[productId],
+        [field]: value
+      }
+    }));
 
-        const updated = { ...product };
+    // Debounced update to main state
+    debouncedUpdate(productId, field, value);
+  }, [debouncedUpdate]);
 
-        if (field === 'name') {
-          updated.name = value as string;
-        } else if (field === 'quantity') {
-          const qty = typeof value === 'string' ? parseFloat(value) : value;
-          updated.quantity = isNaN(qty) ? 0 : qty;
-          
-          // Recalculate unit price
-          const result = calculateUnitPrice(updated.netAmount, updated.quantity);
-          updated.unitPrice = result.unitPrice;
-        } else if (field === 'netAmount') {
-          const amt = typeof value === 'string' ? parseFloat(value) : value;
-          updated.netAmount = isNaN(amt) ? 0 : amt;
-          
-          // Recalculate unit price
-          const result = calculateUnitPrice(updated.netAmount, updated.quantity);
-          updated.unitPrice = result.unitPrice;
-        }
-
-        return updated;
-      })
-    );
-  }, []);
+  // Cleanup debounce on unmount
+  useEffect(() => {
+    return () => {
+      debouncedUpdate.cancel();
+    };
+  }, [debouncedUpdate]);
 
   // Delete a product
   const handleDelete = useCallback((productId: string) => {
     setProducts(prevProducts => prevProducts.filter(p => p.id !== productId));
+    // Clean up local values for deleted product
+    setLocalValues(prev => {
+      const newValues = { ...prev };
+      delete newValues[productId];
+      return newValues;
+    });
   }, []);
 
-  // Confirm and submit
+  // Confirm and submit - merge any pending local values first
   const handleConfirm = () => {
-    onConfirm(products);
+    // Cancel any pending debounced updates
+    debouncedUpdate.cancel();
+    
+    // Merge local values into products before submitting
+    const finalProducts = products.map(product => {
+      const local = localValues[product.id];
+      if (!local) return product;
+      
+      const updated = { ...product };
+      if (local.name !== undefined) updated.name = local.name;
+      if (local.quantity !== undefined) {
+        const qty = typeof local.quantity === 'string' ? parseFloat(local.quantity) : local.quantity;
+        updated.quantity = isNaN(qty) ? 0 : qty;
+        const result = calculateUnitPrice(updated.netAmount, updated.quantity);
+        updated.unitPrice = result.unitPrice;
+      }
+      if (local.netAmount !== undefined) {
+        const amt = typeof local.netAmount === 'string' ? parseFloat(local.netAmount) : local.netAmount;
+        updated.netAmount = isNaN(amt) ? 0 : amt;
+        const result = calculateUnitPrice(updated.netAmount, updated.quantity);
+        updated.unitPrice = result.unitPrice;
+      }
+      return updated;
+    });
+    
+    onConfirm(finalProducts);
   };
 
   const getConfidenceColor = (conf: number): 'error' | 'warning' | 'success' => {
@@ -125,48 +201,81 @@ export default function ReceiptProductEditor({
               </TableRow>
             </TableHead>
             <TableBody>
-              {products.map((product) => (
-                <TableRow
-                  key={product.id}
-                  sx={{
-                    bgcolor: product.needsReview ? 'warning.light' : 'inherit',
-                  }}
-                >
-                  <TableCell>
-                    <TextField
-                      fullWidth
+              {products.map((product) => {
+                // Get local values for this product (for immediate UI updates)
+                const local = localValues[product.id];
+                const displayName = local?.name !== undefined ? local.name : product.name;
+                const displayQuantity = local?.quantity !== undefined ? local.quantity : product.quantity;
+                const displayNetAmount = local?.netAmount !== undefined ? local.netAmount : product.netAmount;
+                
+                // Calculate unit price based on current display values
+                const currentUnitPrice = (() => {
+                  const qty = typeof displayQuantity === 'string' ? parseFloat(displayQuantity) : displayQuantity;
+                  const amt = typeof displayNetAmount === 'string' ? parseFloat(displayNetAmount) : displayNetAmount;
+                  if (isNaN(qty) || isNaN(amt) || qty <= 0) return product.unitPrice;
+                  return amt / qty;
+                })();
+
+                return (
+                  <TableRow
+                    key={product.id}
+                    sx={{
+                      bgcolor: product.needsReview ? 'warning.light' : 'inherit',
+                    }}
+                  >
+                    <TableCell>
+                      <TextField
+                        fullWidth
+                        size="small"
+                        value={displayName}
+                        onChange={(e) => handleFieldChange(product.id, 'name', e.target.value)}
+                        variant="outlined"
+                      />
+                    </TableCell>
+                    <TableCell align="right">
+                      <TextField
+                        size="small"
+                        type="number"
+                        value={displayQuantity}
+                        onChange={(e) => handleFieldChange(product.id, 'quantity', e.target.value)}
+                        variant="outlined"
+                        inputProps={{ min: 0, step: 0.01 }}
+                        sx={{ width: 100 }}
+                      />
+                    </TableCell>
+                    <TableCell align="right">
+                      <TextField
+                        size="small"
+                        type="number"
+                        value={displayNetAmount}
+                        onChange={(e) => handleFieldChange(product.id, 'netAmount', e.target.value)}
+                        variant="outlined"
+                        inputProps={{ min: 0, step: 0.01 }}
+                        sx={{ width: 120 }}
+                      />
+                    </TableCell>
+                    <TableCell align="right">
+                      <Typography variant="body2" fontWeight="medium">
+                        {currentUnitPrice !== null && !isNaN(currentUnitPrice) ? currentUnitPrice.toFixed(2) : 'N/A'}
+                      </Typography>
+                    </TableCell>
+                  <TableCell align="center">
+                    <Chip
+                      label={`${(product.confidence * 100).toFixed(0)}%`}
+                      color={getConfidenceColor(product.confidence)}
                       size="small"
-                      value={product.name}
-                      onChange={(e) => handleFieldChange(product.id, 'name', e.target.value)}
-                      variant="outlined"
+                      icon={product.needsReview ? <WarningIcon /> : undefined}
                     />
                   </TableCell>
-                  <TableCell align="right">
-                    <TextField
+                  <TableCell align="center">
+                    <IconButton
                       size="small"
-                      type="number"
-                      value={product.quantity}
-                      onChange={(e) => handleFieldChange(product.id, 'quantity', e.target.value)}
-                      variant="outlined"
-                      inputProps={{ min: 0, step: 0.01 }}
-                      sx={{ width: 100 }}
-                    />
-                  </TableCell>
-                  <TableCell align="right">
-                    <TextField
-                      size="small"
-                      type="number"
-                      value={product.netAmount}
-                      onChange={(e) => handleFieldChange(product.id, 'netAmount', e.target.value)}
-                      variant="outlined"
-                      inputProps={{ min: 0, step: 0.01 }}
-                      sx={{ width: 120 }}
-                    />
-                  </TableCell>
-                  <TableCell align="right">
-                    <Typography variant="body2" fontWeight="medium">
-                      {product.unitPrice !== null ? product.unitPrice.toFixed(2) : 'N/A'}
-                    </Typography>
+                      color="error"
+                      onClick={() => handleDelete(product.id)}
+                      title="Delete product"
+                    >
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
                   </TableCell>
                   <TableCell align="center">
                     <Chip
@@ -187,7 +296,8 @@ export default function ReceiptProductEditor({
                     </IconButton>
                   </TableCell>
                 </TableRow>
-              ))}
+                );
+              })}
             </TableBody>
           </Table>
         </TableContainer>
