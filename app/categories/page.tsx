@@ -57,7 +57,6 @@ import {
   generateMockCategoryData,
   calculateCategoryStats 
 } from '@/lib/categoryUtils';
-import CategoryImageEditor from '@/components/CategoryImageEditor';
 
 interface CategoryData {
   id: string;
@@ -123,10 +122,6 @@ export default function CategoriesPage() {
   const [showProductsPanel, setShowProductsPanel] = useState(false);
   const [selectedCategoryForProducts, setSelectedCategoryForProducts] = useState<string | null>(null);
   const [selectedSubcategoryForProducts, setSelectedSubcategoryForProducts] = useState<string | null>(null);
-
-  // Image upload dialog states
-  const [imageEditorOpen, setImageEditorOpen] = useState(false);
-  const [imageEditorCategory, setImageEditorCategory] = useState<CategoryData | null>(null);
 
   useEffect(() => {
     loadCategories();
@@ -423,35 +418,6 @@ export default function CategoriesPage() {
     return status === 'active' ? 'success' : 'default';
   };
 
-  const handleImageUpdate = (newImageUrl: string) => {
-    if (!imageEditorCategory) return;
-    
-    // Update the local state
-    setCategories(prevCategories => {
-      const updateCategory = (cat: CategoryData): CategoryData => {
-        if (cat.id === imageEditorCategory.id) {
-          return { ...cat, image_url: newImageUrl };
-        }
-        if (cat.subcategories) {
-          return {
-            ...cat,
-            subcategories: cat.subcategories.map(sub => 
-              sub.id === imageEditorCategory.id 
-                ? { ...sub, image_url: newImageUrl }
-                : sub
-            ),
-          };
-        }
-        return cat;
-      };
-      
-      return prevCategories.map(updateCategory);
-    });
-    
-    // Reload categories to ensure consistency
-    loadCategories();
-  };
-
   const columns: GridColDef[] = [
     {
       field: 'type',
@@ -482,31 +448,17 @@ export default function CategoriesPage() {
       renderCell: (params: GridRenderCellParams) => {
         const isSubcategory = !!params.row.parent_id;
         return (
-          <IconButton
-            onClick={(e) => {
-              e.stopPropagation();
-              setImageEditorCategory(params.row);
-              setImageEditorOpen(true);
+          <Avatar
+            src={params.value}
+            alt={params.row.name}
+            sx={{ 
+              width: 40, 
+              height: 40,
+              bgcolor: isSubcategory ? 'secondary.main' : 'primary.main'
             }}
-            sx={{ p: 0 }}
-            title="Click to upload image"
           >
-            <Avatar
-              src={params.value}
-              alt={params.row.name}
-              sx={{ 
-                width: 40, 
-                height: 40,
-                bgcolor: isSubcategory ? 'secondary.main' : 'primary.main',
-                cursor: 'pointer',
-                '&:hover': {
-                  opacity: 0.8,
-                },
-              }}
-            >
-              <Category />
-            </Avatar>
-          </IconButton>
+            <Category />
+          </Avatar>
         );
       },
     },
@@ -1336,22 +1288,6 @@ export default function CategoriesPage() {
           </Button>
         </DialogActions>
       </Dialog>
-
-      {/* Category Image Editor Dialog */}
-      {imageEditorCategory && (
-        <CategoryImageEditor
-          open={imageEditorOpen}
-          onClose={() => {
-            setImageEditorOpen(false);
-            setImageEditorCategory(null);
-          }}
-          currentImage={imageEditorCategory.image_url}
-          categoryName={imageEditorCategory.name}
-          categoryId={imageEditorCategory.id}
-          type={imageEditorCategory.parent_id ? 'subcategory' : 'category'}
-          onImageUpdate={handleImageUpdate}
-        />
-      )}
     </Box>
   );
 }

@@ -156,19 +156,12 @@ export default function ExtractedProductsPage() {
 
       // Add non-duplicate products
       const addPromises = productsToAdd.map(async (product) => {
-        // Build description with MRP if available
-        let description = product.description || product.name || 'Product extracted from receipt';
-        if (product.mrp && !description.includes('MRP') && !description.includes('₹')) {
-          description = `${description} | MRP: ₹${product.mrp.toFixed(2)}`;
-        }
-        
         const productData = {
           name: product.name,
-          description: description,
+          description: product.description || product.name || 'Product extracted from receipt',
           price: product.unitPrice || (product.netAmount / product.quantity) || 0,
           category: product.category || category || '',
           subcategory: product.subcategory || subcategory || '',
-          brand: product.brand || '',
           seller_id: selectedSellerId,
           stock_available: product.stockAvailable ?? 100, // Use stock field with default 100
           unit: product.unit || 'piece',
@@ -194,7 +187,6 @@ export default function ExtractedProductsPage() {
           description: p.description,
           category: p.category,
           subcategory: p.subcategory,
-          brand: p.brand,
           quantity: p.quantity,
           unit: p.unit,
           unitPrice: p.unitPrice,
@@ -206,7 +198,6 @@ export default function ExtractedProductsPage() {
           description: p.description || p.name,
           category: p.category || category,
           subcategory: p.subcategory || subcategory,
-          brand: p.brand,
           quantity: p.quantity,
           unit: p.unit,
           unitPrice: p.unitPrice,

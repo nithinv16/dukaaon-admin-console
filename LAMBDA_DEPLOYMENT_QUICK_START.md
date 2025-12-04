@@ -15,15 +15,13 @@ This means the Lambda function hasn't been deployed yet. Follow these steps:
    ```
 
 2. **Create deployment package:**
-   ```powershell
-   # On Windows (PowerShell) - Run this in the lambda/fetch-product-image directory
-   Compress-Archive -Path index.js -DestinationPath function.zip -Force
+   ```bash
+   # On Windows (PowerShell)
+   Compress-Archive -Path index.js -DestinationPath function.zip
    
    # On Mac/Linux
    zip function.zip index.js
    ```
-   
-   **Note:** The `-Force` flag will overwrite if the file already exists.
 
 ## Step 2: Deploy to AWS Lambda
 

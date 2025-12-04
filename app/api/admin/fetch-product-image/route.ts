@@ -42,113 +42,46 @@ async function searchPerplexityForImages(productName: string, brand?: string): P
   try {
     console.log(`🔍 Searching Perplexity AI for: "${finalQuery}"`);
 
-    // Try different Perplexity models (sonar models support online search)
-    // If PERPLEXITY_MODEL is set, use that first, otherwise try common models
-    const customModel = process.env.PERPLEXITY_MODEL;
-    const modelsToTry = customModel 
-      ? [customModel, 'sonar', 'sonar-pro', 'sonar-small-online', 'sonar-large-online']
-      : [
-          'sonar',                    // Standard sonar model (most common)
-          'sonar-pro',                // Pro version
-          'sonar-small-online',       // Small online model
-          'sonar-large-online',       // Large online model
-        ];
-
-    let lastError: { error?: { message?: string; type?: string } } | Error | null = null;
-    let response: Response | null = null;
-    let workingModel = '';
-    
-    for (const model of modelsToTry) {
-      try {
-        console.log(`🔄 Trying Perplexity model: ${model}`);
-        
-        response = await fetch('https://api.perplexity.ai/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${config.apiKey}`,
-            'Content-Type': 'application/json',
+    const response = await fetch('https://api.perplexity.ai/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${config.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'llama-3.1-sonar-large-128k-online', // Online model for real-time web search
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a helpful assistant that finds product images. Extract image URLs from web search results and return them as a JSON array.',
           },
-          body: JSON.stringify({
-            model: model,
-            messages: [
-              {
-                role: 'system',
-                content: 'You are a product image finder. When asked to find product images, you must search the web and return a JSON array of direct image URLs. Always return at least 5-10 image URLs if available.',
-              },
-              {
-                role: 'user',
-                content: `I need product images for: ${finalQuery}
+          {
+            role: 'user',
+            content: `Find product images for: ${finalQuery}
 
-Please search the web for this product and find DIRECT image URLs from e-commerce websites.
+Search the web for this product and extract DIRECT image URLs from:
+- Amazon India (amazon.in)
+- Flipkart (flipkart.com)
+- Meesho (meesho.com)
+- Manufacturer websites
+- E-commerce product pages
 
-Search on:
-- Amazon India (amazon.in) - look for product images
-- Flipkart (flipkart.com) - look for product images  
-- Meesho (meesho.com) - look for product images
-- Any other e-commerce sites selling this product
+Return ONLY a JSON array of image URLs (direct links to .jpg, .png, .webp files):
+["https://image-url-1.com/image.jpg", "https://image-url-2.com/image.jpg", ...]
 
-After searching, extract the DIRECT image URLs (links that end in .jpg, .png, .webp or are from image CDNs like m.media-amazon.com, rukminim2.flipkart.com, etc.)
+Extract at least 5-10 image URLs from the search results. Only include URLs that are direct links to image files.`,
+          },
+        ],
+        temperature: 0.2,
+        max_tokens: 2000,
+      }),
+    });
 
-CRITICAL: You MUST return your response as a JSON array. Start your response with [ and end with ]. Include at least 5-10 image URLs if you find them.
-
-Example format:
-["https://m.media-amazon.com/images/I/81ABC123XYZ._SL1500_.jpg", "https://rukminim2.flipkart.com/image/400/400/abc123/xyz.jpg", "https://images.meesho.com/images/products/123456.jpg"]
-
-Now search for "${finalQuery}" and return the image URLs as a JSON array:`,
-              },
-            ],
-            temperature: 0.2,
-            max_tokens: 2000,
-          }),
-        });
-
-        if (response.ok) {
-          workingModel = model;
-          console.log(`✅ Model ${model} works!`);
-          break;
-        } else {
-          const errorText = await response.text();
-          try {
-            const errorData = JSON.parse(errorText) as { error?: { message?: string; type?: string } };
-            if (errorData.error?.type === 'invalid_model') {
-              console.warn(`⚠️ Model ${model} not available, trying next...`);
-              lastError = errorData;
-              continue;
-            } else {
-              // Other error, break and return
-              console.error(`❌ Perplexity API error: ${response.status} - ${errorText}`);
-              return [];
-            }
-          } catch (parseError) {
-            // If JSON parsing fails, treat as non-model error
-            console.error(`❌ Perplexity API error (non-JSON): ${response.status} - ${errorText}`);
-            return [];
-          }
-        }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        console.warn(`⚠️ Error with model ${model}:`, errorMessage);
-        lastError = error instanceof Error ? error : new Error(String(error));
-        continue;
-      }
-    }
-
-    if (!response || !response.ok) {
-      let errorMsg = 'All models failed';
-      if (lastError) {
-        if (lastError instanceof Error) {
-          errorMsg = lastError.message;
-        } else if (typeof lastError === 'object' && 'error' in lastError) {
-          const err = lastError as { error?: { message?: string } };
-          errorMsg = err.error?.message || errorMsg;
-        }
-      }
-      console.error(`❌ All Perplexity models failed. Last error: ${errorMsg}`);
-      console.error(`💡 Check available models at: https://docs.perplexity.ai/getting-started/models`);
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`❌ Perplexity API error: ${response.status} - ${errorText}`);
       return [];
     }
-
-    console.log(`✅ Using Perplexity model: ${workingModel}`);
 
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content || '';
@@ -158,75 +91,49 @@ Now search for "${finalQuery}" and return the image URLs as a JSON array:`,
       return [];
     }
 
-    console.log(`📥 Perplexity full response (first 500 chars): ${content.substring(0, 500)}`);
-    console.log(`📥 Perplexity response length: ${content.length} chars`);
+    console.log(`📥 Perplexity response: ${content.substring(0, 200)}...`);
 
     // Extract image URLs from response
     // Perplexity might return JSON array or text with URLs
     const imageUrls: string[] = [];
 
-    // Try to parse as JSON array first (most common case)
+    // Try to parse as JSON array first
     try {
-      // Look for JSON array in the response
       const jsonMatch = content.match(/\[[\s\S]*?\]/);
       if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]) as unknown;
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          const validUrls = parsed.filter((url: unknown): url is string => typeof url === 'string' && url.startsWith('http'));
-          imageUrls.push(...validUrls);
-          console.log(`✅ Found ${validUrls.length} URLs in JSON array`);
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (Array.isArray(parsed)) {
+          imageUrls.push(...parsed.filter((url: any) => typeof url === 'string' && url.startsWith('http')));
         }
       }
     } catch (e) {
-      console.log('⚠️ Could not parse as JSON array, trying text extraction...');
+      // Not JSON, try extracting URLs from text
     }
 
-    // If no URLs found in JSON, extract from text
-    if (imageUrls.length === 0) {
-      // Extract URLs from text using regex - look for image URLs
-      const urlRegex = /https?:\/\/[^\s"<>'\)]+\.(jpg|jpeg|png|webp|gif)(\?[^\s"<>'\)]*)?/gi;
-      const matches = content.match(urlRegex);
-      if (matches) {
-        imageUrls.push(...matches);
-        console.log(`✅ Found ${matches.length} URLs via regex`);
-      }
+    // Extract URLs from text using regex
+    const urlRegex = /https?:\/\/[^\s"<>]+\.(jpg|jpeg|png|webp|gif)/gi;
+    const matches = content.match(urlRegex);
+    if (matches) {
+      imageUrls.push(...matches);
+    }
 
-      // Also look for URLs in markdown format
-      const markdownUrlRegex = /!\[.*?\]\((https?:\/\/[^\s)]+)\)/gi;
-      let match;
-      while ((match = markdownUrlRegex.exec(content)) !== null) {
-        if (match[1] && match[1].startsWith('http')) {
-          imageUrls.push(match[1]);
-        }
-      }
-
-      // Look for Amazon/Flipkart image URLs specifically
-      const ecommerceUrlRegex = /https?:\/\/(m\.media-amazon\.com|rukminim2\.flipkart\.com|images\.meesho\.com)[^\s"<>'\)]+/gi;
-      const ecommerceMatches = content.match(ecommerceUrlRegex);
-      if (ecommerceMatches) {
-        imageUrls.push(...ecommerceMatches);
-        console.log(`✅ Found ${ecommerceMatches.length} e-commerce URLs`);
+    // Also look for URLs in markdown format
+    const markdownUrlRegex = /!\[.*?\]\((https?:\/\/[^\s)]+)\)/gi;
+    let match;
+    while ((match = markdownUrlRegex.exec(content)) !== null) {
+      if (match[1] && match[1].startsWith('http')) {
+        imageUrls.push(match[1]);
       }
     }
 
     // Remove duplicates and filter valid URLs
     const uniqueUrls = Array.from(new Set(imageUrls))
-      .filter((url: string) => {
-        if (!url || !url.startsWith('http')) return false;
-        // Accept URLs with image extensions or from known image domains
-        return url.match(/\.(jpg|jpeg|png|webp|gif)(\?|$)/i) || 
-               url.match(/(amazon|flipkart|meesho|media|images?)\//i);
-      })
-      .map((url: string) => {
-        // Clean up URLs (remove trailing characters that might break them)
-        return url.replace(/[.,;!?)\]}]+$/, '');
-      });
+      .filter((url: string) => url && url.startsWith('http') && (url.includes('.jpg') || url.includes('.jpeg') || url.includes('.png') || url.includes('.webp') || url.includes('.gif') || url.match(/\/images?\//i)));
 
-    console.log(`✅ Perplexity found ${uniqueUrls.length} image URL(s) after filtering`);
+    console.log(`✅ Perplexity found ${uniqueUrls.length} image URL(s)`);
     return uniqueUrls.slice(0, 10); // Return up to 10 URLs
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error('❌ Perplexity AI search error:', errorMessage);
+  } catch (error: any) {
+    console.error('❌ Perplexity AI search error:', error.message);
     return [];
   }
 }
@@ -296,17 +203,16 @@ async function downloadAndValidateImage(imageUrl: string): Promise<{
       success: true,
       imageData: dataUrl,
     };
-  } catch (error) {
-    if (error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')) {
+  } catch (error: any) {
+    if (error.name === 'AbortError' || error.name === 'TimeoutError') {
       return {
         success: false,
         error: 'Download timeout',
       };
     }
-    const errorMessage = error instanceof Error ? error.message : String(error);
     return {
       success: false,
-      error: errorMessage || 'Failed to download image',
+      error: error.message || 'Failed to download image',
     };
   }
 }
@@ -406,9 +312,8 @@ export async function POST(request: NextRequest) {
           // Try next URL
           continue;
         }
-      } catch (downloadError) {
-        const errorMessage = downloadError instanceof Error ? downloadError.message : String(downloadError);
-        console.error(`❌ Error downloading image ${i + 1}:`, errorMessage);
+      } catch (downloadError: any) {
+        console.error(`❌ Error downloading image ${i + 1}:`, downloadError.message);
         // Try next URL
         continue;
       }
@@ -425,13 +330,12 @@ export async function POST(request: NextRequest) {
       warning: 'All image URLs failed validation, using first URL directly',
     });
 
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+  } catch (error: any) {
     console.error('❌ Error fetching product image:', error);
     return NextResponse.json(
       { 
         success: false, 
-        error: errorMessage || 'Failed to fetch product image' 
+        error: error.message || 'Failed to fetch product image' 
       },
       { status: 500 }
     );

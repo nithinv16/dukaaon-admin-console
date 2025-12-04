@@ -27,9 +27,6 @@ export interface ProductCorrection {
     extracted_subcategory?: string | null;
     corrected_subcategory?: string | null;
 
-    extracted_brand?: string | null;
-    corrected_brand?: string | null;
-
     extracted_description?: string | null;
     corrected_description?: string | null;
 
@@ -54,7 +51,6 @@ export interface ExtractedProduct {
     description?: string;
     category?: string;
     subcategory?: string;
-    brand?: string;
     quantity?: number;
     unit?: string;
     unitPrice?: number;
@@ -68,8 +64,6 @@ export interface FewShotExample {
     corrected_category?: string;
     extracted_subcategory?: string;
     corrected_subcategory?: string;
-    extracted_brand?: string;
-    corrected_brand?: string;
     extracted_description?: string;
     corrected_description?: string;
     pattern_note: string;
@@ -102,7 +96,6 @@ export async function captureProductCorrections(
                 extracted.name !== submitted.name ||
                 extracted.category !== submitted.category ||
                 extracted.subcategory !== submitted.subcategory ||
-                extracted.brand !== submitted.brand ||
                 extracted.description !== submitted.description ||
                 extracted.quantity !== submitted.quantity ||
                 extracted.unit !== submitted.unit;
@@ -113,7 +106,6 @@ export async function captureProductCorrections(
                 if (extracted.name !== submitted.name) types.push('name');
                 if (extracted.category !== submitted.category) types.push('category');
                 if (extracted.subcategory !== submitted.subcategory) types.push('subcategory');
-                if (extracted.brand !== submitted.brand) types.push('brand');
                 if (extracted.description !== submitted.description) types.push('description');
                 if (extracted.quantity !== submitted.quantity) types.push('quantity');
                 if (extracted.unit !== submitted.unit) types.push('unit');
@@ -127,8 +119,6 @@ export async function captureProductCorrections(
                     corrected_category: submitted.category || null,
                     extracted_subcategory: extracted.subcategory || null,
                     corrected_subcategory: submitted.subcategory || null,
-                    extracted_brand: extracted.brand || null,
-                    corrected_brand: submitted.brand || null,
                     extracted_description: extracted.description || null,
                     corrected_description: submitted.description || null,
                     extracted_quantity: extracted.quantity || null,
@@ -257,12 +247,10 @@ ${examples.map((ex: FewShotExample, i: number) => `
 Example ${i + 1}: (Similarity: ${(ex.similarity_score * 100).toFixed(0)}%)
   ❌ You extracted: "${ex.extracted_name}"
      ${ex.extracted_category ? `Category: "${ex.extracted_category}" → Subcategory: "${ex.extracted_subcategory}"` : ''}
-     ${ex.extracted_brand ? `Brand: "${ex.extracted_brand}"` : ''}
      ${ex.extracted_description ? `Description: "${ex.extracted_description}"` : ''}
      
   ✅ User corrected to: "${ex.corrected_name}"
      ${ex.corrected_category ? `Category: "${ex.corrected_category}" → Subcategory: "${ex.corrected_subcategory}"` : ''}
-     ${ex.corrected_brand ? `Brand: "${ex.corrected_brand}"` : ''}
      ${ex.corrected_description ? `Description: "${ex.corrected_description}"` : ''}
      
   📝 Pattern: ${ex.pattern_note}

@@ -148,40 +148,10 @@ export default function ReceiptScannerV2({
         }),
       });
 
-      // Check if response has content before parsing
-      const contentType = response.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        const text = await response.text();
-        throw new Error(
-          response.status === 500
-            ? 'Server error occurred. Please check server logs.'
-            : `Unexpected response format: ${text.substring(0, 100)}`
-        );
-      }
-
-      // Get response text first to check if it's empty
-      const responseText = await response.text();
-      
-      if (!responseText || responseText.trim().length === 0) {
-        throw new Error(
-          'Empty response from server. The API may have encountered an error. Please try again.'
-        );
-      }
-
-      // Parse JSON only if we have content
-      let result;
-      try {
-        result = JSON.parse(responseText);
-      } catch (parseError) {
-        console.error('JSON parse error:', parseError);
-        console.error('Response text:', responseText);
-        throw new Error(
-          `Invalid response from server: ${responseText.substring(0, 200)}`
-        );
-      }
+      const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(result.error || `Server error (${response.status}): Failed to scan receipt`);
+        throw new Error(result.error || 'Failed to scan receipt');
       }
 
       if (result.success && result.products && result.products.length > 0) {
@@ -193,7 +163,6 @@ export default function ReceiptScannerV2({
         setError(result.error || 'No products found in receipt');
       }
     } catch (err) {
-      console.error('Scan receipt error:', err);
       setError(err instanceof Error ? err.message : 'An error occurred while scanning');
     } finally {
       setIsScanning(false);

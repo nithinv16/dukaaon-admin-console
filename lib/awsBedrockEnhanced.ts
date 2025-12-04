@@ -44,7 +44,7 @@ function yieldToBrowser(): Promise<void> {
 }
 
 // Web search tool definition for Claude
-export const WEB_SEARCH_TOOL = {
+const WEB_SEARCH_TOOL = {
   name: 'web_search',
   description: 'Search the web for current information about products, brands, categories, or companies. Use this when you need real-time information that you don\'t already know.',
   input_schema: {
@@ -76,49 +76,13 @@ async function executeWebSearchTool(query: string, searchType: 'product' | 'bran
   try {
     let searchQuery = query;
     if (searchType === 'product') {
-      // For products, search for images directly
-      searchQuery = `${query} product`;
+      searchQuery = `${query} product category ecommerce`;
     } else if (searchType === 'brand') {
       searchQuery = `${query} brand manufacturer company`;
     } else if (searchType === 'category') {
       searchQuery = `${query} product category classification`;
     }
 
-    // If searching for products, use image search to get actual image URLs
-    if (searchType === 'product') {
-      const imageSearchUrl = `https://www.googleapis.com/customsearch/v1?key=${WEB_SEARCH_API_KEY}&cx=${GOOGLE_CSE_ID}&q=${encodeURIComponent(searchQuery)}&searchType=image&num=10&safe=active`;
-      
-      const response = await fetch(imageSearchUrl);
-      if (response.ok) {
-        const data = await response.json();
-        const imageResults = data.items || [];
-        
-        if (imageResults.length > 0) {
-          // Return detailed image information for Claude to extract URLs
-          const imageInfo = imageResults
-            .slice(0, 10)
-            .map((item: any, index: number) => {
-              const url = item.link || '';
-              const width = item.image?.width || 0;
-              const height = item.image?.height || 0;
-              const title = item.title || '';
-              const site = item.displayLink || '';
-              // Filter for good-sized images
-              const isValidSize = width >= 200 && height >= 200 && width <= 2000 && height <= 2000;
-              return `Image ${index + 1}:\nURL: ${url}\nTitle: ${title}\nSite: ${site}\nDimensions: ${width}x${height}${isValidSize ? ' (valid size)' : ' (may be too small/large)'}`;
-            })
-            .filter((info: string) => info.includes('URL: http'))
-            .join('\n\n');
-          
-          if (imageInfo) {
-            console.log(`🔍 Found ${imageResults.length} images from Google Image Search`);
-            return `Found ${imageResults.length} product images from Google Image Search. Here are the image URLs:\n\n${imageInfo}\n\nExtract the image URLs from the above list and use them.`;
-          }
-        }
-      }
-    }
-
-    // Fallback to regular web search
     const searchUrl = `https://www.googleapis.com/customsearch/v1?key=${WEB_SEARCH_API_KEY}&cx=${GOOGLE_CSE_ID}&q=${encodeURIComponent(searchQuery)}&num=3`;
 
     const response = await fetch(searchUrl);

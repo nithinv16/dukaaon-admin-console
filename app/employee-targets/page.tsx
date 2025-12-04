@@ -70,9 +70,21 @@ interface EmployeeTarget {
     created_at: string;
 }
 
-const defaultFormData = {
+const defaultFormData: {
+    admin_id: string;
+    period_type: 'daily' | 'weekly' | 'monthly';
+    period_start: string;
+    period_end: string;
+    target_products_created: number;
+    target_products_updated: number;
+    target_master_products_created: number;
+    target_receipts_scanned: number;
+    target_active_hours: number;
+    target_items_processed: number;
+    notes: string;
+} = {
     admin_id: '',
-    period_type: 'daily' as const,
+    period_type: 'daily',
     period_start: new Date().toISOString().split('T')[0],
     period_end: new Date().toISOString().split('T')[0],
     target_products_created: 10,

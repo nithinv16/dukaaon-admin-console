@@ -108,8 +108,7 @@ function calculateStringSimilarity(str1: string, str2: string): number {
 
 /**
  * Validate and correct category mappings after AI extraction
- * NOTE: This function NO LONGER creates categories/subcategories - only validates and suggests
- * Categories/subcategories should only be created when user submits products in ProductEditorV2
+ * Auto-creates missing categories/subcategories with fuzzy matching
  */
 export async function validateAndCorrectCategories<T extends ProductWithCategory>(
     products: T[]
@@ -148,13 +147,19 @@ export async function validateAndCorrectCategories<T extends ProductWithCategory
                 }
             }
 
-            // If still no match, keep the suggested category (don't create in DB)
-            // Categories will be created when user submits products in ProductEditorV2
+            // If still no match, create new category
             if (!category && product.category) {
-                console.log(`💡 Suggested category (not created in DB): ${product.category}`);
-                // Keep the suggested category as-is, it will be created on submission if needed
-            } else if (category) {
-                // Ensure consistent casing for matched categories
+                console.log(`➕ Creating new category: ${product.category}`);
+                const result = await adminQueries.createCategory(product.category.trim());
+
+                if (result.success && result.data) {
+                    category = result.data as { id: string; name: string };
+                    // Update local cache
+                    dbCategories.categories.push(category);
+                    product.category = category.name;
+                }
+            } else {
+                // Ensure consistent casing
                 product.category = category.name;
             }
 
@@ -184,13 +189,22 @@ export async function validateAndCorrectCategories<T extends ProductWithCategory
                     }
                 }
 
-                // If still no match, keep the suggested subcategory (don't create in DB)
-                // Subcategories will be created when user submits products in ProductEditorV2
+                // If still no match, create new subcategory
                 if (!subcategory && product.subcategory) {
-                    console.log(`💡 Suggested subcategory (not created in DB): ${product.subcategory} under ${category.name}`);
-                    // Keep the suggested subcategory as-is, it will be created on submission if needed
-                } else if (subcategory) {
-                    // Ensure consistent casing for matched subcategories
+                    console.log(`➕ Creating new subcategory: ${product.subcategory} under ${category.name}`);
+                    const result = await adminQueries.createSubcategory(
+                        product.subcategory.trim(),
+                        category.id
+                    );
+
+                    if (result.success && result.data) {
+                        subcategory = result.data as { id: string; category_id: string; name: string };
+                        // Update local cache
+                        dbCategories.subcategories.push(subcategory);
+                        product.subcategory = subcategory.name;
+                    }
+                } else {
+                    // Ensure consistent casing
                     product.subcategory = subcategory.name;
                 }
             }
@@ -241,8 +255,7 @@ ${formattedCategories}
   → subcategory: "Parle-G" (exact from list)
 
 💡 If a product truly doesn't fit any existing category:
-  • Suggest a new descriptive category name (but DO NOT create it in database)
-  • Categories/subcategories will be created when user submits products
+  • Only then create a new descriptive category name
   • This should be rare - try to fit products into existing categories first
 
 ⚠️ IMPORTANT: Include "category" and "subcategory" in EVERY product's JSON output!

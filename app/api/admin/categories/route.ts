@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
     // Fetch categories
     const { data: categories, error: categoriesError } = await supabase
       .from('categories')
-      .select('id, name, slug, image_url, created_at')
+      .select('id, name, slug, created_at')
       .order('name', { ascending: true });
 
     if (categoriesError) {
@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
     // Fetch subcategories
     const { data: subcategories, error: subcategoriesError } = await supabase
       .from('subcategories')
-      .select('id, category_id, name, slug, image_url, created_at')
+      .select('id, category_id, name, slug, created_at')
       .order('name', { ascending: true });
 
     if (subcategoriesError) {
@@ -267,7 +267,7 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const { id, type, name, category_id, image_url } = body;
+    const { id, type, name, category_id } = body;
 
     // Validate required fields
     if (!id) {
@@ -309,11 +309,6 @@ export async function PUT(request: NextRequest) {
 
         updateData.name = name.trim();
         updateData.slug = slug;
-      }
-
-      // Support image_url updates
-      if (image_url !== undefined) {
-        updateData.image_url = image_url;
       }
 
       if (Object.keys(updateData).length === 0) {
@@ -367,11 +362,6 @@ export async function PUT(request: NextRequest) {
         }
 
         updateData.category_id = category_id;
-      }
-
-      // Support image_url updates
-      if (image_url !== undefined) {
-        updateData.image_url = image_url;
       }
 
       if (Object.keys(updateData).length === 0) {

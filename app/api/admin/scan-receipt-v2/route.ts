@@ -26,23 +26,7 @@ export interface ScanReceiptV2Response {
 
 export async function POST(request: NextRequest): Promise<NextResponse<ScanReceiptV2Response>> {
   try {
-    // Parse request body with error handling
-    let body: ScanReceiptV2Request;
-    try {
-      const requestBody = await request.json();
-      body = requestBody as ScanReceiptV2Request;
-    } catch (parseError) {
-      console.error('Failed to parse request body:', parseError);
-      return NextResponse.json(
-        {
-          success: false,
-          products: [],
-          confidence: 0,
-          error: 'Invalid request format. Expected JSON with image field.',
-        },
-        { status: 400 }
-      );
-    }
+    const body = await request.json() as ScanReceiptV2Request;
 
     // Validate image data
     if (!body.image) {
@@ -118,42 +102,15 @@ export async function POST(request: NextRequest): Promise<NextResponse<ScanRecei
     }
 
     // Extract products using V2 service
-    let result: ReceiptExtractionResultV2;
-    try {
-      result = await extractProductsFromReceiptV2(imageBuffer);
-    } catch (extractionError: any) {
-      console.error('Error in product extraction:', extractionError);
-      return NextResponse.json(
-        {
-          success: false,
-          products: [],
-          confidence: 0,
-          error: extractionError.message || 'Failed to extract products from receipt',
-        },
-        { status: 500 }
-      );
-    }
-
-    // Ensure result is valid
-    if (!result) {
-      return NextResponse.json(
-        {
-          success: false,
-          products: [],
-          confidence: 0,
-          error: 'Extraction service returned invalid result',
-        },
-        { status: 500 }
-      );
-    }
+    const result: ReceiptExtractionResultV2 = await extractProductsFromReceiptV2(imageBuffer);
 
     const statusCode = result.success ? 200 : 500;
 
     return NextResponse.json(
       {
         success: result.success,
-        products: result.products || [],
-        confidence: result.confidence || 0,
+        products: result.products,
+        confidence: result.confidence,
         metadata: result.metadata,
         error: result.error,
       },
@@ -161,14 +118,12 @@ export async function POST(request: NextRequest): Promise<NextResponse<ScanRecei
     );
   } catch (error: any) {
     console.error('Error in scan receipt V2 API:', error);
-    // Ensure we always return valid JSON, even on unexpected errors
-    const errorMessage = error?.message || String(error) || 'Unknown error occurred';
     return NextResponse.json(
       {
         success: false,
         products: [],
         confidence: 0,
-        error: `Server error: ${errorMessage}`,
+        error: error.message || 'Unknown error occurred',
       },
       { status: 500 }
     );
