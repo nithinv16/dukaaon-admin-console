@@ -80,7 +80,7 @@ interface Activity {
 }
 
 export default function EmployeeTrackingPage() {
-    const { user } = useAuth();
+    const { user, loading: authLoading } = useAuth();
     const router = useRouter();
     const [loading, setLoading] = useState(true);
     const [summary, setSummary] = useState<ActivitySummary | null>(null);
@@ -88,20 +88,26 @@ export default function EmployeeTrackingPage() {
     const [activities, setActivities] = useState<Activity[]>([]);
     const [breakdown, setBreakdown] = useState<Record<string, number>>({});
     const [dailyBreakdown, setDailyBreakdown] = useState<any[]>([]);
+    const [pageStats, setPageStats] = useState<any[]>([]);
+    const [activeTargets, setActiveTargets] = useState<any[]>([]);
     const [selectedEmployee, setSelectedEmployee] = useState('');
     const [employees, setEmployees] = useState<Array<{ id: string; name: string; email: string }>>([]);
     const [dateRange, setDateRange] = useState({
         start: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         end: new Date().toISOString().split('T')[0],
     });
+    const [accessDenied, setAccessDenied] = useState(false);
 
-    // Access control: redirect employees
+    // Access control: redirect employees immediately
     useEffect(() => {
-        if (user && user.role === 'Employee') {
-            toast.error('Access denied: You do not have permission to view this page');
-            router.push('/');
+        if (!authLoading && user) {
+            if (user.role === 'Employee') {
+                setAccessDenied(true);
+                toast.error('Access denied: You do not have permission to view this page');
+                router.push('/');
+            }
         }
-    }, [user, router]);
+    }, [user, authLoading, router]);
 
     useEffect(() => {
         loadEmployees();
@@ -147,6 +153,8 @@ export default function EmployeeTrackingPage() {
                 setActivities(data.activities || []);
                 setBreakdown(data.breakdown || {});
                 setDailyBreakdown(data.dailyBreakdown || []);
+                setPageStats(data.pageStats || []);
+                setActiveTargets(data.activeTargets || []);
             } else {
                 throw new Error('Failed to fetch metrics');
             }
@@ -177,8 +185,17 @@ export default function EmployeeTrackingPage() {
 
     const selectedEmployeeName = employees.find((e) => e.id === selectedEmployee)?.name || 'Employee';
 
+    // Show loading while checking authentication
+    if (authLoading) {
+        return (
+            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '50vh' }}>
+                <CircularProgress />
+            </Box>
+        );
+    }
+
     // Show access denied for employees
-    if (user?.role === 'Employee') {
+    if (accessDenied || user?.role === 'Employee') {
         return (
             <Box sx={{ p: { xs: 2, sm: 3 } }}>
                 <Alert severity="error">
@@ -423,6 +440,96 @@ export default function EmployeeTrackingPage() {
                             </TableContainer>
                         </CardContent>
                     </Card>
+
+                    {/* Active Targets */}
+                    {activeTargets.length > 0 && (
+                        <Card sx={{ mb: 3 }}>
+                            <CardContent>
+                                <Typography variant="h6" gutterBottom>
+                                    Active Targets
+                                </Typography>
+                                <Grid container spacing={2}>
+                                    {activeTargets.map((target: any) => (
+                                        <Grid item xs={12} md={6} key={target.id}>
+                                            <Paper sx={{ p: 2, border: 1, borderColor: 'primary.light' }}>
+                                                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                                                    <Typography variant="subtitle2">
+                                                        {target.period_type.charAt(0).toUpperCase() + target.period_type.slice(1)} Target
+                                                    </Typography>
+                                                    <Chip
+                                                        label={`${target.completion_percentage || 0}%`}
+                                                        color={target.completion_percentage >= 80 ? 'success' : target.completion_percentage >= 50 ? 'warning' : 'error'}
+                                                        size="small"
+                                                    />
+                                                </Box>
+                                                <Typography variant="caption" color="text.secondary" display="block" gutterBottom>
+                                                    {new Date(target.period_start).toLocaleDateString()} - {new Date(target.period_end).toLocaleDateString()}
+                                                </Typography>
+                                                <Grid container spacing={1} sx={{ mt: 1 }}>
+                                                    <Grid item xs={6}>
+                                                        <Typography variant="body2">
+                                                            Products: {target.actual_products_created || 0}/{target.target_products_created}
+                                                        </Typography>
+                                                    </Grid>
+                                                    <Grid item xs={6}>
+                                                        <Typography variant="body2">
+                                                            Hours: {(target.actual_active_hours || 0).toFixed(1)}/{target.target_active_hours}h
+                                                        </Typography>
+                                                    </Grid>
+                                                </Grid>
+                                            </Paper>
+                                        </Grid>
+                                    ))}
+                                </Grid>
+                            </CardContent>
+                        </Card>
+                    )}
+
+                    {/* Page Visit Statistics */}
+                    {pageStats.length > 0 && (
+                        <Card sx={{ mb: 3 }}>
+                            <CardContent>
+                                <Typography variant="h6" gutterBottom>
+                                    Page Visit Statistics
+                                </Typography>
+                                <TableContainer>
+                                    <Table size="small">
+                                        <TableHead>
+                                            <TableRow>
+                                                <TableCell>Page</TableCell>
+                                                <TableCell align="right">Visits</TableCell>
+                                                <TableCell align="right">Total Time</TableCell>
+                                                <TableCell align="right">Avg Time</TableCell>
+                                            </TableRow>
+                                        </TableHead>
+                                        <TableBody>
+                                            {pageStats.slice(0, 10).map((page: any) => (
+                                                <TableRow key={page.page_path}>
+                                                    <TableCell>
+                                                        <Typography variant="body2" fontWeight="medium">
+                                                            {page.page_name}
+                                                        </Typography>
+                                                        <Typography variant="caption" color="text.secondary">
+                                                            {page.page_path}
+                                                        </Typography>
+                                                    </TableCell>
+                                                    <TableCell align="right">{page.visit_count}</TableCell>
+                                                    <TableCell align="right">
+                                                        {formatDuration(Math.round(page.total_duration_seconds / 60))}
+                                                    </TableCell>
+                                                    <TableCell align="right">
+                                                        {page.avg_duration_seconds < 60
+                                                            ? `${page.avg_duration_seconds}s`
+                                                            : formatDuration(Math.round(page.avg_duration_seconds / 60))}
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                </TableContainer>
+                            </CardContent>
+                        </Card>
+                    )}
 
                     {/* Sessions Table */}
                     <Card sx={{ mb: 3 }}>

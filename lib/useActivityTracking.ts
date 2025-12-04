@@ -6,14 +6,16 @@ const ACTIVITY_EVENTS = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchst
 
 /**
  * Hook to track employee activity and detect idle time
+ * Tracks: website opening, mouse/keyboard activity, tab visibility, browser/tab close
  * Sends heartbeat to server with activity status
- * Automatically handles browser close/refresh
+ * Automatically ends session on browser/tab close
  */
 export function useActivityTracking() {
     const lastActivityRef = useRef<number>(Date.now());
     const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
     const sessionIdRef = useRef<string | null>(null);
     const isActiveRef = useRef<boolean>(true);
+    const isUnloadingRef = useRef<boolean>(false);
 
     // Update last activity timestamp
     const updateActivity = useCallback(() => {
@@ -24,14 +26,14 @@ export function useActivityTracking() {
         }
     }, []);
 
-    // Check if user is currently idle
+    // Check if user is currently idle (no mouse/keyboard activity for > 1 minute)
     const checkIdleStatus = useCallback(() => {
         const timeSinceLastActivity = Date.now() - lastActivityRef.current;
         const wasActive = isActiveRef.current;
         isActiveRef.current = timeSinceLastActivity < IDLE_THRESHOLD_MS;
 
         if (wasActive && !isActiveRef.current) {
-            console.log('🟡 Employee went idle');
+            console.log('🟡 Employee went idle (no mouse/keyboard for 1+ min)');
         }
 
         return isActiveRef.current;
@@ -65,31 +67,77 @@ export function useActivityTracking() {
     // Handle page visibility change (tab switching, minimize)
     const handleVisibilityChange = useCallback(() => {
         if (document.hidden) {
-            // Tab hidden - mark as potentially idle
+            // Tab hidden - mark as idle and close activity period
             isActiveRef.current = false;
             sendHeartbeat();
         } else {
-            // Tab visible again - mark as active
+            // Tab visible again - mark as active and start new activity period
             updateActivity();
             sendHeartbeat();
         }
     }, [updateActivity, sendHeartbeat]);
 
-    // Handle before unload (browser close, refresh)
+    // Handle before unload (browser close, tab close, refresh, navigation away)
+    // This is the primary handler for ending sessions when user closes browser/tab
     const handleBeforeUnload = useCallback(() => {
+        if (isUnloadingRef.current) return; // Prevent duplicate calls
+        isUnloadingRef.current = true;
+
         const sessionId = sessionIdRef.current || localStorage.getItem('tracking_session_id');
         if (!sessionId) return;
 
-        // Use sendBeacon for guaranteed delivery
+        console.log('🚪 Browser/tab closing - ending session');
+
+        // Use sendBeacon for guaranteed delivery even when browser is closing
+        // Send "end" action to properly close the session
         const data = JSON.stringify({
             session_id: sessionId,
-            action: 'heartbeat',
+            action: 'end', // End the session, not just heartbeat
             is_active: false,
             last_activity: new Date(lastActivityRef.current).toISOString(),
             browser_closed: true,
         });
 
         navigator.sendBeacon('/api/admin/sessions', data);
+    }, []);
+
+    // Handle pagehide (more reliable than beforeunload on mobile)
+    const handlePageHide = useCallback((event: PageTransitionEvent) => {
+        if (isUnloadingRef.current) return;
+        
+        // persisted = true means page might be restored from bfcache
+        // persisted = false means page is being destroyed (closed)
+        if (!event.persisted) {
+            isUnloadingRef.current = true;
+
+            const sessionId = sessionIdRef.current || localStorage.getItem('tracking_session_id');
+            if (!sessionId) return;
+
+            console.log('🚪 Page hidden (destroying) - ending session');
+
+            const data = JSON.stringify({
+                session_id: sessionId,
+                action: 'end',
+                is_active: false,
+                last_activity: new Date(lastActivityRef.current).toISOString(),
+                browser_closed: true,
+            });
+
+            navigator.sendBeacon('/api/admin/sessions', data);
+        } else {
+            // Page might be restored, just mark as idle
+            const sessionId = sessionIdRef.current || localStorage.getItem('tracking_session_id');
+            if (!sessionId) return;
+
+            const data = JSON.stringify({
+                session_id: sessionId,
+                action: 'heartbeat',
+                is_active: false,
+                last_activity: new Date(lastActivityRef.current).toISOString(),
+            });
+
+            navigator.sendBeacon('/api/admin/sessions', data);
+        }
     }, []);
 
     useEffect(() => {
@@ -100,23 +148,24 @@ export function useActivityTracking() {
             return;
         }
 
-        console.log('🎯 Activity tracking started');
+        console.log('🎯 Activity tracking started - monitoring mouse/keyboard');
 
-        // Attach activity listeners
+        // Attach activity listeners for mouse and keyboard
         ACTIVITY_EVENTS.forEach(event => {
             window.addEventListener(event, updateActivity, { passive: true });
         });
 
-        // Attach visibility change listener
+        // Attach visibility change listener (tab switch, minimize)
         document.addEventListener('visibilitychange', handleVisibilityChange);
 
-        // Attach before unload listener
+        // Attach unload listeners for browser/tab close
         window.addEventListener('beforeunload', handleBeforeUnload);
+        window.addEventListener('pagehide', handlePageHide);
 
         // Start heartbeat interval
         heartbeatIntervalRef.current = setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS);
 
-        // Send initial heartbeat
+        // Send initial heartbeat to mark session start on website open
         sendHeartbeat();
 
         // Cleanup
@@ -129,16 +178,19 @@ export function useActivityTracking() {
             });
             document.removeEventListener('visibilitychange', handleVisibilityChange);
             window.removeEventListener('beforeunload', handleBeforeUnload);
+            window.removeEventListener('pagehide', handlePageHide);
 
             // Clear interval
             if (heartbeatIntervalRef.current) {
                 clearInterval(heartbeatIntervalRef.current);
             }
 
-            // Send final heartbeat
-            sendHeartbeat();
+            // Send final heartbeat (not session end - component unmount doesn't mean browser close)
+            if (!isUnloadingRef.current) {
+                sendHeartbeat();
+            }
         };
-    }, [updateActivity, sendHeartbeat, handleVisibilityChange, handleBeforeUnload]);
+    }, [updateActivity, sendHeartbeat, handleVisibilityChange, handleBeforeUnload, handlePageHide]);
 
     return {
         isActive: isActiveRef.current,

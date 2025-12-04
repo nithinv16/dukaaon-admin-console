@@ -45,6 +45,8 @@ import {
   Store,
   Security,
   Send,
+  Speed,
+  Flag,
 } from '@mui/icons-material';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
@@ -77,7 +79,9 @@ const menuItems: MenuItem[] = [
   { text: 'Analytics', icon: <Analytics />, path: '/analytics', adminOnly: false },
   { text: 'Database Tools', icon: <Storage />, path: '/database-tools', adminOnly: false },
   { text: 'Audit Log', icon: <History />, path: '/audit-log', adminOnly: true },
+  { text: 'Live Dashboard', icon: <Speed />, path: '/live-dashboard', adminOnly: true },
   { text: 'Employee Tracking', icon: <Assessment />, path: '/employee-tracking', adminOnly: true },
+  { text: 'Employee Targets', icon: <Flag />, path: '/employee-targets', adminOnly: true },
   { text: 'Seller Inventory', icon: <Store />, path: '/seller-inventory', adminOnly: false },
   { text: 'Bulk Operations', icon: <People />, path: '/bulk-operations', adminOnly: false },
   { text: 'Templates', icon: <Campaign />, path: '/templates', adminOnly: false },
@@ -104,8 +108,19 @@ export default function Layout({ children }: LayoutProps) {
     return { useActivityTracking: () => ({}) };
   }, []);
 
+  // Import and use page tracking for logged-in employees
+  const { usePageTracking } = React.useMemo(() => {
+    if (typeof window !== 'undefined') {
+      return require('@/lib/usePageTracking');
+    }
+    return { usePageTracking: () => ({}) };
+  }, []);
+
   // Track activity for all authenticated users
   useActivityTracking();
+  
+  // Track page visits for all authenticated users
+  usePageTracking();
 
 
 

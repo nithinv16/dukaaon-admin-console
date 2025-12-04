@@ -5,11 +5,12 @@ import {
   updateSessionActivity,
   getClientIP,
   getLocationFromIP,
+  cleanupStaleSessions,
 } from '@/lib/employeeTracking';
 
 /**
  * POST /api/admin/sessions
- * Create a new session (called on login)
+ * Create a new session (called on login or website open)
  */
 export async function POST(request: NextRequest) {
   try {
@@ -22,6 +23,10 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    // Cleanup any stale sessions for this admin (sessions without heartbeat for > 2 minutes)
+    // This handles cases where browser crashed or closed without proper session end
+    await cleanupStaleSessions(admin_id);
 
     const ipAddress = getClientIP(request);
     const userAgent = request.headers.get('user-agent') || undefined;
@@ -55,11 +60,12 @@ export async function POST(request: NextRequest) {
 /**
  * PUT /api/admin/sessions
  * Update session activity (heartbeat) or end session
+ * Handles: heartbeat, logout, browser close, tab close
  */
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const { session_id, action } = body;
+    const { session_id, action, browser_closed } = body;
 
     if (!session_id) {
       return NextResponse.json(
@@ -68,7 +74,9 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    if (action === 'end' || action === 'logout') {
+    // Handle session end (logout, browser close, tab close)
+    if (action === 'end' || action === 'logout' || browser_closed) {
+      console.log(`📤 Ending session ${session_id} (action: ${action}, browser_closed: ${browser_closed})`);
       await endAdminSession(session_id);
       return NextResponse.json({
         success: true,
