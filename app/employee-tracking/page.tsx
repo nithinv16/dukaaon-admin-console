@@ -80,7 +80,7 @@ interface Activity {
 }
 
 export default function EmployeeTrackingPage() {
-    const { user, loading: authLoading } = useAuth();
+    const { user } = useAuth();
     const router = useRouter();
     const [loading, setLoading] = useState(true);
     const [summary, setSummary] = useState<ActivitySummary | null>(null);
@@ -96,18 +96,14 @@ export default function EmployeeTrackingPage() {
         start: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         end: new Date().toISOString().split('T')[0],
     });
-    const [accessDenied, setAccessDenied] = useState(false);
 
-    // Access control: redirect employees immediately
+    // Access control: redirect employees
     useEffect(() => {
-        if (!authLoading && user) {
-            if (user.role === 'Employee') {
-                setAccessDenied(true);
-                toast.error('Access denied: You do not have permission to view this page');
-                router.push('/');
-            }
+        if (user && user.role === 'Employee') {
+            toast.error('Access denied: You do not have permission to view this page');
+            router.push('/');
         }
-    }, [user, authLoading, router]);
+    }, [user, router]);
 
     useEffect(() => {
         loadEmployees();
@@ -185,17 +181,8 @@ export default function EmployeeTrackingPage() {
 
     const selectedEmployeeName = employees.find((e) => e.id === selectedEmployee)?.name || 'Employee';
 
-    // Show loading while checking authentication
-    if (authLoading) {
-        return (
-            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '50vh' }}>
-                <CircularProgress />
-            </Box>
-        );
-    }
-
     // Show access denied for employees
-    if (accessDenied || user?.role === 'Employee') {
+    if (user?.role === 'Employee') {
         return (
             <Box sx={{ p: { xs: 2, sm: 3 } }}>
                 <Alert severity="error">

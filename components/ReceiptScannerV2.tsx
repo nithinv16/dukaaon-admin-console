@@ -148,7 +148,23 @@ export default function ReceiptScannerV2({
         }),
       });
 
-      const result = await response.json();
+      // Try to parse response as JSON, with better error handling
+      let result;
+      try {
+        const responseText = await response.text();
+        if (!responseText || responseText.trim() === '') {
+          throw new Error('Server returned an empty response. This may indicate a timeout or server error. Please try again.');
+        }
+        result = JSON.parse(responseText);
+      } catch (parseError) {
+        // If JSON parsing fails, the server likely crashed or timed out
+        console.error('Failed to parse response:', parseError);
+        throw new Error(
+          'Failed to process the receipt. The server may have timed out or encountered an error. ' +
+          'Please ensure AWS Bedrock credentials are configured correctly and try again. ' +
+          'If the issue persists, check the server logs for more details.'
+        );
+      }
 
       if (!response.ok) {
         throw new Error(result.error || 'Failed to scan receipt');

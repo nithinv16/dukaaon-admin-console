@@ -22,19 +22,23 @@ import { parseBedrockJSON } from './awsBedrock';
 export interface ExtractedProductV2 {
   id: string;
   name: string; // Clean product name only
+  brand?: string; // Brand name (AI-suggested, e.g., "Cadbury", "Parle", "Britannia")
   quantity: number;
   unit: string; // pieces, kg, g, pack, etc.
-  netAmount: number; // Total amount for this product
+  netAmount: number; // Total amount for this product (from "Net Amt" or "Total" column - LAST column)
   unitPrice: number; // Calculated: netAmount / quantity
   confidence: number; // 0-1 confidence score
   needsReview: boolean; // Flag if confidence is low
   rowIndex: number; // Original row index from receipt
-  description?: string; // AI-generated intelligent description
-  category?: string; // Product category
-  subcategory?: string; // Product subcategory
+  description?: string; // AI-generated intelligent description (includes MRP if available)
+  category?: string; // Product category (suggested by AI, not auto-saved to DB)
+  subcategory?: string; // Product subcategory (suggested by AI, not auto-saved to DB)
   stockAvailable?: number; // Stock available for the product (default: 100)
-  minOrderQuantity?: number; // Minimum order quantity (default: 1)
+  minOrderQuantity?: number; // Minimum order quantity (AI-suggested based on product type and price)
   imageUrl?: string; // Product image (base64 or URL)
+  mrp?: number; // MRP from receipt (if available)
+  categoryIsNew?: boolean; // Flag if category is new (not in DB)
+  subcategoryIsNew?: boolean; // Flag if subcategory is new (not in DB)
 }
 
 export interface ReceiptExtractionResultV2 {
@@ -270,20 +274,43 @@ function shouldSkipLine(line: string, lineIndex: number, totalLines: number): bo
   return false;
 }
 
-// Fallback extraction functions removed as per requirements
-// Scan Receipt 2.0 uses ONLY AWS Textract + Claude Sonnet 4.5 (no fallback)
-
 /**
  * Direct vision-based product extraction using Claude Sonnet 4.5
  * Sends the receipt image directly to Claude without AWS Textract preprocessing
  * This is used when Textract fails to identify the product table correctly
+ * 
+ * @param imageBuffer - The receipt image buffer
+ * @param categoriesContext - Optional context about existing categories/subcategories
  */
 async function extractProductsWithVision(
-  imageBuffer: Buffer
+  imageBuffer: Buffer,
+  categoriesContext?: { categories: string[]; subcategories: Record<string, string[]> }
 ): Promise<ExtractedProductV2[]> {
   const { invokeEnhancedModelWithVision } = await import('./awsBedrockEnhanced');
 
-  const prompt = `You are an expert at extracting product data from receipt images. Analyze this receipt image and extract ALL products.
+  // Build categories context for AI
+  let categoriesPromptSection = '';
+  if (categoriesContext && categoriesContext.categories.length > 0) {
+    categoriesPromptSection = `
+7️⃣  EXISTING CATEGORIES FOR MAPPING:
+   Use these existing categories when possible. If no match, suggest a new one.
+   
+   📂 AVAILABLE CATEGORIES:
+   ${categoriesContext.categories.join(', ')}
+   
+   📁 AVAILABLE SUBCATEGORIES BY CATEGORY:
+   ${Object.entries(categoriesContext.subcategories || {}).map(([cat, subs]) =>
+      `   • ${cat}: ${subs.join(', ')}`
+    ).join('\n')}
+   
+   ⚠️ IMPORTANT: 
+   - Prefer existing categories/subcategories if they match
+   - Set "categoryIsNew": true if suggesting a new category not in the list
+   - Set "subcategoryIsNew": true if suggesting a new subcategory not in the list
+`;
+  }
+
+  const prompt = `You are an expert at extracting product data from Indian FMCG/Retail receipt images. Analyze this receipt image and extract ALL products.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🎯 YOUR MISSION: Extract EVERY SINGLE product from the receipt
@@ -292,89 +319,151 @@ async function extractProductsWithVision(
 📜 CRITICAL INSTRUCTIONS:
 
 1️⃣  FIND THE PRODUCT TABLE:
-   • Look for the table with individual product rows (usually 10-50 rows)
-   • Each row has: Product Name, Quantity (Pcs), Net Amount
-   • IGNORE footer sections (declarations, signatures, etc.)
+   • Look for the table with individual product rows (usually 5-50 rows)
+   • Each row typically has: SI, HSN, PCode, Item Description, MRP, Pcs, various amounts
+   • IGNORE footer sections (declarations, signatures, Total row)
    • IGNORE tax summary tables (CGST/SGST breakdowns)
 
-2️⃣  EXTRACT FROM EVERY ROW:
-   • Product Name: COMPLETE description from the "Description" or "Item Description" column
-   • Quantity: From "Pcs" or "Pieces" column  
-   • Net Amount: From "Net Amt" or "Net Amount" column
-   • Calculate: unitPrice = netAmount / quantity
+2️⃣  ⚠️⚠️⚠️ CRITICAL: NET AMOUNT COLUMN IDENTIFICATION ⚠️⚠️⚠️
+   
+   The NET AMOUNT is the FINAL amount for the product AFTER all taxes.
+   
+   🔴 NET AMOUNT IS ALWAYS IN THE **LAST or SECOND-TO-LAST** COLUMN!
+   
+   ✅ CORRECT columns for Net Amount (priority order):
+      1. "Net Amt" (most common - LAST column)
+      2. "Net Amount" 
+      3. "Total" (sometimes in last column)
+      4. "Amount"
+      5. "Amt"
+   
+   ❌ WRONG columns - DO NOT USE THESE as Net Amount:
+      • "Taxable Amt" or "Taxable Amount" or "Taxable" (this is BEFORE taxes)
+      • "Gross Amt" or "Gross Amount" (this is before discounts)
+      • "SCH Amt" (scheme amount - discount)
+      • "Disc Amt" (discount amount)
+      • "CGST Amt" or "SGST Amt" (these are tax amounts)
+      • "Pc Price" (per piece price, not total)
+   
+   📋 EXAMPLE FROM RECEIPT:
+      Row: "OB KIDS RS 25 CHOTA BHEEM HC | MRP: 198.00 | Pcs: 24 | ... | Taxable: 152.82 | ... | Net Amt: 160.46"
+      
+      ✅ CORRECT: netAmount = 160.46 (from "Net Amt" - LAST column)
+      ❌ WRONG: netAmount = 152.82 (Taxable is NOT the final amount!)
 
-3️⃣  IMPORTANT CALCULATIONS:
-   unitPrice = Net Amount ÷ Quantity
-   
-   Example: If Net Amt=166.67 and Pcs=5, then unitPrice=33.33
+3️⃣  QUANTITY EXTRACTION:
+   • Get quantity from "Pcs" or "Pieces" or "Qty" column
+   • This is the number of items, NOT "Cs" (cases) or "UPC"
+   • Typical values: 1, 5, 10, 12, 24, 48, etc.
 
-4️⃣  PRODUCT NAME EXTRACTION RULES:
-   ⚠️  CRITICAL: Extract the COMPLETE product name/description EXACTLY as shown in the receipt!
+4️⃣  UNIT EXTRACTION (IMPORTANT):
+   Receipts may have different column names: "Unit", "Units", "Qty", "Pcs", "Pieces"
    
-   ✓ KEEP ALL THESE in the product name:
-      • Product brand/name (e.g., "CDM", "FIVE STAR", "DAIRY MILK")
-      • Weights/sizes (e.g., "40G", "100G", "1KG", "500ML")
-      • Pricing info (e.g., "RS 45", "RS.10", "MRP 20")
-      • Variant names (e.g., "S.SET", "BDKU", "FLOAV")
-      • Pack types (e.g., "PRICING", "FAMILY PACK")
+   📋 RECEIPT ABBREVIATIONS → OUR UNIT FORMAT:
+   • "Pcs", "Pieces", "Pc", "PCS" → "pieces"
+   • "Kg", "KG", "Kgs", "KGS" → "kg"
+   • "Gm", "GM", "Gms", "GMS", "g" → "grams"
+   • "Ltr", "LTR", "L", "Lt" → "liters"
+   • "Ml", "ML" → "ml"
+   • "Pkt", "PKT", "Pack" → "pack"
+   • "Box", "BOX" → "box"
+   • "Dz", "DZ", "Dozen" → "dozen"
+   • "Btl", "BTL", "Bottle" → "bottle"
+   • "Can", "CAN" → "can"
    
-   ✗ REMOVE ONLY THESE:
-      • HSN codes (numeric codes like "19041000", "33051090")
-      • PCode/Product codes (like "PCode: 80813857")
-      • UPC codes (like "UPC: 60")
-      • Batch numbers (like "Batch: 2021011")
+   🥬 SMART UNIT DETECTION BY PRODUCT TYPE:
+   If unit is not clearly mentioned in receipt, infer from product name:
+   
+   Products that should be "kg":
+   • Vegetables: Potato, Onion, Tomato, Garlic, Ginger, Carrot, Cabbage, Cauliflower
+   • Fruits: Apple, Banana, Orange, Mango, Grapes
+   • Dals/Pulses: Toor Dal, Chana Dal, Moong Dal, Urad Dal, Masoor Dal
+   • Rice: Basmati, Sona Masoori, any rice variety
+   • Flour/Atta: Wheat Flour, Maida, Besan, Suji
+   • Sugar, Salt, Jaggery
+   
+   Products that should be "liters" or "ml":
+   • Oils: Cooking Oil, Sunflower Oil, Mustard Oil, Coconut Oil
+   • Milk, Curd, Buttermilk
+   • Soft Drinks: Pepsi, Coca-Cola, 7UP, Sprite, Fanta (check if 2L, 1L, 500ml mentioned)
+   • Juices: Frooti, Real, Tropicana
+   
+   Products that should be "pieces" (default):
+   • Biscuits, Chocolates, Chips, Namkeen
+   • Soaps, Shampoo, Toothpaste
+   • Bread, Buns
+   • Most packaged FMCG products
+   
+   Products that should be "pack":
+   • Multi-pack items (4-pack soap, 3-pack noodles)
+   • Bundle items
+   
+   ⚠️ DEFAULT: If unsure, use "pieces"
+
+5️⃣  MRP EXTRACTION:
+   • Extract MRP from the "MRP" column if present
+   • MRP is the Maximum Retail Price (printed on product)
+   • Include in the "mrp" field in your response
+
+6️⃣  UNIT PRICE CALCULATION:
+   unitPrice = netAmount ÷ quantity
+   
+   Example: Net Amt = 160.46, Pcs = 24 → unitPrice = 160.46 / 24 = 6.69
+
+6️⃣  MINIMUM ORDER QUANTITY (minOrderQuantity):
+   Suggest appropriate minimum order quantity based on:
+   
+   📊 GUIDELINES:
+   • Low-price items (unitPrice < ₹15): minOrderQuantity = 12-24
+   • Medium-price items (₹15-50): minOrderQuantity = 6-12
+   • Higher-price items (₹50-100): minOrderQuantity = 3-6
+   • Premium items (> ₹100): minOrderQuantity = 1-3
    
    📋 EXAMPLES:
-      ✓ CORRECT: "CDM 40G RS 45 PRICING"
-      ✗ WRONG: "CDMG RS.PRICING"
-      
-      ✓ CORRECT: "FIVE STAR 40 30 20 10"
-      ✗ WRONG: "FIVE STAR"
-      
-      ✓ CORRECT: "DAIRY MILK 100G RS.60"
-      ✗ WRONG: "DAIRY MILK"
+   • Parle-G ₹10 pack: minOrderQuantity = 12
+   • Dairy Milk ₹50: minOrderQuantity = 6
+   • Shampoo bottle ₹200: minOrderQuantity = 3
+   • Premium product ₹500+: minOrderQuantity = 1
+${categoriesPromptSection}
+8️⃣  PRODUCT NAME EXTRACTION RULES:
+   ✓ KEEP: Brand name, variant, weight/size
+   ✗ REMOVE: HSN codes, PCode, UPC, batch numbers
+   
+   Example: "OB KIDS RS 25 CHOTA BHEEM HC" → "OB Kids Rs.25 Chota Bheem HC"
 
-5️⃣  DO NOT EXTRACT:
-   ✗ Channel names ("Traditional", "Small A Traditional")
-   ✗ Footer text ("Declaration:", "FOR KANBROS", "Signatory")
-   ✗ Tax summary rows
-   ✗ Header metadata (STN, CIN, GSTN, addresses)
+9️⃣  DESCRIPTION WITH MRP:
+   Create human-friendly description that includes MRP if available.
+   
+   Format: "[Expanded Product Name] | MRP ₹[mrp]"
+   
+   Examples:
+   • "Oral-B Kids Chota Bheem Toothbrush | MRP ₹198"
+   • "7UP 2LT | MRP ₹90"
+   • "Whisper Ultra XXL 7s | MRP ₹110"
 
-6️⃣  INTELLIGENT DESCRIPTION GENERATION:
-   🎯 For EACH product, generate a smart, human-friendly description
+🔟  BRAND EXTRACTION:
+   Identify and extract the brand/manufacturer name.
    
-   Transform abbreviated receipt text into readable product descriptions:
+   📋 COMMON INDIAN FMCG BRANDS:
+   • Chocolates: Cadbury, Nestle, Ferrero, Mars, Amul
+   • Biscuits: Parle, Britannia, ITC, Sunfeast, Oreo
+   • Snacks: Lays, Kurkure, Haldiram's, Bikaji, Balaji
+   • Beverages: Coca-Cola, Pepsi, Thums Up, Sprite, 7UP, Fanta, Maaza, Frooti
+   • Personal Care: Colgate, Oral-B, Dove, Lux, Lifebuoy, Pepsodent, Closeup
+   • Dairy: Amul, Mother Dairy, Nestle, Britannia
+   • Staples: Aashirvaad, Fortune, Saffola, Tata, Patanjali
+   • Noodles: Maggi, Yippee, Top Ramen, Knorr, Ching's
    
-   📋 TRANSFORMATION EXAMPLES:
-      Receipt: "CDM 40G RS 45 PRICING"
-      → description: "Cadbury Dairy Milk 40G MRP ₹45"
-      
-      Receipt: "FIVE STAR 40 30 20 10"
-      → description: "Five Star Chocolate Multi-pack (40g, 30g, 20g, 10g)"
-      
-      Receipt: "AASHIRVAAD 1KG RS.80"
-      → description: "Aashirvaad Atta 1KG MRP ₹80"
-      
-      Receipt: "MAGGI NOODLES 70G RS.12"
-      → description: "Maggi 2-Minute Noodles 70G MRP ₹12"
-   
-   ✓ USE YOUR KNOWLEDGE:
-      • Expand abbreviations: CDM → Cadbury Dairy Milk
-      • Add product category if obvious: "Chocolate", "Atta", "Noodles"
-      • Format weights properly: 40G → 40G, 1KG → 1KG
-      • Standardize price format: RS 45 → MRP ₹45
-      • Proper capitalization: "dairy milk" → "Dairy Milk"
-   
-   ⚠️ KEEP IT ACCURATE:
-      • Only expand abbreviations you're CONFIDENT about
-      • If unsure, keep original name with proper formatting
-      • Don't invent details not in the receipt
+   ⚠️ RULES:
+   • Extract the parent brand, not sub-brand (e.g., "Cadbury" not "Dairy Milk")
+   • If brand unclear, use your knowledge of Indian FMCG products
+   • If truly unknown, leave brand empty
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📤 RESPONSE FORMAT (CRITICAL)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-⚠️  RESPOND WITH ONLY A JSON ARRAY - NO MARKDOWN, NO CODE BLOCKS, NO EXPLANATIONS
+⚠️ RESPOND WITH ONLY A JSON ARRAY - NO MARKDOWN, NO CODE BLOCKS, NO EXPLANATIONS
 
 Your response must START with [ and END with ]
 
@@ -382,30 +471,59 @@ Format:
 [
   {
     "name": "Product Name Here",
-    "description": "Intelligent human-friendly description",
+    "brand": "Brand Name",
+    "description": "Human-friendly description | MRP ₹XX",
     "category": "Category Name",
     "subcategory": "Subcategory Name",
-    "quantity": 5,
+    "categoryIsNew": false,
+    "subcategoryIsNew": false,
+    "quantity": 24,
     "unit": "pieces",
-    "netAmount": 166.67,
-    "unitPrice": 33.33,
-    "confidence": 0.90
+    "mrp": 198.00,
+    "netAmount": 160.46,
+    "unitPrice": 6.69,
+    "minOrderQuantity": 12,
+    "confidence": 0.95
   },
-  ... (repeat for EVERY product row)
+  {
+    "name": "Potato Fresh",
+    "brand": "",
+    "description": "Fresh Potato 1KG",
+    "category": "Vegetables",
+    "subcategory": "Root Vegetables",
+    "categoryIsNew": false,
+    "subcategoryIsNew": false,
+    "quantity": 5,
+    "unit": "kg",
+    "mrp": null,
+    "netAmount": 150.00,
+    "unitPrice": 30.00,
+    "minOrderQuantity": 1,
+    "confidence": 0.90
+  }
 ]
 
-🔴 CRITICAL:
-• Extract ALL products from the itemized table
-• If you see 30 product rows, return 30 products
-• DO NOT stop at just 1 or 2 products!
-• Include BOTH "name" and "description" for EVERY product!
+🔴 CRITICAL REMINDERS:
+• Net Amount is from the LAST column (usually "Net Amt" or "Total")
+• DO NOT use "Taxable Amt" as Net Amount!
+• Extract MRP from the MRP column
+• Extract BRAND name (parent company/manufacturer)
+• Extract UNIT properly: Use "kg" for vegetables/dals/rice, "liters" for oils/milk, "pieces" for packaged goods
+• Normalize units: "Pcs" → "pieces", "KG" → "kg", "LTR" → "liters"
+• If unit unclear, infer from product type (e.g., Potato → "kg", Parle-G → "pieces")
+• Suggest minOrderQuantity based on unit price
+• Include MRP in description field
+• Extract ALL products (if 30 rows, return 30 products)
 
 START YOUR RESPONSE WITH [`;
 
   console.log('🖼️ Using Claude Vision (direct image analysis, bypassing Textract)');
+  if (categoriesContext) {
+    console.log(`📂 Provided ${categoriesContext.categories.length} categories for mapping`);
+  }
 
   const response = await invokeEnhancedModelWithVision(imageBuffer, prompt, {
-    maxTokens: 4096,
+    maxTokens: 8192, // Increased for larger receipts
     temperature: 0.1,
   });
 
@@ -432,22 +550,249 @@ START YOUR RESPONSE WITH [`;
       if (p.quantity <= 0 || p.netAmount <= 0) return false;
       return true;
     })
-    .map((p, idx) => ({
-      id: `prod_${Date.now()}_${idx}`,
-      name: cleanProductName(p.name),
-      description: p.description || cleanProductName(p.name), // AI-generated description or fallback to cleaned name
-      category: p.category || '',
-      subcategory: p.subcategory || '',
-      quantity: p.quantity || 1,
-      unit: p.unit || 'pieces',
-      netAmount: p.netAmount || 0,
-      unitPrice: p.unitPrice || (p.netAmount && p.quantity ? p.netAmount / p.quantity : 0),
-      confidence: p.confidence || 0.85,
-      needsReview: (p.confidence || 0.85) < 0.7,
-      rowIndex: idx,
-    }));
+    .map((p, idx) => {
+      const cleanedName = cleanProductName(p.name);
+      const mrp = p.mrp || undefined;
+
+      // Build description with MRP if available
+      let description = p.description || cleanedName;
+      if (mrp && !description.includes('MRP') && !description.includes('₹')) {
+        description = `${description} | MRP ₹${mrp}`;
+      }
+
+      return {
+        id: `prod_${Date.now()}_${idx}`,
+        name: cleanedName,
+        brand: p.brand || '', // AI-suggested brand
+        description: description,
+        category: p.category || '',
+        subcategory: p.subcategory || '',
+        categoryIsNew: p.categoryIsNew || false,
+        subcategoryIsNew: p.subcategoryIsNew || false,
+        quantity: p.quantity || 1,
+        // Smart unit handling: normalize AI extraction OR infer from product name
+        unit: normalizeUnit(p.unit) || suggestUnitFromProductName(cleanedName),
+        mrp: mrp,
+        netAmount: p.netAmount || 0,
+        unitPrice: p.unitPrice || (p.netAmount && p.quantity ? p.netAmount / p.quantity : 0),
+        // Min Order Qty: Use AI suggestion OR extracted quantity, whichever is SMALLER
+        // This ensures Min Qty doesn't exceed what was actually on the receipt
+        minOrderQuantity: Math.min(
+          p.minOrderQuantity || suggestMinOrderQuantity(p.unitPrice || (p.netAmount / p.quantity)),
+          p.quantity || 1
+        ),
+        confidence: p.confidence || 0.85,
+        needsReview: (p.confidence || 0.85) < 0.7,
+        rowIndex: idx,
+      };
+    });
 
   return validProducts;
+}
+
+/**
+ * Suggest minimum order quantity based on unit price
+ * Lower priced items typically need higher minimum quantities
+ */
+function suggestMinOrderQuantity(unitPrice: number): number {
+  if (unitPrice <= 0) return 1;
+  if (unitPrice < 10) return 24;     // Very cheap items (candies, small packs)
+  if (unitPrice < 20) return 12;     // Low-price items (biscuits, small snacks)
+  if (unitPrice < 50) return 6;      // Medium-price items (regular snacks, beverages)
+  if (unitPrice < 100) return 3;     // Higher-price items (larger packs)
+  if (unitPrice < 250) return 2;     // Premium items
+  return 1;                          // Expensive items
+}
+
+/**
+ * Normalize unit from various receipt abbreviations
+ * @param unit - Unit string from receipt/AI
+ * @returns Normalized unit string or empty if invalid
+ */
+function normalizeUnit(unit: string | undefined | null): string {
+  if (!unit) return '';
+
+  const normalized = unit.toLowerCase().trim();
+
+  // Pieces
+  if (/^(pcs?|pieces?|pices?|nos?|numbers?)$/i.test(normalized)) return 'pieces';
+
+  // Weight - Kilograms
+  if (/^(kg|kgs|kilogram|kilograms?)$/i.test(normalized)) return 'kg';
+
+  // Weight - Grams
+  if (/^(gm|gms|g|gram|grams?)$/i.test(normalized)) return 'grams';
+
+  // Volume - Liters
+  if (/^(l|lt|ltr|ltrs?|liter|liters?|litre|litres?)$/i.test(normalized)) return 'liters';
+
+  // Volume - Milliliters
+  if (/^(ml|mls?|milliliter|milliliters?)$/i.test(normalized)) return 'ml';
+
+  // Pack
+  if (/^(pkt|pkts?|pack|packs?|packet|packets?)$/i.test(normalized)) return 'pack';
+
+  // Box
+  if (/^(box|boxes?)$/i.test(normalized)) return 'box';
+
+  // Dozen
+  if (/^(dz|dzn|dozen)$/i.test(normalized)) return 'dozen';
+
+  // Bottle
+  if (/^(btl|btls?|bottle|bottles?)$/i.test(normalized)) return 'bottle';
+
+  // Can
+  if (/^(can|cans?)$/i.test(normalized)) return 'can';
+
+  // Carton
+  if (/^(ctn|carton|cartons?)$/i.test(normalized)) return 'carton';
+
+  // Case
+  if (/^(cs|case|cases?)$/i.test(normalized)) return 'case';
+
+  // If already a valid unit, return as-is
+  if (['pieces', 'kg', 'grams', 'liters', 'ml', 'pack', 'box', 'dozen', 'bottle', 'can', 'carton', 'case'].includes(normalized)) {
+    return normalized;
+  }
+
+  return ''; // Return empty to trigger fallback
+}
+
+/**
+ * Suggest unit based on product name for intelligent default
+ * Used when unit is not clearly mentioned in receipt
+ * @param productName - The product name to analyze
+ * @returns Suggested unit string
+ */
+function suggestUnitFromProductName(productName: string): string {
+  const name = productName.toLowerCase();
+
+  // ==========================================
+  // VEGETABLES & FRUITS → "kg"
+  // ==========================================
+  const kgProducts = [
+    // Vegetables
+    'potato', 'potatoes', 'aloo', 'batata',
+    'onion', 'onions', 'pyaj', 'pyaaz',
+    'tomato', 'tomatoes', 'tamatar',
+    'garlic', 'lahsun', 'lehsun',
+    'ginger', 'adrak',
+    'carrot', 'carrots', 'gajar',
+    'cabbage', 'patta gobhi', 'band gobhi',
+    'cauliflower', 'phool gobhi', 'gobi',
+    'brinjal', 'baingan', 'eggplant',
+    'capsicum', 'shimla mirch',
+    'cucumber', 'kheera', 'kakdi',
+    'lady finger', 'ladyfinger', 'bhindi', 'okra',
+    'beans', 'french beans',
+    'peas', 'matar',
+    'spinach', 'palak',
+    'coriander', 'dhania',
+    'methi', 'fenugreek',
+    'bitter gourd', 'karela',
+    'bottle gourd', 'lauki', 'doodhi',
+    'radish', 'mooli',
+    'beetroot', 'chukandar',
+    // Fruits
+    'apple', 'apples', 'seb',
+    'banana', 'bananas', 'kela',
+    'orange', 'oranges', 'santra', 'narangi',
+    'mango', 'mangoes', 'aam',
+    'grapes', 'angoor',
+    'papaya', 'papita',
+    'guava', 'amrood',
+    'pomegranate', 'anar',
+    'watermelon', 'tarbooj',
+    'pineapple', 'ananas',
+    // Dals/Pulses
+    'dal', 'daal',
+    'toor', 'arhar', 'tur',
+    'chana', 'chickpea', 'gram',
+    'moong', 'mung', 'green gram',
+    'urad', 'black gram',
+    'masoor', 'red lentil',
+    'rajma', 'kidney bean',
+    'pulses', 'lentils',
+    // Rice
+    'rice', 'chawal', 'basmati', 'sona masoori', 'sona masuri',
+    // Flour/Atta
+    'atta', 'flour', 'wheat flour', 'maida', 'besan', 'suji', 'rava', 'sooji',
+    // Sugar/Salt
+    'sugar', 'cheeni', 'shakkar',
+    'salt', 'namak',
+    'jaggery', 'gur', 'gud',
+  ];
+
+  for (const keyword of kgProducts) {
+    if (name.includes(keyword)) return 'kg';
+  }
+
+  // ==========================================
+  // LIQUID PRODUCTS → "liters" or "ml"
+  // ==========================================
+
+  // Check for specific size mentions first
+  if (/\d+\s*l\b|\d+\s*ltr|\d+\s*liters?/i.test(name)) return 'liters';
+  if (/\d+\s*ml\b/i.test(name)) return 'ml';
+
+  const literProducts = [
+    // Oils
+    'oil', 'tel',
+    'sunflower', 'refined',
+    'mustard oil', 'sarson',
+    'coconut oil', 'nariyal',
+    'groundnut oil', 'peanut oil',
+    'olive oil',
+    'vegetable oil',
+    // Milk & Dairy Liquids
+    'milk', 'doodh',
+    'curd', 'dahi', 'yogurt',
+    'buttermilk', 'chaas', 'lassi',
+    'ghee', // Usually comes in liters
+  ];
+
+  for (const keyword of literProducts) {
+    if (name.includes(keyword)) return 'liters';
+  }
+
+  const mlProducts = [
+    // Soft Drinks
+    'pepsi', 'coca cola', 'coke', 'thums up', 'thumbs up',
+    'sprite', '7up', '7 up', 'fanta', 'mirinda', 'limca',
+    // Juices
+    'frooti', 'maaza', 'real', 'tropicana', 'slice', 'appy',
+    // Shampoo/Personal Care (if liquid)
+    'shampoo', 'conditioner', 'body wash', 'hand wash',
+    'face wash', 'liquid soap', 'dettol liquid',
+    // Sauces
+    'sauce', 'ketchup', 'mayonnaise', 'mayo',
+  ];
+
+  for (const keyword of mlProducts) {
+    if (name.includes(keyword)) {
+      // Check if liters mentioned for soft drinks (2L, 1L)
+      if (/\d+\s*l\b|\d+\s*ltr/i.test(name)) return 'liters';
+      return 'ml'; // Default to ml for these
+    }
+  }
+
+  // ==========================================
+  // PACK PRODUCTS → "pack"
+  // ==========================================
+  const packProducts = [
+    'noodles', 'maggi', 'yippee', 'ramen',
+    'combo', 'bundle', 'multipack', 'multi-pack',
+    'family pack', 'value pack', 'economy pack',
+  ];
+
+  for (const keyword of packProducts) {
+    if (name.includes(keyword)) return 'pack';
+  }
+
+  // ==========================================
+  // DEFAULT → "pieces"
+  // ==========================================
+  return 'pieces';
 }
 
 /**
@@ -888,6 +1233,8 @@ To verify:
 
 /**
  * Main extraction function - combines AWS Textract + AI
+ * Fetches existing categories from DB and passes to AI for better mapping
+ * Categories are suggested but NOT automatically saved to DB during extraction
  */
 export async function extractProductsFromReceiptV2(
   imageBuffer: Buffer
@@ -902,14 +1249,44 @@ export async function extractProductsFromReceiptV2(
   }
 
   try {
-    // Use Claude Vision for direct image analysis (bypassing Textract)
+    // Step 1: Fetch existing categories from database for AI context
+    let categoriesContext: { categories: string[]; subcategories: Record<string, string[]> } | undefined;
+
+    try {
+      // Dynamically import to avoid SSR issues
+      const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/admin/categories`);
+      if (response.ok) {
+        const data = await response.json();
+        const categories: string[] = [];
+        const subcategories: Record<string, string[]> = {};
+
+        if (data.categories && Array.isArray(data.categories)) {
+          data.categories.forEach((cat: any) => {
+            categories.push(cat.name);
+            if (cat.subcategories && Array.isArray(cat.subcategories)) {
+              subcategories[cat.name] = cat.subcategories.map((sub: any) => sub.name);
+            }
+          });
+        }
+
+        categoriesContext = { categories, subcategories };
+        console.log(`📂 Loaded ${categories.length} categories from DB for AI context`);
+      } else {
+        console.warn('⚠️ Could not fetch categories from DB, AI will suggest new categories');
+      }
+    } catch (catError) {
+      console.warn('⚠️ Error fetching categories:', catError);
+      // Continue without categories context - AI will suggest new ones
+    }
+
+    // Step 2: Use Claude Vision for direct image analysis (bypassing Textract)
     // This is more reliable when receipts have complex table structures
     console.log('📸 Starting vision-based extraction with Claude Sonnet 4.5...');
 
     let products: ExtractedProductV2[] = [];
 
     try {
-      products = await extractProductsWithVision(imageBuffer);
+      products = await extractProductsWithVision(imageBuffer, categoriesContext);
     } catch (visionError: any) {
       const errorMsg = visionError.message || String(visionError);
 
@@ -958,7 +1335,7 @@ Scan Receipt 2.0 uses AWS Textract + Claude Sonnet 4.5 exclusively for best extr
       };
     }
 
-    // Step 4: Post-process and validate
+    // Step 3: Post-process and validate
     products = products.filter(p => {
       // Must have a valid product name
       if (!p.name || p.name.length < 2) return false;

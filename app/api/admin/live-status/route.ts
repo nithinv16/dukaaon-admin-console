@@ -4,7 +4,6 @@ import { getAdminSupabaseClient } from '@/lib/supabase-admin';
 /**
  * GET /api/admin/live-status
  * Get real-time status of all employees
- * Access: Admin/Super Admin only (employees cannot access)
  */
 export async function GET(request: NextRequest) {
     try {
@@ -26,59 +25,50 @@ export async function GET(request: NextRequest) {
         }
 
         // Get active sessions with last activity
-        let activeSessions: any[] = [];
-        try {
-            const { data, error } = await supabase
-                .from('admin_sessions')
-                .select('*')
-                .eq('is_active', true);
-            if (!error) activeSessions = data || [];
-        } catch (e) {
-            console.error('Error fetching sessions:', e);
+        const { data: activeSessions, error: sessionsError } = await supabase
+            .from('admin_sessions')
+            .select('*')
+            .eq('is_active', true);
+
+        if (sessionsError) {
+            console.error('Error fetching sessions:', sessionsError);
         }
 
         // Get today's activity metrics for each admin
-        let todayMetrics: any[] = [];
-        try {
-            const { data, error } = await supabase
-                .from('admin_activity_metrics')
-                .select('admin_id, action_type, entity_type, items_processed, operation_start_time')
-                .gte('operation_start_time', todayStart);
-            if (!error) todayMetrics = data || [];
-        } catch (e) {
-            console.error('Error fetching metrics:', e);
+        const { data: todayMetrics, error: metricsError } = await supabase
+            .from('admin_activity_metrics')
+            .select('admin_id, action_type, entity_type, items_processed, operation_start_time')
+            .gte('operation_start_time', todayStart);
+
+        if (metricsError) {
+            console.error('Error fetching metrics:', metricsError);
         }
 
         // Get today's active time from activity periods
-        let todayPeriods: any[] = [];
-        try {
-            const { data, error } = await supabase
-                .from('admin_activity_periods')
-                .select('admin_id, duration_minutes, period_start, period_end, is_active')
-                .gte('period_start', todayStart);
-            if (!error) todayPeriods = data || [];
-        } catch (e) {
-            console.error('Error fetching periods:', e);
+        const { data: todayPeriods, error: periodsError } = await supabase
+            .from('admin_activity_periods')
+            .select('admin_id, duration_minutes, period_start, period_end, is_active')
+            .gte('period_start', todayStart);
+
+        if (periodsError) {
+            console.error('Error fetching periods:', periodsError);
         }
 
-        // Get recent page visits (table might not exist yet)
-        let recentPageVisits: any[] = [];
-        try {
-            const { data, error } = await supabase
-                .from('admin_page_visits')
-                .select('admin_id, page_name, page_path, entry_time')
-                .gte('entry_time', new Date(Date.now() - 10 * 60 * 1000).toISOString())
-                .order('entry_time', { ascending: false });
-            if (!error) recentPageVisits = data || [];
-        } catch (e) {
-            // Table might not exist yet - that's okay
-            console.log('Page visits table not available yet');
+        // Get recent page visits
+        const { data: recentPageVisits, error: pageVisitsError } = await supabase
+            .from('admin_page_visits')
+            .select('admin_id, page_name, page_path, entry_time')
+            .gte('entry_time', new Date(Date.now() - 10 * 60 * 1000).toISOString()) // Last 10 minutes
+            .order('entry_time', { ascending: false });
+
+        if (pageVisitsError) {
+            console.error('Error fetching page visits:', pageVisitsError);
         }
 
         // Build live status for each admin
         const liveStatus = admins?.map((admin) => {
             // Find active session
-            const session = activeSessions.find((s) => s.admin_id === admin.id);
+            const session = activeSessions?.find((s) => s.admin_id === admin.id);
             
             // Calculate status
             let status: 'active' | 'idle' | 'offline' = 'offline';
@@ -99,31 +89,31 @@ export async function GET(request: NextRequest) {
             }
 
             // Calculate today's metrics
-            const adminMetrics = todayMetrics.filter((m) => m.admin_id === admin.id) || [];
+            const adminMetrics = todayMetrics?.filter((m) => m.admin_id === admin.id) || [];
             const productsCreated = adminMetrics.filter(
-                (m: any) => m.action_type === 'create_product' && m.entity_type === 'product'
+                (m) => m.action_type === 'create_product' && m.entity_type === 'product'
             ).length;
             const productsUpdated = adminMetrics.filter(
-                (m: any) => m.action_type === 'update_product' && m.entity_type === 'product'
+                (m) => m.action_type === 'update_product' && m.entity_type === 'product'
             ).length;
             const masterProductsCreated = adminMetrics.filter(
-                (m: any) => m.action_type === 'create_product' && m.entity_type === 'master_product'
+                (m) => m.action_type === 'create_product' && m.entity_type === 'master_product'
             ).length;
-            const bulkUploads = adminMetrics.filter((m: any) => m.action_type === 'bulk_upload').length;
-            const receiptScans = adminMetrics.filter((m: any) => m.action_type === 'scan_receipt').length;
+            const bulkUploads = adminMetrics.filter((m) => m.action_type === 'bulk_upload').length;
+            const receiptScans = adminMetrics.filter((m) => m.action_type === 'scan_receipt').length;
             const totalItemsProcessed = adminMetrics.reduce(
-                (sum: number, m: any) => sum + (m.items_processed || 0),
+                (sum, m) => sum + (m.items_processed || 0),
                 0
             );
 
             // Calculate today's active time
-            const adminPeriods = todayPeriods.filter((p) => p.admin_id === admin.id) || [];
+            const adminPeriods = todayPeriods?.filter((p) => p.admin_id === admin.id) || [];
             let todayActiveMinutes = adminPeriods
-                .filter((p: any) => p.is_active && p.duration_minutes)
-                .reduce((sum: number, p: any) => sum + (p.duration_minutes || 0), 0);
+                .filter((p) => p.is_active && p.duration_minutes)
+                .reduce((sum, p) => sum + (p.duration_minutes || 0), 0);
             
             // Add time from open periods
-            const openPeriod = adminPeriods.find((p: any) => p.is_active && !p.period_end);
+            const openPeriod = adminPeriods.find((p) => p.is_active && !p.period_end);
             if (openPeriod && status !== 'offline') {
                 const openDuration = Math.round(
                     (now.getTime() - new Date(openPeriod.period_start).getTime()) / 60000
@@ -131,8 +121,8 @@ export async function GET(request: NextRequest) {
                 todayActiveMinutes += openDuration;
             }
 
-            // Get current page from recent page visits
-            const recentVisit = recentPageVisits.find((v) => v.admin_id === admin.id);
+            // Get current page
+            const recentVisit = recentPageVisits?.find((v) => v.admin_id === admin.id);
             const currentPage = recentVisit?.page_name || null;
 
             // Determine current action based on recent activity

@@ -70,21 +70,9 @@ interface EmployeeTarget {
     created_at: string;
 }
 
-const defaultFormData: {
-    admin_id: string;
-    period_type: 'daily' | 'weekly' | 'monthly';
-    period_start: string;
-    period_end: string;
-    target_products_created: number;
-    target_products_updated: number;
-    target_master_products_created: number;
-    target_receipts_scanned: number;
-    target_active_hours: number;
-    target_items_processed: number;
-    notes: string;
-} = {
+const defaultFormData = {
     admin_id: '',
-    period_type: 'daily',
+    period_type: 'daily' as const,
     period_start: new Date().toISOString().split('T')[0],
     period_end: new Date().toISOString().split('T')[0],
     target_products_created: 10,
@@ -97,7 +85,7 @@ const defaultFormData: {
 };
 
 export default function EmployeeTargetsPage() {
-    const { user, loading: authLoading } = useAuth();
+    const { user } = useAuth();
     const router = useRouter();
     const [loading, setLoading] = useState(true);
     const [targets, setTargets] = useState<EmployeeTarget[]>([]);
@@ -108,18 +96,14 @@ export default function EmployeeTargetsPage() {
     const [filterStatus, setFilterStatus] = useState('all');
     const [filterPeriod, setFilterPeriod] = useState('all');
     const [saving, setSaving] = useState(false);
-    const [accessDenied, setAccessDenied] = useState(false);
 
-    // Access control - redirect employees immediately
+    // Access control
     useEffect(() => {
-        if (!authLoading && user) {
-            if (user.role === 'Employee') {
-                setAccessDenied(true);
-                toast.error('Access denied: You do not have permission to view this page');
-                router.push('/');
-            }
+        if (user && user.role === 'Employee') {
+            toast.error('Access denied: You do not have permission to view this page');
+            router.push('/');
         }
-    }, [user, authLoading, router]);
+    }, [user, router]);
 
     const loadEmployees = useCallback(async () => {
         try {
@@ -384,17 +368,7 @@ export default function EmployeeTargetsPage() {
         : 0;
     const onTrackCount = activeTargets.filter((t) => t.completion_percentage >= 50).length;
 
-    // Show loading while checking authentication
-    if (authLoading) {
-        return (
-            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '50vh' }}>
-                <CircularProgress />
-            </Box>
-        );
-    }
-
-    // Access denied for employees
-    if (accessDenied || user?.role === 'Employee') {
+    if (user?.role === 'Employee') {
         return (
             <Box sx={{ p: { xs: 2, sm: 3 } }}>
                 <Alert severity="error">

@@ -104,7 +104,7 @@ export function useActivityTracking() {
     // Handle pagehide (more reliable than beforeunload on mobile)
     const handlePageHide = useCallback((event: PageTransitionEvent) => {
         if (isUnloadingRef.current) return;
-        
+
         // persisted = true means page might be restored from bfcache
         // persisted = false means page is being destroyed (closed)
         if (!event.persisted) {
@@ -140,36 +140,93 @@ export function useActivityTracking() {
         }
     }, []);
 
-    useEffect(() => {
-        // Get session ID
-        sessionIdRef.current = localStorage.getItem('tracking_session_id');
-        if (!sessionIdRef.current) {
-            console.warn('No tracking session ID found');
-            return;
+    // Create tracking session if user is logged in but has no session
+    const createSessionIfNeeded = useCallback(async () => {
+        // Check if we already have a tracking session
+        const existingSessionId = localStorage.getItem('tracking_session_id');
+        if (existingSessionId) {
+            sessionIdRef.current = existingSessionId;
+            return existingSessionId;
         }
 
-        console.log('🎯 Activity tracking started - monitoring mouse/keyboard');
+        // Check if user is logged in
+        const adminSession = localStorage.getItem('admin_session');
+        if (!adminSession) {
+            console.log('🔒 No admin session found, skipping tracking');
+            return null;
+        }
 
-        // Attach activity listeners for mouse and keyboard
-        ACTIVITY_EVENTS.forEach(event => {
-            window.addEventListener(event, updateActivity, { passive: true });
-        });
+        try {
+            const admin = JSON.parse(adminSession);
+            if (!admin?.id) {
+                console.warn('⚠️ Invalid admin session data');
+                return null;
+            }
 
-        // Attach visibility change listener (tab switch, minimize)
-        document.addEventListener('visibilitychange', handleVisibilityChange);
+            console.log('📝 Creating tracking session for', admin.name || admin.email);
 
-        // Attach unload listeners for browser/tab close
-        window.addEventListener('beforeunload', handleBeforeUnload);
-        window.addEventListener('pagehide', handlePageHide);
+            const response = await fetch('/api/admin/sessions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ admin_id: admin.id }),
+            });
 
-        // Start heartbeat interval
-        heartbeatIntervalRef.current = setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS);
+            if (response.ok) {
+                const data = await response.json();
+                localStorage.setItem('tracking_session_id', data.session_id);
+                sessionIdRef.current = data.session_id;
+                console.log('✅ Tracking session created:', data.session_id);
+                return data.session_id;
+            } else {
+                console.error('❌ Failed to create tracking session:', await response.text());
+                return null;
+            }
+        } catch (error) {
+            console.error('❌ Error creating tracking session:', error);
+            return null;
+        }
+    }, []);
 
-        // Send initial heartbeat to mark session start on website open
-        sendHeartbeat();
+    useEffect(() => {
+        let mounted = true;
+
+        const initTracking = async () => {
+            // Try to get existing session ID or create a new one
+            const sessionId = await createSessionIfNeeded();
+
+            if (!mounted) return;
+
+            if (!sessionId) {
+                console.warn('⚠️ Could not establish tracking session');
+                return;
+            }
+
+            console.log('🎯 Activity tracking started - monitoring mouse/keyboard');
+
+            // Attach activity listeners for mouse and keyboard
+            ACTIVITY_EVENTS.forEach(event => {
+                window.addEventListener(event, updateActivity, { passive: true });
+            });
+
+            // Attach visibility change listener (tab switch, minimize)
+            document.addEventListener('visibilitychange', handleVisibilityChange);
+
+            // Attach unload listeners for browser/tab close
+            window.addEventListener('beforeunload', handleBeforeUnload);
+            window.addEventListener('pagehide', handlePageHide);
+
+            // Start heartbeat interval
+            heartbeatIntervalRef.current = setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS);
+
+            // Send initial heartbeat to mark session start on website open
+            sendHeartbeat();
+        };
+
+        initTracking();
 
         // Cleanup
         return () => {
+            mounted = false;
             console.log('🛑 Activity tracking stopped');
 
             // Remove event listeners
@@ -190,7 +247,7 @@ export function useActivityTracking() {
                 sendHeartbeat();
             }
         };
-    }, [updateActivity, sendHeartbeat, handleVisibilityChange, handleBeforeUnload, handlePageHide]);
+    }, [createSessionIfNeeded, updateActivity, sendHeartbeat, handleVisibilityChange, handleBeforeUnload, handlePageHide]);
 
     return {
         isActive: isActiveRef.current,

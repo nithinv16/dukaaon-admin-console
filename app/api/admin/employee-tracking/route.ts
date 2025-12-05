@@ -90,19 +90,17 @@ export async function GET(request: NextRequest) {
             breakdown[key] = (breakdown[key] || 0) + 1;
         });
 
-        // Get page visit statistics (table might not exist yet)
-        let pageVisits: any[] = [];
-        try {
-            const { data, error } = await supabase
-                .from('admin_page_visits')
-                .select('*')
-                .eq('admin_id', adminId)
-                .gte('entry_time', startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString())
-                .lte('entry_time', endDate || new Date().toISOString())
-                .order('entry_time', { ascending: false });
-            if (!error) pageVisits = data || [];
-        } catch (e) {
-            console.log('Page visits table not available yet');
+        // Get page visit statistics
+        const { data: pageVisits, error: pageVisitsError } = await supabase
+            .from('admin_page_visits')
+            .select('*')
+            .eq('admin_id', adminId)
+            .gte('entry_time', startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString())
+            .lte('entry_time', endDate || new Date().toISOString())
+            .order('entry_time', { ascending: false });
+
+        if (pageVisitsError) {
+            console.error('Error fetching page visits:', pageVisitsError);
         }
 
         // Calculate page visit stats
@@ -141,17 +139,15 @@ export async function GET(request: NextRequest) {
             .map(([path, stats]) => ({ page_path: path, ...stats }))
             .sort((a, b) => b.total_duration_seconds - a.total_duration_seconds);
 
-        // Get active targets for this employee (table might not exist yet)
-        let activeTargets: any[] = [];
-        try {
-            const { data, error } = await supabase
-                .from('employee_targets')
-                .select('*')
-                .eq('admin_id', adminId)
-                .eq('status', 'active');
-            if (!error) activeTargets = data || [];
-        } catch (e) {
-            console.log('Employee targets table not available yet');
+        // Get active targets for this employee
+        const { data: activeTargets, error: targetsError } = await supabase
+            .from('employee_targets')
+            .select('*')
+            .eq('admin_id', adminId)
+            .eq('status', 'active');
+
+        if (targetsError) {
+            console.error('Error fetching targets:', targetsError);
         }
 
         return NextResponse.json({

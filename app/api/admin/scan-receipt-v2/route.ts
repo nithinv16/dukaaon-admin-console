@@ -26,7 +26,22 @@ export interface ScanReceiptV2Response {
 
 export async function POST(request: NextRequest): Promise<NextResponse<ScanReceiptV2Response>> {
   try {
-    const body = await request.json() as ScanReceiptV2Request;
+    // Parse request body with error handling
+    let body: ScanReceiptV2Request;
+    try {
+      body = await request.json() as ScanReceiptV2Request;
+    } catch (parseError) {
+      console.error('Failed to parse request body:', parseError);
+      return NextResponse.json(
+        {
+          success: false,
+          products: [],
+          confidence: 0,
+          error: 'Invalid request body. Please send a valid JSON with an image field.',
+        },
+        { status: 400 }
+      );
+    }
 
     // Validate image data
     if (!body.image) {
@@ -101,8 +116,24 @@ export async function POST(request: NextRequest): Promise<NextResponse<ScanRecei
       );
     }
 
-    // Extract products using V2 service
-    const result: ReceiptExtractionResultV2 = await extractProductsFromReceiptV2(imageBuffer);
+    // Extract products using V2 service with additional error handling
+    let result: ReceiptExtractionResultV2;
+    try {
+      console.log('Starting receipt extraction V2...');
+      result = await extractProductsFromReceiptV2(imageBuffer);
+      console.log('Receipt extraction completed:', result.success ? 'success' : 'failed');
+    } catch (extractionError: any) {
+      console.error('Receipt extraction threw an error:', extractionError);
+      return NextResponse.json(
+        {
+          success: false,
+          products: [],
+          confidence: 0,
+          error: `Extraction failed: ${extractionError.message || 'Unknown error during extraction'}. Please check that AWS Bedrock is properly configured with valid credentials and the Claude Sonnet 4.5 model is accessible.`,
+        },
+        { status: 500 }
+      );
+    }
 
     const statusCode = result.success ? 200 : 500;
 
@@ -117,13 +148,13 @@ export async function POST(request: NextRequest): Promise<NextResponse<ScanRecei
       { status: statusCode }
     );
   } catch (error: any) {
-    console.error('Error in scan receipt V2 API:', error);
+    console.error('Unexpected error in scan receipt V2 API:', error);
     return NextResponse.json(
       {
         success: false,
         products: [],
         confidence: 0,
-        error: error.message || 'Unknown error occurred',
+        error: `Server error: ${error.message || 'Unknown error occurred'}. Please try again or check server logs for details.`,
       },
       { status: 500 }
     );

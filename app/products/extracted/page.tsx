@@ -111,7 +111,54 @@ export default function ExtractedProductsPage() {
         return;
       }
 
-      // Check for duplicates first
+      // Step 1: Create any new categories/subcategories that were suggested by AI
+      // This happens ONLY during submission, not during extraction
+      const newCategoriesCreated: string[] = [];
+      const newSubcategoriesCreated: string[] = [];
+
+      for (const product of editedProducts) {
+        // Create new category if needed
+        if (product.category && product.categoryIsNew) {
+          try {
+            const result = await adminQueries.createCategory(product.category);
+            if (result.success) {
+              newCategoriesCreated.push(product.category);
+              console.log(`✅ Created new category: ${product.category}`);
+            }
+          } catch (catError) {
+            // Category might already exist, that's fine
+            console.warn(`⚠️ Could not create category ${product.category}:`, catError);
+          }
+        }
+
+        // Create new subcategory if needed
+        if (product.subcategory && product.subcategoryIsNew && product.category) {
+          try {
+            // First, get the category ID
+            const categoriesData = await adminQueries.getCategories();
+            const cat = categoriesData?.categories?.find((c: any) =>
+              c.name.toLowerCase() === product.category?.toLowerCase()
+            );
+
+            if (cat) {
+              const result = await adminQueries.createSubcategory(product.subcategory, cat.id);
+              if (result.success) {
+                newSubcategoriesCreated.push(product.subcategory);
+                console.log(`✅ Created new subcategory: ${product.subcategory} under ${product.category}`);
+              }
+            }
+          } catch (subError) {
+            // Subcategory might already exist, that's fine
+            console.warn(`⚠️ Could not create subcategory ${product.subcategory}:`, subError);
+          }
+        }
+      }
+
+      if (newCategoriesCreated.length > 0 || newSubcategoriesCreated.length > 0) {
+        console.log(`📂 Created ${newCategoriesCreated.length} new categories and ${newSubcategoriesCreated.length} new subcategories`);
+      }
+
+      // Step 2: Check for duplicates
       const duplicateChecks = await Promise.all(
         editedProducts.map(async (product) => {
           const response = await fetch('/api/admin/products/check-duplicate', {
@@ -154,10 +201,11 @@ export default function ExtractedProductsPage() {
         }
       }
 
-      // Add non-duplicate products
+      // Step 3: Add non-duplicate products
       const addPromises = productsToAdd.map(async (product) => {
         const productData = {
           name: product.name,
+          brand: product.brand || '', // AI-suggested brand
           description: product.description || product.name || 'Product extracted from receipt',
           price: product.unitPrice || (product.netAmount / product.quantity) || 0,
           category: product.category || category || '',

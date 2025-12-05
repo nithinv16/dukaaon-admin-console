@@ -38,28 +38,22 @@ export async function POST(request: NextRequest) {
         const supabase = getAdminSupabaseClient();
 
         // Insert page visit record
-        try {
-            const { error } = await supabase
-                .from('admin_page_visits')
-                .insert({
-                    session_id,
-                    admin_id,
-                    page_path,
-                    page_name,
-                    entry_time,
-                    exit_time,
-                    duration_seconds,
-                });
+        const { error } = await supabase
+            .from('admin_page_visits')
+            .insert({
+                session_id,
+                admin_id,
+                page_path,
+                page_name,
+                entry_time,
+                exit_time,
+                duration_seconds,
+            });
 
-            if (error) {
-                // Table might not exist yet - don't break the user experience
-                console.log('Page tracking: Table may not exist yet or insert failed:', error.message);
-                return NextResponse.json({ success: false, error: error.message });
-            }
-        } catch (e) {
-            // Gracefully handle if table doesn't exist
-            console.log('Page tracking: Could not insert record');
-            return NextResponse.json({ success: false });
+        if (error) {
+            console.error('Error tracking page visit:', error);
+            // Don't fail silently - but also don't break the user experience
+            return NextResponse.json({ success: false, error: error.message });
         }
 
         return NextResponse.json({ success: true });

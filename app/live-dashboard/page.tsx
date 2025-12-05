@@ -78,29 +78,22 @@ interface LiveData {
 const AUTO_REFRESH_INTERVAL = 10000; // 10 seconds
 
 export default function LiveDashboardPage() {
-    const { user, loading: authLoading } = useAuth();
+    const { user } = useAuth();
     const router = useRouter();
     const [loading, setLoading] = useState(true);
     const [data, setData] = useState<LiveData | null>(null);
     const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
     const [autoRefresh, setAutoRefresh] = useState(true);
-    const [accessDenied, setAccessDenied] = useState(false);
 
-    // Access control - redirect employees immediately
+    // Access control
     useEffect(() => {
-        if (!authLoading && user) {
-            if (user.role === 'Employee') {
-                setAccessDenied(true);
-                toast.error('Access denied: You do not have permission to view this page');
-                router.push('/');
-            }
+        if (user && user.role === 'Employee') {
+            toast.error('Access denied: You do not have permission to view this page');
+            router.push('/');
         }
-    }, [user, authLoading, router]);
+    }, [user, router]);
 
     const loadData = useCallback(async () => {
-        // Don't load data if access denied
-        if (accessDenied) return;
-        
         try {
             const response = await fetch('/api/admin/live-status');
             if (response.ok) {
@@ -115,7 +108,7 @@ export default function LiveDashboardPage() {
         } finally {
             setLoading(false);
         }
-    }, [accessDenied]);
+    }, []);
 
     useEffect(() => {
         loadData();
@@ -172,17 +165,7 @@ export default function LiveDashboardPage() {
         }
     };
 
-    // Show loading while checking authentication
-    if (authLoading) {
-        return (
-            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '50vh' }}>
-                <CircularProgress />
-            </Box>
-        );
-    }
-
-    // Access denied for employees
-    if (accessDenied || user?.role === 'Employee') {
+    if (user?.role === 'Employee') {
         return (
             <Box sx={{ p: { xs: 2, sm: 3 } }}>
                 <Alert severity="error">

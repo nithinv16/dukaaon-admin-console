@@ -83,7 +83,7 @@ export default function ReceiptProductEditorV2({
 
   // Debounced field change for better performance
   const handleFieldChange = useCallback(
-    debounce((productId: string, field: 'name' | 'quantity' | 'unit' | 'netAmount' | 'category' | 'subcategory' | 'minOrderQuantity' | 'description' | 'stockAvailable', value: string | number) => {
+    debounce((productId: string, field: 'name' | 'brand' | 'quantity' | 'unit' | 'netAmount' | 'category' | 'subcategory' | 'minOrderQuantity' | 'description' | 'stockAvailable', value: string | number) => {
       setProducts((prevProducts) =>
         prevProducts.map((product) => {
           if (product.id !== productId) return product;
@@ -92,6 +92,8 @@ export default function ReceiptProductEditorV2({
 
           if (field === 'name') {
             updated.name = value as string;
+          } else if (field === 'brand') {
+            updated.brand = value as string;
           } else if (field === 'quantity') {
             const qty = typeof value === 'string' ? parseFloat(value) : value;
             updated.quantity = isNaN(qty) || qty <= 0 ? 1 : qty;
@@ -161,9 +163,10 @@ export default function ReceiptProductEditorV2({
           <TableHead>
             <TableRow>
               <TableCell sx={{ width: 80 }}>Image</TableCell>
-              <TableCell sx={{ minWidth: 220, maxWidth: 300 }}>Product Name</TableCell>
-              <TableCell sx={{ width: 220 }}>Category</TableCell>
-              <TableCell sx={{ width: 220 }}>Subcategory</TableCell>
+              <TableCell sx={{ minWidth: 200, maxWidth: 280 }}>Product Name</TableCell>
+              <TableCell sx={{ width: 130 }}>Brand</TableCell>
+              <TableCell sx={{ width: 200 }}>Category</TableCell>
+              <TableCell sx={{ width: 200 }}>Subcategory</TableCell>
               <TableCell sx={{ width: 180 }}>Description</TableCell>
               <TableCell align="right" sx={{ width: 60 }}>Min Qty</TableCell>
               <TableCell sx={{ width: 110 }}>Unit</TableCell>
@@ -235,7 +238,24 @@ export default function ReceiptProductEditorV2({
                     }}
                   />
                 </TableCell>
-                {/* Category - moved before Qty */}
+                {/* Brand - AI-suggested */}
+                <TableCell>
+                  <TextField
+                    size="small"
+                    defaultValue={product.brand || ''}
+                    onChange={(e) => handleFieldChange(product.id, 'brand', e.target.value)}
+                    variant="outlined"
+                    placeholder="Brand"
+                    sx={{
+                      width: 125,
+                      '& .MuiInputBase-input': {
+                        padding: '6px 8px',
+                        fontSize: '0.8rem'
+                      }
+                    }}
+                  />
+                </TableCell>
+                {/* Category */}
                 <TableCell>
                   <Autocomplete
                     freeSolo
@@ -275,56 +295,60 @@ export default function ReceiptProductEditorV2({
                       return <li {...props} key={option}>{option}</li>;
                     }}
                     onChange={async (_, newValue, reason, details) => {
-                      // Handle "Add New" category
+                      // Handle "Add New" category - DON'T create in DB yet, just mark as new
                       if (newValue === '__ADD_NEW__') {
                         // Get the typed value from our state
                         const typedValue = categoryInputs[product.id] || '';
 
-                        console.log('Creating category:', typedValue);
+                        console.log('Marking new category for later creation:', typedValue);
 
                         if (typedValue && typedValue.trim()) {
-                          try {
-                            const { adminQueries } = await import('@/lib/supabase-browser');
-                            const result = await adminQueries.createCategory(typedValue.trim());
+                          const newCatName = typedValue.trim();
 
-                            console.log('Category creation result:', result);
-
-                            if (result.success && result.data) {
-                              const newCat = result.data as { id: string; name: string };
-                              console.log('New category created:', newCat);
-
-                              // Update categories list
-                              setCategories(prev => [...prev, newCat].sort((a, b) => a.name.localeCompare(b.name)));
-
-                              // Update product with new category
-                              setProducts((prevProducts) =>
-                                prevProducts.map((p) =>
-                                  p.id === product.id ? { ...p, category: newCat.name } : p
-                                )
-                              );
-
-                              // Clear input tracking for this product
-                              setCategoryInputs(prev => ({
-                                ...prev,
-                                [product.id]: newCat.name
-                              }));
-                            } else {
-                              console.error('Category creation failed:', result);
+                          // Add to local categories list (temporary, will be created in DB on submission)
+                          const tempId = `temp_${Date.now()}`;
+                          setCategories(prev => {
+                            // Only add if not already in list
+                            if (!prev.find(c => c.name.toLowerCase() === newCatName.toLowerCase())) {
+                              return [...prev, { id: tempId, name: newCatName }].sort((a, b) => a.name.localeCompare(b.name));
                             }
-                          } catch (error) {
-                            console.error('Error creating category:', error);
-                          }
+                            return prev;
+                          });
+
+                          // Update product with new category AND mark as new
+                          setProducts((prevProducts) =>
+                            prevProducts.map((p) =>
+                              p.id === product.id
+                                ? { ...p, category: newCatName, categoryIsNew: true, subcategory: '', subcategoryIsNew: false }
+                                : p
+                            )
+                          );
+
+                          // Clear input tracking for this product
+                          setCategoryInputs(prev => ({
+                            ...prev,
+                            [product.id]: newCatName
+                          }));
                         } else {
                           console.error('No typed value for category');
                         }
                         return;
                       }
 
+                      // Check if this is an existing category
+                      const isExisting = categories.some(c => c.name === newValue);
+
                       // Update category normally
                       setProducts((prevProducts) =>
                         prevProducts.map((p) =>
                           p.id === product.id
-                            ? { ...p, category: newValue || '', subcategory: newValue !== product.category ? '' : p.subcategory }
+                            ? {
+                              ...p,
+                              category: newValue || '',
+                              categoryIsNew: !isExisting && !!newValue,
+                              subcategory: newValue !== product.category ? '' : p.subcategory,
+                              subcategoryIsNew: newValue !== product.category ? false : p.subcategoryIsNew
+                            }
                             : p
                         )
                       );
@@ -407,61 +431,62 @@ export default function ReceiptProductEditorV2({
                       return <li {...props} key={option}>{option}</li>;
                     }}
                     onChange={async (event, newValue, reason, details) => {
-                      // Handle "Add New" subcategory
+                      // Handle "Add New" subcategory - DON'T create in DB yet, just mark as new
                       if (newValue === '__ADD_NEW__') {
                         const cat = categories.find(c => c.name === product.category);
                         if (!cat) {
-                          console.error('Category not found for subcategory creation');
+                          console.error('Category not found for subcategory');
                           return;
                         }
 
                         // Get the typed value from our state
                         const typedValue = subcategoryInputs[product.id] || '';
 
-                        console.log('Creating subcategory:', typedValue, 'for category:', cat.name, 'category_id:', cat.id);
+                        console.log('Marking new subcategory for later creation:', typedValue, 'for category:', cat.name);
 
                         if (typedValue && typedValue.trim()) {
-                          try {
-                            const { adminQueries } = await import('@/lib/supabase-browser');
-                            const result = await adminQueries.createSubcategory(typedValue.trim(), cat.id);
+                          const newSubName = typedValue.trim();
 
-                            console.log('Subcategory creation result:', result);
-
-                            if (result.success && result.data) {
-                              const newSub = result.data as { id: string; category_id: string; name: string };
-                              console.log('New subcategory created:', newSub);
-
-                              // Update subcategories list
-                              setSubcategories(prev => [...prev, newSub].sort((a, b) => a.name.localeCompare(b.name)));
-
-                              // Update product with new subcategory
-                              setProducts((prevProducts) =>
-                                prevProducts.map((p) =>
-                                  p.id === product.id ? { ...p, subcategory: newSub.name } : p
-                                )
-                              );
-
-                              // Clear input tracking for this product
-                              setSubcategoryInputs(prev => ({
-                                ...prev,
-                                [product.id]: newSub.name
-                              }));
-                            } else {
-                              console.error('Subcategory creation failed:', result);
+                          // Add to local subcategories list (temporary, will be created in DB on submission)
+                          const tempId = `temp_${Date.now()}`;
+                          setSubcategories(prev => {
+                            // Only add if not already in list for this category
+                            if (!prev.find(s => s.category_id === cat.id && s.name.toLowerCase() === newSubName.toLowerCase())) {
+                              return [...prev, { id: tempId, category_id: cat.id, name: newSubName }].sort((a, b) => a.name.localeCompare(b.name));
                             }
-                          } catch (error) {
-                            console.error('Error creating subcategory:', error);
-                          }
+                            return prev;
+                          });
+
+                          // Update product with new subcategory AND mark as new
+                          setProducts((prevProducts) =>
+                            prevProducts.map((p) =>
+                              p.id === product.id
+                                ? { ...p, subcategory: newSubName, subcategoryIsNew: true }
+                                : p
+                            )
+                          );
+
+                          // Clear input tracking for this product
+                          setSubcategoryInputs(prev => ({
+                            ...prev,
+                            [product.id]: newSubName
+                          }));
                         } else {
                           console.error('No typed value for subcategory');
                         }
                         return;
                       }
 
+                      // Check if this is an existing subcategory
+                      const cat = categories.find(c => c.name === product.category);
+                      const isExisting = cat ? subcategories.some(s => s.category_id === cat.id && s.name === newValue) : false;
+
                       // Update subcategory normally
                       setProducts((prevProducts) =>
                         prevProducts.map((p) =>
-                          p.id === product.id ? { ...p, subcategory: newValue || '' } : p
+                          p.id === product.id
+                            ? { ...p, subcategory: newValue || '', subcategoryIsNew: !isExisting && !!newValue }
+                            : p
                         )
                       );
 

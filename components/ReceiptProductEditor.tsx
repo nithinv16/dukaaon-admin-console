@@ -4,12 +4,17 @@
  * Editable table for reviewing and modifying extracted products.
  * Automatically recalculates unit price when quantity or net amount changes.
  * 
+ * PERFORMANCE OPTIMIZED:
+ * - Uses defaultValue for uncontrolled inputs (no re-render on keystroke)
+ * - Debounced updates (300ms) to prevent lag
+ * - Memoized callbacks
+ * 
  * Requirements: 3.3
  */
 
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   Box,
   Paper,
@@ -31,6 +36,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import WarningIcon from '@mui/icons-material/Warning';
 import { ExtractedReceiptProduct } from '@/lib/receiptTypes';
 import { calculateUnitPrice } from '@/lib/unitPriceCalculator';
+import debounce from 'lodash/debounce';
 
 interface ReceiptProductEditorProps {
   products: ExtractedReceiptProduct[];
@@ -47,56 +53,60 @@ export default function ReceiptProductEditor({
 }: ReceiptProductEditorProps) {
   const [products, setProducts] = useState<ExtractedReceiptProduct[]>(initialProducts);
 
-  // Update a product field
-  const handleFieldChange = useCallback((
-    productId: string,
-    field: 'name' | 'quantity' | 'netAmount',
-    value: string | number
-  ) => {
-    setProducts(prevProducts =>
-      prevProducts.map(product => {
-        if (product.id !== productId) return product;
+  // Debounced field update - prevents lag when typing
+  const handleFieldChange = useCallback(
+    debounce((
+      productId: string,
+      field: 'name' | 'quantity' | 'netAmount',
+      value: string | number
+    ) => {
+      setProducts(prevProducts =>
+        prevProducts.map(product => {
+          if (product.id !== productId) return product;
 
-        const updated = { ...product };
+          const updated = { ...product };
 
-        if (field === 'name') {
-          updated.name = value as string;
-        } else if (field === 'quantity') {
-          const qty = typeof value === 'string' ? parseFloat(value) : value;
-          updated.quantity = isNaN(qty) ? 0 : qty;
-          
-          // Recalculate unit price
-          const result = calculateUnitPrice(updated.netAmount, updated.quantity);
-          updated.unitPrice = result.unitPrice;
-        } else if (field === 'netAmount') {
-          const amt = typeof value === 'string' ? parseFloat(value) : value;
-          updated.netAmount = isNaN(amt) ? 0 : amt;
-          
-          // Recalculate unit price
-          const result = calculateUnitPrice(updated.netAmount, updated.quantity);
-          updated.unitPrice = result.unitPrice;
-        }
+          if (field === 'name') {
+            updated.name = value as string;
+          } else if (field === 'quantity') {
+            const qty = typeof value === 'string' ? parseFloat(value) : value;
+            updated.quantity = isNaN(qty) ? 0 : qty;
 
-        return updated;
-      })
-    );
-  }, []);
+            // Recalculate unit price
+            const result = calculateUnitPrice(updated.netAmount, updated.quantity);
+            updated.unitPrice = result.unitPrice;
+          } else if (field === 'netAmount') {
+            const amt = typeof value === 'string' ? parseFloat(value) : value;
+            updated.netAmount = isNaN(amt) ? 0 : amt;
 
-  // Delete a product
+            // Recalculate unit price
+            const result = calculateUnitPrice(updated.netAmount, updated.quantity);
+            updated.unitPrice = result.unitPrice;
+          }
+
+          return updated;
+        })
+      );
+    }, 300), // 300ms debounce
+    []
+  );
+
+  // Delete a product (no debounce needed for delete)
   const handleDelete = useCallback((productId: string) => {
     setProducts(prevProducts => prevProducts.filter(p => p.id !== productId));
   }, []);
 
   // Confirm and submit
-  const handleConfirm = () => {
+  const handleConfirm = useCallback(() => {
     onConfirm(products);
-  };
+  }, [onConfirm, products]);
 
-  const getConfidenceColor = (conf: number): 'error' | 'warning' | 'success' => {
+  // Memoized confidence color function
+  const getConfidenceColor = useCallback((conf: number): 'error' | 'warning' | 'success' => {
     if (conf < 0.5) return 'error';
     if (conf < 0.7) return 'warning';
     return 'success';
-  };
+  }, []);
 
   return (
     <Box sx={{ width: '100%', p: 3 }}>
@@ -133,10 +143,11 @@ export default function ReceiptProductEditor({
                   }}
                 >
                   <TableCell>
+                    {/* Using defaultValue instead of value for uncontrolled input - prevents re-render on each keystroke */}
                     <TextField
                       fullWidth
                       size="small"
-                      value={product.name}
+                      defaultValue={product.name}
                       onChange={(e) => handleFieldChange(product.id, 'name', e.target.value)}
                       variant="outlined"
                     />
@@ -145,7 +156,7 @@ export default function ReceiptProductEditor({
                     <TextField
                       size="small"
                       type="number"
-                      value={product.quantity}
+                      defaultValue={product.quantity}
                       onChange={(e) => handleFieldChange(product.id, 'quantity', e.target.value)}
                       variant="outlined"
                       inputProps={{ min: 0, step: 0.01 }}
@@ -156,7 +167,7 @@ export default function ReceiptProductEditor({
                     <TextField
                       size="small"
                       type="number"
-                      value={product.netAmount}
+                      defaultValue={product.netAmount}
                       onChange={(e) => handleFieldChange(product.id, 'netAmount', e.target.value)}
                       variant="outlined"
                       inputProps={{ min: 0, step: 0.01 }}

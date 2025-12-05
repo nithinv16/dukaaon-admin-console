@@ -4,7 +4,6 @@ import { getAdminSupabaseClient } from '@/lib/supabase-admin';
 /**
  * GET /api/admin/employee-targets
  * Get targets for employees
- * Access: Admin/Super Admin only (employees cannot access)
  */
 export async function GET(request: NextRequest) {
     try {
@@ -15,7 +14,6 @@ export async function GET(request: NextRequest) {
 
         const supabase = getAdminSupabaseClient();
 
-        // Check if table exists by trying to query it
         let query = supabase
             .from('employee_targets')
             .select(`
@@ -40,15 +38,6 @@ export async function GET(request: NextRequest) {
         const { data: targets, error } = await query;
 
         if (error) {
-            // Table might not exist yet
-            if (error.message?.includes('does not exist') || error.code === '42P01') {
-                console.log('Employee targets table not created yet');
-                return NextResponse.json({
-                    targets: [],
-                    total: 0,
-                    message: 'Employee targets table not set up yet. Please run the SQL migration.',
-                });
-            }
             console.error('Error fetching targets:', error);
             return NextResponse.json({ error: 'Failed to fetch targets' }, { status: 500 });
         }

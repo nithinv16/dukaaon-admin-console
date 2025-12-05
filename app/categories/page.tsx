@@ -49,13 +49,15 @@ import {
   DragIndicator,
   ShoppingCart,
   Close,
+  CameraAlt,
+  CloudUpload,
 } from '@mui/icons-material';
 import { adminQueries, queries } from '@/lib/supabase-browser';
 import toast from 'react-hot-toast';
-import { 
-  defaultCategorySubcategoryMap, 
+import {
+  defaultCategorySubcategoryMap,
   generateMockCategoryData,
-  calculateCategoryStats 
+  calculateCategoryStats
 } from '@/lib/categoryUtils';
 
 interface CategoryData {
@@ -94,26 +96,31 @@ export default function CategoriesPage() {
   const [selectedCategory, setSelectedCategory] = useState<CategoryData | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
-  
+
   // Edit dialog states
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editMode, setEditMode] = useState<'category' | 'subcategory'>('category');
   const [editFormData, setEditFormData] = useState({ name: '', categoryId: '' });
-  
+
   // Add dialog states
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [addMode, setAddMode] = useState<'category' | 'subcategory'>('category');
   const [addFormData, setAddFormData] = useState({ name: '', categoryId: '' });
-  
+
   // Delete confirmation
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; type: 'category' | 'subcategory'; name: string } | null>(null);
-  
+
   // Add subcategory dialog
   const [addSubcategoryDialogOpen, setAddSubcategoryDialogOpen] = useState(false);
   const [selectedCategoryForSubcategory, setSelectedCategoryForSubcategory] = useState<CategoryData | null>(null);
   const [newSubcategoryName, setNewSubcategoryName] = useState('');
-  
+
+  // Image upload states
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const [imageUploadTarget, setImageUploadTarget] = useState<{ id: string; type: 'category' | 'subcategory'; name: string } | null>(null);
+  const [uploading, setUploading] = useState(false);
+
   // Drag and drop states
   const [draggedItem, setDraggedItem] = useState<{ type: 'product' | 'subcategory'; id: string; data: any } | null>(null);
   const [dragOverTarget, setDragOverTarget] = useState<{ type: 'category' | 'subcategory'; id: string } | null>(null);
@@ -361,7 +368,7 @@ export default function CategoriesPage() {
           );
           toast.success(`Product moved to ${targetCategory.name}`);
         } else if (targetType === 'subcategory' && targetSubcategory) {
-          const parentCategory = categories.find(c => 
+          const parentCategory = categories.find(c =>
             c.subcategories?.some(s => s.id === targetId)
           );
           if (parentCategory) {
@@ -414,6 +421,75 @@ export default function CategoriesPage() {
     loadProducts(parentCategory.name, subcategory.name);
   };
 
+  // Image upload handlers
+  const handleImageClick = (row: CategoryData) => {
+    const isSubcategory = !!row.parent_id;
+    setImageUploadTarget({
+      id: row.id,
+      type: isSubcategory ? 'subcategory' : 'category',
+      name: row.name,
+    });
+    // Trigger file input click
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+
+  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !imageUploadTarget) {
+      return;
+    }
+
+    // Validate file type
+    const validTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml'];
+    if (!validTypes.includes(file.type)) {
+      toast.error('Invalid file type. Allowed: JPEG, PNG, WebP, GIF, SVG');
+      return;
+    }
+
+    // Validate file size (2MB max)
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error('File size exceeds 2MB limit');
+      return;
+    }
+
+    setUploading(true);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('id', imageUploadTarget.id);
+      formData.append('type', imageUploadTarget.type);
+
+      const response = await fetch('/api/upload-category-image', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to upload image');
+      }
+
+      toast.success(`${imageUploadTarget.type === 'category' ? 'Category' : 'Subcategory'} icon updated!`);
+
+      // Reload categories to show the new image
+      loadCategories();
+    } catch (error: any) {
+      console.error('Upload error:', error);
+      toast.error(error.message || 'Failed to upload image');
+    } finally {
+      setUploading(false);
+      setImageUploadTarget(null);
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
   const getStatusColor = (status: string) => {
     return status === 'active' ? 'success' : 'default';
   };
@@ -447,18 +523,69 @@ export default function CategoriesPage() {
       hideable: false,
       renderCell: (params: GridRenderCellParams) => {
         const isSubcategory = !!params.row.parent_id;
+        const isUploading = uploading && imageUploadTarget?.id === params.row.id;
         return (
-          <Avatar
-            src={params.value}
-            alt={params.row.name}
-            sx={{ 
-              width: 40, 
-              height: 40,
-              bgcolor: isSubcategory ? 'secondary.main' : 'primary.main'
+          <Box
+            sx={{
+              position: 'relative',
+              cursor: 'pointer',
+              '&:hover': {
+                '& .upload-overlay': {
+                  opacity: 1,
+                },
+              },
             }}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleImageClick(params.row);
+            }}
+            title="Click to upload icon"
           >
-            <Category />
-          </Avatar>
+            <Avatar
+              src={params.value}
+              alt={params.row.name}
+              sx={{
+                width: 40,
+                height: 40,
+                bgcolor: isSubcategory ? 'secondary.main' : 'primary.main',
+                opacity: isUploading ? 0.5 : 1,
+              }}
+            >
+              <Category />
+            </Avatar>
+            {isUploading ? (
+              <CircularProgress
+                size={20}
+                sx={{
+                  position: 'absolute',
+                  top: '50%',
+                  left: '50%',
+                  marginTop: '-10px',
+                  marginLeft: '-10px',
+                }}
+              />
+            ) : (
+              <Box
+                className="upload-overlay"
+                sx={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderRadius: '50%',
+                  bgcolor: 'rgba(0, 0, 0, 0.5)',
+                  opacity: 0,
+                  transition: 'opacity 0.2s',
+                }}
+              >
+                <CameraAlt sx={{ color: 'white', fontSize: 18 }} />
+              </Box>
+            )}
+          </Box>
         );
       },
     },
@@ -470,10 +597,10 @@ export default function CategoriesPage() {
       hideable: false,
       renderCell: (params: GridRenderCellParams) => {
         const isSubcategory = !!params.row.parent_id;
-        const parentCategory = isSubcategory 
+        const parentCategory = isSubcategory
           ? categories.find(c => c.subcategories?.some(s => s.id === params.row.id))
           : null;
-        
+
         return (
           <Box sx={{ pl: isSubcategory ? 4 : 0 }}>
             {isSubcategory && (
@@ -481,11 +608,11 @@ export default function CategoriesPage() {
                 {parentCategory?.name || 'Parent Category'}
               </Typography>
             )}
-            <Typography 
-              variant="body2" 
-              fontWeight={isSubcategory ? "regular" : "medium"} 
+            <Typography
+              variant="body2"
+              fontWeight={isSubcategory ? "regular" : "medium"}
               noWrap
-              sx={{ 
+              sx={{
                 fontStyle: isSubcategory ? 'italic' : 'normal',
                 color: isSubcategory ? 'text.secondary' : 'text.primary'
               }}
@@ -634,7 +761,7 @@ export default function CategoriesPage() {
   // Filter by search term if needed
   if (searchTerm) {
     const searchLower = searchTerm.toLowerCase();
-    flattenedCategories = flattenedCategories.filter(item => 
+    flattenedCategories = flattenedCategories.filter(item =>
       item.name.toLowerCase().includes(searchLower) ||
       item.description?.toLowerCase().includes(searchLower)
     );
@@ -642,6 +769,15 @@ export default function CategoriesPage() {
 
   return (
     <Box sx={{ p: { xs: 2, sm: 3 } }}>
+      {/* Hidden file input for image uploads */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        style={{ display: 'none' }}
+        accept="image/jpeg,image/png,image/webp,image/gif,image/svg+xml"
+        onChange={handleImageUpload}
+      />
+
       {/* Header */}
       <Box sx={{ mb: 3 }}>
         <Typography variant="h4" gutterBottom>
@@ -766,9 +902,43 @@ export default function CategoriesPage() {
                       }}
                     >
                       <ListItemAvatar>
-                        <Avatar>
-                          <Category />
-                        </Avatar>
+                        <Box
+                          sx={{
+                            position: 'relative',
+                            cursor: 'pointer',
+                            '&:hover': {
+                              '& .sidebar-upload-overlay': { opacity: 1 },
+                            },
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleImageClick(category);
+                          }}
+                          title="Click to upload icon"
+                        >
+                          <Avatar src={category.image_url}>
+                            <Category />
+                          </Avatar>
+                          <Box
+                            className="sidebar-upload-overlay"
+                            sx={{
+                              position: 'absolute',
+                              top: 0,
+                              left: 0,
+                              right: 0,
+                              bottom: 0,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              borderRadius: '50%',
+                              bgcolor: 'rgba(0, 0, 0, 0.5)',
+                              opacity: 0,
+                              transition: 'opacity 0.2s',
+                            }}
+                          >
+                            <CameraAlt sx={{ color: 'white', fontSize: 16 }} />
+                          </Box>
+                        </Box>
                       </ListItemAvatar>
                       <ListItemText
                         primary={category.name}
@@ -781,9 +951,9 @@ export default function CategoriesPage() {
                     {expandedCategories.has(category.id) && category.subcategories && (
                       <Box sx={{ pl: 4 }}>
                         {category.subcategories.map((subcategory) => (
-                          <ListItem 
-                            key={subcategory.id} 
-                            sx={{ 
+                          <ListItem
+                            key={subcategory.id}
+                            sx={{
                               py: 0.5,
                               cursor: 'move',
                               backgroundColor: dragOverTarget?.type === 'subcategory' && dragOverTarget?.id === subcategory.id
@@ -838,9 +1008,44 @@ export default function CategoriesPage() {
                             }
                           >
                             <ListItemAvatar>
-                              <Avatar sx={{ width: 32, height: 32 }}>
-                                <DragIndicator fontSize="small" sx={{ cursor: 'move' }} />
-                              </Avatar>
+                              <Box
+                                sx={{
+                                  position: 'relative',
+                                  cursor: 'pointer',
+                                  '&:hover': {
+                                    '& .sub-upload-overlay': { opacity: 1 },
+                                  },
+                                }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  // Add parent_id to subcategory for proper type detection
+                                  handleImageClick({ ...subcategory, parent_id: category.id });
+                                }}
+                                title="Click to upload icon"
+                              >
+                                <Avatar src={subcategory.image_url} sx={{ width: 32, height: 32 }}>
+                                  <DragIndicator fontSize="small" sx={{ cursor: 'move' }} />
+                                </Avatar>
+                                <Box
+                                  className="sub-upload-overlay"
+                                  sx={{
+                                    position: 'absolute',
+                                    top: 0,
+                                    left: 0,
+                                    width: 32,
+                                    height: 32,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    borderRadius: '50%',
+                                    bgcolor: 'rgba(0, 0, 0, 0.5)',
+                                    opacity: 0,
+                                    transition: 'opacity 0.2s',
+                                  }}
+                                >
+                                  <CameraAlt sx={{ color: 'white', fontSize: 14 }} />
+                                </Box>
+                              </Box>
                             </ListItemAvatar>
                             <ListItemText
                               primary={subcategory.name}
@@ -1055,7 +1260,7 @@ export default function CategoriesPage() {
                     quickFilterProps: { debounceMs: 500 },
                   },
                 }}
-                sx={{ 
+                sx={{
                   height: { xs: 400, sm: 500, md: 600 },
                   '& .MuiDataGrid-main': {
                     '& .MuiDataGrid-columnHeaders': {
@@ -1151,7 +1356,7 @@ export default function CategoriesPage() {
         <DialogActions>
           <Button onClick={() => setDialogOpen(false)}>Close</Button>
           {selectedCategory && !selectedCategory.parent_id && (
-            <Button 
+            <Button
               variant="contained"
               onClick={() => {
                 setDialogOpen(false);
@@ -1267,7 +1472,7 @@ export default function CategoriesPage() {
         <DialogTitle>Confirm Delete</DialogTitle>
         <DialogContent>
           <Typography>
-            Are you sure you want to delete this {deleteTarget?.type}? 
+            Are you sure you want to delete this {deleteTarget?.type}?
             <br />
             <strong>{deleteTarget?.name}</strong>
             <br />
