@@ -59,8 +59,9 @@ export async function GET(request: NextRequest) {
             console.error('Error fetching activities:', activitiesError);
         }
 
-        // Get daily breakdown
-        const { data: dailyBreakdown, error: dailyError } = await supabase.rpc(
+        // Get daily breakdown - try RPC first, fallback to computing from tables
+        let dailyBreakdown: any[] = [];
+        const { data: rpcDailyBreakdown, error: dailyError } = await supabase.rpc(
             'get_daily_work_breakdown',
             {
                 p_admin_id: adminId,
@@ -70,7 +71,134 @@ export async function GET(request: NextRequest) {
         );
 
         if (dailyError) {
-            console.error('Error fetching daily breakdown:', dailyError);
+            console.error('Error fetching daily breakdown via RPC, computing from tables:', dailyError.message);
+
+            // Fallback: Compute daily breakdown from sessions, activity periods, and metrics
+            const queryStart = startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+            const queryEnd = endDate || new Date().toISOString();
+
+            // Get sessions in date range
+            const { data: dailySessions } = await supabase
+                .from('admin_sessions')
+                .select('id, login_time, logout_time, duration_minutes')
+                .eq('admin_id', adminId)
+                .gte('login_time', queryStart)
+                .lte('login_time', queryEnd);
+
+            // Get activity periods in date range  
+            const { data: dailyPeriods } = await supabase
+                .from('admin_activity_periods')
+                .select('period_start, duration_minutes, is_active')
+                .eq('admin_id', adminId)
+                .gte('period_start', queryStart)
+                .lte('period_start', queryEnd);
+
+            // Get metrics in date range
+            const { data: dailyMetrics } = await supabase
+                .from('admin_activity_metrics')
+                .select('action_type, entity_type, items_processed, operation_start_time')
+                .eq('admin_id', adminId)
+                .gte('operation_start_time', queryStart)
+                .lte('operation_start_time', queryEnd);
+
+            // Group by date
+            const dateMap: Record<string, {
+                work_date: string;
+                active_time_minutes: number;
+                idle_time_minutes: number;
+                sessions_count: number;
+                products_created: number;
+                products_updated: number;
+                items_processed: number;
+                first_login: string | null;
+                last_logout: string | null;
+            }> = {};
+
+            // Process sessions
+            dailySessions?.forEach((session) => {
+                const date = new Date(session.login_time).toISOString().split('T')[0];
+                if (!dateMap[date]) {
+                    dateMap[date] = {
+                        work_date: date,
+                        active_time_minutes: 0,
+                        idle_time_minutes: 0,
+                        sessions_count: 0,
+                        products_created: 0,
+                        products_updated: 0,
+                        items_processed: 0,
+                        first_login: null,
+                        last_logout: null,
+                    };
+                }
+                dateMap[date].sessions_count++;
+
+                const loginTime = new Date(session.login_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+                if (!dateMap[date].first_login || loginTime < dateMap[date].first_login!) {
+                    dateMap[date].first_login = loginTime;
+                }
+
+                if (session.logout_time) {
+                    const logoutTime = new Date(session.logout_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+                    if (!dateMap[date].last_logout || logoutTime > dateMap[date].last_logout!) {
+                        dateMap[date].last_logout = logoutTime;
+                    }
+                }
+            });
+
+            // Process activity periods
+            dailyPeriods?.forEach((period) => {
+                const date = new Date(period.period_start).toISOString().split('T')[0];
+                if (!dateMap[date]) {
+                    dateMap[date] = {
+                        work_date: date,
+                        active_time_minutes: 0,
+                        idle_time_minutes: 0,
+                        sessions_count: 0,
+                        products_created: 0,
+                        products_updated: 0,
+                        items_processed: 0,
+                        first_login: null,
+                        last_logout: null,
+                    };
+                }
+                if (period.is_active) {
+                    dateMap[date].active_time_minutes += period.duration_minutes || 0;
+                } else {
+                    dateMap[date].idle_time_minutes += period.duration_minutes || 0;
+                }
+            });
+
+            // Process metrics
+            dailyMetrics?.forEach((metric) => {
+                const date = new Date(metric.operation_start_time).toISOString().split('T')[0];
+                if (!dateMap[date]) {
+                    dateMap[date] = {
+                        work_date: date,
+                        active_time_minutes: 0,
+                        idle_time_minutes: 0,
+                        sessions_count: 0,
+                        products_created: 0,
+                        products_updated: 0,
+                        items_processed: 0,
+                        first_login: null,
+                        last_logout: null,
+                    };
+                }
+                if (metric.action_type === 'create_product' && metric.entity_type === 'product') {
+                    dateMap[date].products_created++;
+                }
+                if (metric.action_type === 'update_product' && metric.entity_type === 'product') {
+                    dateMap[date].products_updated++;
+                }
+                dateMap[date].items_processed += metric.items_processed || 0;
+            });
+
+            // Convert to array and sort by date descending
+            dailyBreakdown = Object.values(dateMap).sort((a, b) =>
+                new Date(b.work_date).getTime() - new Date(a.work_date).getTime()
+            );
+        } else {
+            dailyBreakdown = rpcDailyBreakdown || [];
         }
 
         // Get activity breakdown by action type
@@ -104,9 +232,9 @@ export async function GET(request: NextRequest) {
         }
 
         // Calculate page visit stats
-        const pageStats: Record<string, { 
+        const pageStats: Record<string, {
             page_name: string;
-            visit_count: number; 
+            visit_count: number;
             total_duration_seconds: number;
             avg_duration_seconds: number;
         }> = {};
