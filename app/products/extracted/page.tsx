@@ -225,7 +225,7 @@ export default function ExtractedProductsPage() {
 
       // Step 4: Group products by variantGroupTag
       const { VariantService } = await import('@/lib/services/products/VariantService');
-      
+
       const groupedProducts = new Map<number | string, typeof productsToAdd>();
       const standaloneProducts: typeof productsToAdd = [];
 
@@ -252,7 +252,7 @@ export default function ExtractedProductsPage() {
         if (groupProducts.length > 1) {
           // Multiple products with same tag - create separate products linked by variant_group_id
           const firstProduct = groupProducts[0];
-          
+
           // Generate a unique variant_group_id for this group
           // Helper function to generate UUID
           const generateUUID = () => {
@@ -267,16 +267,16 @@ export default function ExtractedProductsPage() {
             });
           };
           const variantGroupId = generateUUID();
-          
+
           // Extract base name for matching
           const baseName = firstProduct.name.split(/\s+(250ml|500ml|750ml|1l|1 liter|250g|500g|1kg|small|medium|large|red|blue|black|white)/i)[0].trim() || firstProduct.name;
-          
+
           // Check if any existing products match this base name (for linking to existing variant groups)
           const matchedProduct = existingProducts.find(ep => {
             const epName = ep.name.toLowerCase();
             const baseNameLower = baseName.toLowerCase();
-            return epName.includes(baseNameLower) || baseNameLower.includes(epName) || 
-                   epName.split(/\s+/)[0] === baseNameLower.split(/\s+/)[0];
+            return epName.includes(baseNameLower) || baseNameLower.includes(epName) ||
+              epName.split(/\s+/)[0] === baseNameLower.split(/\s+/)[0];
           });
 
           // If we found a matching product, check if it has a variant_group_id
@@ -289,31 +289,31 @@ export default function ExtractedProductsPage() {
           const groupedPromise = (async () => {
             // Use existing variant_group_id if found, otherwise use the new one
             const finalVariantGroupId = existingVariantGroupId || variantGroupId;
-            
+
             // Create a separate product for each variant
             const createdProducts: any[] = [];
-            
+
             for (const p of groupProducts) {
               // Check if this exact product already exists
-              const existingExactMatch = existingProducts.find(ep => 
-                ep.name.toLowerCase() === p.name.toLowerCase() && 
+              const existingExactMatch = existingProducts.find(ep =>
+                ep.name.toLowerCase() === p.name.toLowerCase() &&
                 ep.seller_id === selectedSellerId
               );
 
               if (existingExactMatch) {
                 // Update existing product to link it to the variant group
                 try {
-                  const { createClient } = await import('@/lib/supabase-admin');
-                  const supabase = createClient();
-                  
+                  const { getAdminSupabaseClient } = await import('@/lib/supabase-admin');
+                  const supabase = getAdminSupabaseClient();
+
                   await supabase
                     .from('products')
                     .update({ variant_group_id: finalVariantGroupId })
                     .eq('id', existingExactMatch.id);
-                  
-                  createdProducts.push({ 
-                    id: existingExactMatch.id, 
-                    name: p.name, 
+
+                  createdProducts.push({
+                    id: existingExactMatch.id,
+                    name: p.name,
                     isExisting: true,
                     product: p // Keep reference for variant creation
                   });
@@ -340,12 +340,12 @@ export default function ExtractedProductsPage() {
                 status: 'available',
                 variant_group_id: finalVariantGroupId, // Link all variants together
               };
-              
+
               const createdProduct = await adminQueries.addProduct(productData);
               if (createdProduct?.id) {
-                createdProducts.push({ 
-                  id: createdProduct.id, 
-                  name: p.name, 
+                createdProducts.push({
+                  id: createdProduct.id,
+                  name: p.name,
                   isExisting: false,
                   product: p // Keep reference to original product data for variant creation
                 });
@@ -359,15 +359,15 @@ export default function ExtractedProductsPage() {
             // Use the first product as the "base" product for product_variants.product_id
             if (createdProducts.length > 0) {
               try {
-                const { createClient } = await import('@/lib/supabase-admin');
-                const supabase = createClient();
+                const { getAdminSupabaseClient } = await import('@/lib/supabase-admin');
+                const supabase = getAdminSupabaseClient();
                 const { VariantService } = await import('@/lib/services/products/VariantService');
-                
+
                 // Check if there's an existing base product for this variant group
                 // (if we linked to an existing variant group, there might already be a base product)
                 let baseProductId: string;
                 let baseName: string;
-                
+
                 if (existingVariantGroupId && matchedProduct) {
                   // Use the matched product as base if it exists
                   baseProductId = matchedProduct.id;
@@ -378,43 +378,43 @@ export default function ExtractedProductsPage() {
                   baseProductId = baseProduct.id;
                   baseName = baseProduct.name.split(/\s+(250ml|500ml|750ml|1l|1 liter|250g|500g|1kg|small|medium|large|red|blue|black|white)/i)[0].trim() || baseProduct.name;
                 }
-                
+
                 // Check for existing variants to avoid duplicates
                 const { data: existingVariants, error: existingVariantsError } = await supabase
                   .from('product_variants')
                   .select('variant_product_id, variant_type, variant_value')
                   .eq('product_id', baseProductId);
-                
+
                 if (existingVariantsError) {
                   console.warn('Error checking existing variants:', existingVariantsError);
                   // Continue anyway - we'll try to insert and let the database handle duplicates
                 }
-                
+
                 const existingVariantProductIds = new Set(
                   (existingVariants || []).map((v: any) => v.variant_product_id).filter(Boolean)
                 );
                 const existingVariantKeys = new Set(
                   (existingVariants || []).map((v: any) => `${v.variant_type}_${v.variant_value}`)
                 );
-                
+
                 // Create variant entries for each product
                 const variantsToCreate: any[] = [];
-                
+
                 for (let i = 0; i < createdProducts.length; i++) {
                   const variantProduct = createdProducts[i];
-                  
+
                   // Skip if variant entry already exists for this product
                   if (existingVariantProductIds.has(variantProduct.id)) {
                     console.log(`⏭️  Skipping variant entry for "${variantProduct.name}" - already exists`);
                     continue;
                   }
-                  
+
                   const variantProductData = variantProduct.product || groupProducts[i];
-                  
+
                   // Extract variant info from product name
                   let variantType: 'size' | 'flavor' | 'color' | 'weight' | 'pack' = 'size';
                   let variantValue = variantProduct.name.replace(baseName, '').trim();
-                  
+
                   // Try to detect variant type
                   if (/ml|l|liter/i.test(variantValue)) {
                     variantType = 'size';
@@ -427,7 +427,7 @@ export default function ExtractedProductsPage() {
                   } else if (/pack|box|bottle/i.test(variantValue)) {
                     variantType = 'pack';
                   }
-                  
+
                   // If variant value is empty, use a default
                   if (!variantValue || variantValue.length < 2) {
                     variantValue = `${variantType}_${i + 1}`;
@@ -452,11 +452,11 @@ export default function ExtractedProductsPage() {
                     display_order: (existingVariants?.length || 0) + variantsToCreate.length,
                     is_active: true,
                   };
-                  
+
                   // Add variant_product_id if column exists (from migration)
                   // This links the variant entry to the actual variant product
                   variantEntry.variant_product_id = variantProduct.id;
-                  
+
                   variantsToCreate.push(variantEntry);
                 }
 
@@ -464,7 +464,7 @@ export default function ExtractedProductsPage() {
                 if (variantsToCreate.length > 0) {
                   console.log(`📝 Attempting to insert ${variantsToCreate.length} variant entries into product_variants table...`);
                   console.log('Variant entries to create:', JSON.stringify(variantsToCreate, null, 2));
-                  
+
                   const { data: insertedVariants, error: variantError } = await supabase
                     .from('product_variants')
                     .insert(variantsToCreate)
@@ -475,7 +475,7 @@ export default function ExtractedProductsPage() {
                     console.error('Error code:', variantError.code);
                     console.error('Error message:', variantError.message);
                     console.error('Error details:', JSON.stringify(variantError, null, 2));
-                    
+
                     // If error is about missing column, try without variant_product_id
                     if (variantError.message?.includes('variant_product_id') || variantError.code === '42703') {
                       console.log('⚠️  variant_product_id column may not exist, trying without it...');
@@ -483,12 +483,12 @@ export default function ExtractedProductsPage() {
                         const { variant_product_id, ...rest } = v;
                         return rest;
                       });
-                      
+
                       const { data: retryInserted, error: retryError } = await supabase
                         .from('product_variants')
                         .insert(variantsWithoutProductId)
                         .select();
-                        
+
                       if (retryError) {
                         console.error('❌ Retry also failed:', retryError);
                         toast.error(`Products created but variant links failed: ${retryError.message}`);
@@ -515,8 +515,8 @@ export default function ExtractedProductsPage() {
               }
             }
 
-            return { 
-              variantGroupId: finalVariantGroupId, 
+            return {
+              variantGroupId: finalVariantGroupId,
               productsCreated: createdProducts.length,
               productIds: createdProducts.map(p => p.id)
             };
@@ -533,12 +533,12 @@ export default function ExtractedProductsPage() {
       const standalonePromises = standaloneProducts.map(async (product) => {
         // Check if this product matches an existing product (for variant addition)
         const baseName = product.name.split(/\s+(250ml|500ml|750ml|1l|1 liter|250g|500g|1kg|small|medium|large|red|blue|black|white)/i)[0].trim() || product.name;
-        
+
         const matchedProduct = existingProducts.find(ep => {
           const epName = ep.name.toLowerCase();
           const baseNameLower = baseName.toLowerCase();
-          return epName.includes(baseNameLower) || baseNameLower.includes(epName) || 
-                 epName.split(/\s+/)[0] === baseNameLower.split(/\s+/)[0];
+          return epName.includes(baseNameLower) || baseNameLower.includes(epName) ||
+            epName.split(/\s+/)[0] === baseNameLower.split(/\s+/)[0];
         });
 
         // If product has manual variants, create as new product with variants
@@ -559,7 +559,7 @@ export default function ExtractedProductsPage() {
           };
 
           const createdProduct = await adminQueries.addProduct(productData);
-          
+
           if (createdProduct?.id) {
             try {
               const variantsWithProductId = (product as any).variants.map((v: CreateVariantInput) => ({
@@ -571,7 +571,7 @@ export default function ExtractedProductsPage() {
               console.error('Error creating variants:', variantError);
             }
           }
-          
+
           return createdProduct;
         }
 
@@ -594,11 +594,11 @@ export default function ExtractedProductsPage() {
             });
           };
           variantGroupIdToUse = generateUUID();
-          
+
           // Update the matched product to have this variant_group_id
           try {
-            const { createClient } = await import('@/lib/supabase-admin');
-            const supabase = createClient();
+            const { getAdminSupabaseClient } = await import('@/lib/supabase-admin');
+            const supabase = getAdminSupabaseClient();
             await supabase
               .from('products')
               .update({ variant_group_id: variantGroupIdToUse })
@@ -632,7 +632,7 @@ export default function ExtractedProductsPage() {
       // Execute all promises
       const allPromises = [...groupedPromises, ...standalonePromises];
       const results = await Promise.all(allPromises);
-      
+
       const totalProductsCreated = results.filter(r => r && r.id).length;
       toast.success(`Successfully added ${totalProductsCreated} product(s) to inventory!`);
 
