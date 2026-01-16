@@ -618,8 +618,51 @@ export async function extractProductsFromReceiptV2(
       }
     }
 
+    // Step 3.5: Fetch existing categories and subcategories from database
+    let availableCategories: { id: string; name: string }[] = [];
+    let availableSubcategories: { id: string; name: string; category_id: string }[] = [];
+    try {
+      const { getAdminSupabaseClient } = await import('@/lib/supabase-admin');
+      const supabase = getAdminSupabaseClient();
+
+      // Fetch categories
+      const { data: categoriesData, error: categoriesError } = await supabase
+        .from('categories')
+        .select('id, name')
+        .eq('is_active', true)
+        .order('name');
+
+      if (!categoriesError && categoriesData) {
+        availableCategories = categoriesData;
+        console.log(`📂 Found ${availableCategories.length} existing categories`);
+      }
+
+      // Fetch subcategories
+      const { data: subcategoriesData, error: subcategoriesError } = await supabase
+        .from('subcategories')
+        .select('id, name, category_id')
+        .eq('is_active', true)
+        .order('name');
+
+      if (!subcategoriesError && subcategoriesData) {
+        availableSubcategories = subcategoriesData;
+        console.log(`📁 Found ${availableSubcategories.length} existing subcategories`);
+      }
+    } catch (error) {
+      console.warn('Failed to fetch categories/subcategories:', error);
+    }
+
+    // Build category-subcategory mapping for AI
+    const categorySubcategoryMap: Record<string, string[]> = {};
+    for (const cat of availableCategories) {
+      const subs = availableSubcategories
+        .filter(sub => sub.category_id === cat.id)
+        .map(sub => sub.name);
+      categorySubcategoryMap[cat.name] = subs;
+    }
+
     // Step 4: Use AI to enhance and validate extracted products
-    console.log('🤖 Step 3: Enhancing products with AI...');
+    console.log('🤖 Step 4: Enhancing products with AI...');
 
     // Include raw receipt data for better unit detection
     const rawReceiptData = structuredData.tables.map((table: any) => ({
@@ -672,6 +715,16 @@ IMPORTANT: For each extracted product, check if it matches an existing product o
 - If it matches an existing product exactly, set existingProductId to that product's ID.
 ` : ''}
 
+CRITICAL: CATEGORY AND SUBCATEGORY MAPPING
+You MUST use ONLY the categories and subcategories from the following list. DO NOT create new categories or subcategories.
+If you CANNOT find an exact or very close match in the available list, set the category and/or subcategory to null (leave blank).
+The user will manually fill in the correct category/subcategory later.
+
+AVAILABLE CATEGORIES AND SUBCATEGORIES:
+${JSON.stringify(categorySubcategoryMap, null, 2)}
+
+Available category names: ${availableCategories.map(c => c.name).join(', ')}
+
 CRITICAL: Unit Detection and Normalization
 - Look at the RAW RECEIPT DATA to identify the unit column and its values
 - Common unit abbreviations in Indian receipts:
@@ -690,15 +743,18 @@ CRITICAL: Unit Detection and Normalization
 For each product, please:
 1. **Correct and normalize the unit** based on the raw receipt data and product name
 2. Suggest the most likely brand name (e.g., "Cadbury", "Parle", "Britannia", "Coca-Cola")
-3. Suggest appropriate category and subcategory
-4. Suggest minimum order quantity based on product type
-5. Generate a brief description
-6. Identify if the product name contains variant information (size, flavor, color, weight, pack)
-7. Extract base product name (without variant info)
-8. If sellerId was provided and product matches existing inventory, set existingProductId
-9. Group similar products that are variants of the same base product (suggest variantGroup numbers)
+3. **Map to an EXISTING category from the provided list** - If no match found, set to null
+4. **Map to an EXISTING subcategory from the provided list** - If no match found, set to null
+5. Suggest minimum order quantity based on product type
+6. Generate a brief description
+7. Identify if the product name contains variant information (size, flavor, color, weight, pack)
+8. Extract base product name (without variant info)
+9. If sellerId was provided and product matches existing inventory, set existingProductId
+10. Group similar products that are variants of the same base product (suggest variantGroup numbers)
 
 Return a JSON array with the same structure, but with corrected/normalized units and added fields: unit (corrected), brand, category, subcategory, minOrderQuantity, description, baseProductName, variantType, variantValue, isVariant, existingProductId, variantGroup.
+
+IMPORTANT: category and subcategory values MUST be exact matches from the AVAILABLE CATEGORIES AND SUBCATEGORIES list above, OR set to null if no match is found.
 
 Example response format:
 [
@@ -717,7 +773,7 @@ Example response format:
     "variantType": "size",
     "variantValue": "250ml",
     "isVariant": true,
-    "existingProductId": "uuid-if-matches-existing",
+    "existingProductId": null,
     "variantGroup": "1"
   }
 ]
