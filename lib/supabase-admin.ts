@@ -1002,7 +1002,8 @@ export const adminQueries = {
     let subcategoryId: string | null = null;
 
     // Get category ID by name (case-insensitive)
-    if (categoryName && categoryName.trim()) {
+    // Skip if categoryName is empty, null, or undefined
+    if (categoryName && categoryName.trim() && categoryName.trim() !== '') {
       const normalizedCategoryName = categoryName.trim();
 
       // First try to find existing category
@@ -1178,13 +1179,18 @@ export const adminQueries = {
     min_order_quantity?: number;
     images?: string[];
     status?: string;
+    variant_group_id?: string; // Link variant products together
   }) {
     const supabase = getAdminSupabaseClient();
 
     // Get category and subcategory IDs from names (auto-creates if missing)
+    // Only resolve if category/subcategory are provided and not empty
+    const categoryToResolve = productData.category && productData.category.trim() ? productData.category : '';
+    const subcategoryToResolve = productData.subcategory && productData.subcategory.trim() ? productData.subcategory : undefined;
+    
     const { category_id, subcategory_id } = await this.getCategoryAndSubcategoryIds(
-      productData.category,
-      productData.subcategory
+      categoryToResolve,
+      subcategoryToResolve
     );
 
     // Prepare insert data with both IDs and text fields (for backward compatibility)
@@ -1202,6 +1208,11 @@ export const adminQueries = {
       image_url: productData.images?.[0] || null,
       status: productData.status || 'available'
     };
+
+    // Add variant_group_id if provided (for linking variant products)
+    if (productData.variant_group_id) {
+      insertData.variant_group_id = productData.variant_group_id;
+    }
 
     // Add category_id and subcategory_id if they exist (columns may or may not exist in table)
     if (category_id !== null) {

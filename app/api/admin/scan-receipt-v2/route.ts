@@ -11,6 +11,7 @@ import type { ExtractedProductV2, ReceiptExtractionResultV2 } from '@/lib/receip
 
 export interface ScanReceiptV2Request {
   image: string; // Base64 encoded image
+  seller_id?: string; // Optional seller ID for AI matching against existing products
 }
 
 export interface ScanReceiptV2Response {
@@ -120,7 +121,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<ScanRecei
     let result: ReceiptExtractionResultV2;
     try {
       console.log('Starting receipt extraction V2...');
-      result = await extractProductsFromReceiptV2(imageBuffer);
+      // Pass seller_id to extraction function for AI context (if available)
+      result = await extractProductsFromReceiptV2(imageBuffer, body.seller_id);
       console.log('Receipt extraction completed:', result.success ? 'success' : 'failed');
     } catch (extractionError: any) {
       console.error('Receipt extraction threw an error:', extractionError);

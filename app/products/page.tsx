@@ -52,6 +52,7 @@ import {
 import { adminQueries } from '@/lib/supabase-browser';
 import toast from 'react-hot-toast';
 import { Product } from '@/types';
+import { VariantService } from '@/lib/services/products/VariantService';
 import ProductImageEditor from '@/components/ProductImageEditor';
 import CategorySelector, { CategorySelectorValue } from '@/components/CategorySelector';
 import { useRouter } from 'next/navigation';
@@ -60,6 +61,8 @@ import ReceiptExtractionPreview from '@/components/ReceiptExtractionPreview';
 import ReceiptScannerV2 from '@/components/ReceiptScannerV2';
 import { ScanReceiptResponse, ExtractedReceiptProduct, ReceiptMetadata } from '@/lib/receiptTypes';
 import { ExtractedProductV2 } from '@/lib/receiptExtractionV2';
+import VariantManager, { VariantManagerProps } from '@/components/VariantManager';
+import { CreateVariantInput } from '@/lib/services/products/VariantService';
 
 
 interface ProductStats {
@@ -110,6 +113,7 @@ export default function ProductsPage() {
     min_order_quantity: '1',
     images: [] as string[]
   });
+  const [productVariants, setProductVariants] = useState<CreateVariantInput[]>([]);
 
   // Product name suggestions
   const [productSuggestions, setProductSuggestions] = useState<string[]>([]);
@@ -167,6 +171,7 @@ export default function ProductsPage() {
     unit: 'piece',
     description: ''
   });
+  const [quickAddVariants, setQuickAddVariants] = useState<CreateVariantInput[]>([]);
 
 
   // Receipt scanning 2.0 states (using full receipt scanning system)
@@ -175,6 +180,8 @@ export default function ProductsPage() {
 
   // Scan Receipts 2.0 states (NEW - enhanced AI-powered extraction)
   const [receiptScanV2DialogOpen, setReceiptScanV2DialogOpen] = useState(false);
+  const [receiptScanSellerDialogOpen, setReceiptScanSellerDialogOpen] = useState(false);
+  const [receiptScanSelectedSeller, setReceiptScanSelectedSeller] = useState<string>('');
 
 
 
@@ -524,12 +531,29 @@ export default function ProductsPage() {
         min_order_quantity: parseInt(newProduct.min_order_quantity) || 1,
         images: imageUrls,
         status: 'available',
+        // Add variants if any
+        variants: productVariants.length > 0 ? productVariants : undefined,
         // Add tracking info
         admin_id: admin?.id,
         session_id: sessionId,
       };
 
-      await adminQueries.addProduct(productData);
+      const createdProduct = await adminQueries.addProduct(productData);
+      
+      // Create variants if product was created and variants exist
+      if (createdProduct?.id && productVariants.length > 0) {
+        try {
+          const variantsWithProductId = productVariants.map(v => ({
+            ...v,
+            product_id: createdProduct.id,
+          }));
+          await VariantService.createVariants(variantsWithProductId);
+        } catch (variantError) {
+          console.error('Error creating variants:', variantError);
+          // Don't fail the product creation if variants fail
+          toast.error('Product created but variants failed to save. You can add them later.');
+        }
+      }
 
       // Reset form
       setNewProduct({
@@ -544,6 +568,7 @@ export default function ProductsPage() {
         min_order_quantity: '1',
         images: []
       });
+      setProductVariants([]);
       setImageFiles([]);
       setAddDialogOpen(false);
 
@@ -667,7 +692,7 @@ export default function ProductsPage() {
     try {
       setUploading(true);
 
-      await adminQueries.addMasterProductToSeller({
+      const result = await adminQueries.addMasterProductToSeller({
         master_product_id: selectedMasterProduct.id,
         seller_id: sellerData.seller_id,
         price: parseFloat(sellerData.price) || 0,
@@ -676,6 +701,20 @@ export default function ProductsPage() {
         unit: sellerData.unit,
         description: sellerData.description
       });
+
+      // Create variants if product was created and variants exist
+      if (result?.data?.id && quickAddVariants.length > 0) {
+        try {
+          const variantsWithProductId = quickAddVariants.map(v => ({
+            ...v,
+            product_id: result.data.id,
+          }));
+          await VariantService.createVariants(variantsWithProductId);
+        } catch (variantError) {
+          console.error('Error creating variants:', variantError);
+          toast.error('Product created but variants failed to save. You can add them later.');
+        }
+      }
 
       toast.success('Product added to seller inventory successfully!');
       setMasterProductsDialogOpen(false);
@@ -688,6 +727,7 @@ export default function ProductsPage() {
         unit: 'piece',
         description: ''
       });
+      setQuickAddVariants([]);
       loadProducts(); // Refresh the products list
       loadStats();
     } catch (error: any) {
@@ -1173,7 +1213,11 @@ export default function ProductsPage() {
                 color="secondary"
                 startIcon={<Receipt />}
                 onClick={() => {
-                  setReceiptScanV2DialogOpen(true);
+                  if (sellers.length === 0) {
+                    toast.error('Please add sellers first before scanning receipts');
+                    return;
+                  }
+                  setReceiptScanSellerDialogOpen(true);
                 }}
                 size="small"
                 sx={{
@@ -1531,10 +1575,22 @@ export default function ProductsPage() {
                 </Box>
               )}
             </Box>
+
+            {/* Variant Manager */}
+            <Box sx={{ mt: 2 }}>
+              <VariantManager
+                productName={newProduct.name}
+                variants={productVariants}
+                onVariantsChange={setProductVariants}
+              />
+            </Box>
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setAddDialogOpen(false)}>Cancel</Button>
+          <Button onClick={() => {
+            setAddDialogOpen(false);
+            setProductVariants([]);
+          }}>Cancel</Button>
           <Button
             onClick={handleAddProduct}
             variant="contained"
@@ -1959,6 +2015,17 @@ export default function ProductsPage() {
                         />
                       </Grid>
                     </Grid>
+
+                    {/* Variant Manager */}
+                    {selectedMasterProduct && (
+                      <Box sx={{ mt: 3 }}>
+                        <VariantManager
+                          productName={selectedMasterProduct.name}
+                          variants={quickAddVariants}
+                          onVariantsChange={setQuickAddVariants}
+                        />
+                      </Box>
+                    )}
                   </>
                 )}
               </>
@@ -1966,7 +2033,10 @@ export default function ProductsPage() {
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setMasterProductsDialogOpen(false)}>Cancel</Button>
+          <Button onClick={() => {
+            setMasterProductsDialogOpen(false);
+            setQuickAddVariants([]);
+          }}>Cancel</Button>
           <Button
             onClick={handleAddMasterProductToSeller}
             variant="contained"
@@ -2035,18 +2105,77 @@ export default function ProductsPage() {
         </DialogActions>
       </Dialog>
 
+      {/* Seller Selection Dialog for Receipt Scanning */}
+      <Dialog open={receiptScanSellerDialogOpen} onClose={() => setReceiptScanSellerDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Select Seller for Receipt Scanning</DialogTitle>
+        <DialogContent>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            Select a seller first so AI can match products to existing inventory and group variants correctly.
+          </Alert>
+          <FormControl fullWidth required>
+            <InputLabel>Select Seller</InputLabel>
+            <Select
+              value={receiptScanSelectedSeller}
+              onChange={(e) => setReceiptScanSelectedSeller(e.target.value)}
+              label="Select Seller"
+            >
+              {sellers.map((seller) => {
+                if (!seller || !seller.id) return null;
+                const businessName = seller.business_name || seller.display_name || seller.phone_number || `Seller ${seller.id}`;
+                return (
+                  <MenuItem key={seller.id} value={seller.id}>
+                    {businessName}
+                  </MenuItem>
+                );
+              }).filter(Boolean)}
+            </Select>
+          </FormControl>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => {
+            setReceiptScanSellerDialogOpen(false);
+            setReceiptScanSelectedSeller('');
+          }}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={() => {
+              if (!receiptScanSelectedSeller) {
+                toast.error('Please select a seller');
+                return;
+              }
+              // Store seller ID for use in extracted page
+              sessionStorage.setItem('receiptScanSellerId', receiptScanSelectedSeller);
+              setReceiptScanSellerDialogOpen(false);
+              setReceiptScanV2DialogOpen(true);
+            }}
+            disabled={!receiptScanSelectedSeller}
+          >
+            Continue to Scan
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* Scan Receipts 2.0 Dialog (NEW - Enhanced AI-powered extraction) */}
       <ReceiptScannerV2
         open={receiptScanV2DialogOpen}
-        onClose={() => setReceiptScanV2DialogOpen(false)}
+        onClose={() => {
+          setReceiptScanV2DialogOpen(false);
+          setReceiptScanSelectedSeller('');
+        }}
         onScanComplete={(products: ExtractedProductV2[]) => {
-          // Store products in sessionStorage and navigate to extracted products page
+          // Store products and seller ID in sessionStorage and navigate to extracted products page
           sessionStorage.setItem('extractedProducts', JSON.stringify(products));
+          if (receiptScanSelectedSeller) {
+            sessionStorage.setItem('receiptScanSellerId', receiptScanSelectedSeller);
+          }
           setReceiptScanV2DialogOpen(false);
           toast.success(`Extracted ${products.length} products using AI-powered extraction!`);
           router.push('/products/extracted');
         }}
-        onCancel={() => setReceiptScanV2DialogOpen(false)}
+        onCancel={() => {
+          setReceiptScanV2DialogOpen(false);
+          setReceiptScanSelectedSeller('');
+        }}
       />
 
       {/* Delete Confirmation Dialog */}

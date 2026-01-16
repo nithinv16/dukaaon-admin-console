@@ -167,38 +167,120 @@ export async function invokeModel(
 
 /**
  * Parse JSON from Bedrock response, handling potential markdown code blocks
+ * Enhanced to handle various AI response formats including:
+ * - Raw JSON
+ * - JSON wrapped in ```json ... ``` 
+ * - JSON wrapped in ``` ... ```
+ * - JSON with surrounding text
  */
 export function parseBedrockJSON<T>(content: string): T | null {
-  try {
-    // Try direct JSON parse first
-    return JSON.parse(content) as T;
-  } catch {
-    // Try to extract JSON from markdown code blocks
-    const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (jsonMatch) {
-      try {
-        return JSON.parse(jsonMatch[1].trim()) as T;
-      } catch {
-        // Fall through to next attempt
-      }
-    }
-
-    // Try to find JSON object or array in the content
-    const objectMatch = content.match(/\{[\s\S]*\}/);
-    const arrayMatch = content.match(/\[[\s\S]*\]/);
-    const match = objectMatch || arrayMatch;
-
-    if (match) {
-      try {
-        return JSON.parse(match[0]) as T;
-      } catch {
-        // Fall through
-      }
-    }
-
-    console.error('Failed to parse JSON from Bedrock response:', content.substring(0, 200));
+  if (!content || content.trim().length === 0) {
+    console.error('parseBedrockJSON: Empty content received');
     return null;
   }
+
+  // Step 1: Try direct JSON parse first (fastest path)
+  try {
+    return JSON.parse(content.trim()) as T;
+  } catch (e: any) {
+    console.log('parseBedrockJSON Step 1: Direct parse failed, error:', e.message);
+    // Continue to extraction methods
+  }
+
+  // Step 2: Simple string-based code block stripping (most reliable)
+  let cleaned = content;
+
+  // Find and remove opening code block: look for ```json or ``` at the start
+  const codeBlockStart = cleaned.indexOf('```');
+  if (codeBlockStart !== -1) {
+    // Find the end of the opening line (after ```json or ```)
+    let contentStart = cleaned.indexOf('\n', codeBlockStart);
+    if (contentStart !== -1) {
+      contentStart += 1; // Skip the newline
+    } else {
+      contentStart = codeBlockStart + 3; // Just skip ```
+    }
+
+    // Find the closing ```
+    const codeBlockEnd = cleaned.lastIndexOf('```');
+    if (codeBlockEnd > codeBlockStart) {
+      // Extract content between opening and closing ```
+      cleaned = cleaned.substring(contentStart, codeBlockEnd);
+    } else {
+      // No closing ```, just take everything after opening
+      cleaned = cleaned.substring(contentStart);
+    }
+  }
+
+  cleaned = cleaned.trim();
+
+  // Try parsing the cleaned content
+  if (cleaned && cleaned.length > 0) {
+    try {
+      const result = JSON.parse(cleaned);
+      console.log('parseBedrockJSON: Successfully parsed after stripping code blocks');
+      return result as T;
+    } catch (e: any) {
+      console.log('parseBedrockJSON: Failed to parse after stripping, error:', e.message);
+      // Log where the error occurred (useful for debugging)
+      if (e.message && e.message.includes('position')) {
+        const posMatch = e.message.match(/position (\d+)/);
+        if (posMatch) {
+          const pos = parseInt(posMatch[1]);
+          console.log('parseBedrockJSON: Error context around position', pos, ':',
+            cleaned.substring(Math.max(0, pos - 50), pos + 50));
+        }
+      }
+    }
+  }
+
+  // Step 3: Find the first [ and last ] (for array responses)
+  const firstBracket = content.indexOf('[');
+  const lastBracket = content.lastIndexOf(']');
+
+  console.log('parseBedrockJSON Step 3: firstBracket at', firstBracket, ', lastBracket at', lastBracket);
+
+  if (firstBracket !== -1 && lastBracket > firstBracket) {
+    const arrayContent = content.substring(firstBracket, lastBracket + 1);
+    console.log('parseBedrockJSON Step 3: Extracted array content length:', arrayContent.length);
+    try {
+      const parsed = JSON.parse(arrayContent);
+      if (Array.isArray(parsed)) {
+        console.log(`parseBedrockJSON: Successfully parsed array with ${parsed.length} items`);
+        return parsed as T;
+      }
+    } catch (e: any) {
+      console.log('parseBedrockJSON Step 3: Array parse failed, error:', e.message);
+      // Try to see where the error is
+      if (e.message && e.message.includes('position')) {
+        const posMatch = e.message.match(/position (\d+)/);
+        if (posMatch) {
+          const pos = parseInt(posMatch[1]);
+          console.log('parseBedrockJSON Step 3: Error around position', pos);
+          console.log('Context:', arrayContent.substring(Math.max(0, pos - 30), pos + 30));
+        }
+      }
+    }
+  }
+
+  // Step 4: Find the first { and last } (for object responses)
+  const firstBrace = content.indexOf('{');
+  const lastBrace = content.lastIndexOf('}');
+
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    const objectContent = content.substring(firstBrace, lastBrace + 1);
+    try {
+      return JSON.parse(objectContent) as T;
+    } catch (e: any) {
+      console.log('parseBedrockJSON Step 4: Object parse failed, error:', e.message);
+    }
+  }
+
+  console.error('parseBedrockJSON: All parsing methods failed');
+  console.error('Content length:', content.length);
+  console.error('Content first 500 chars:', content.substring(0, 500));
+  console.error('Content last 200 chars:', content.substring(content.length - 200));
+  return null;
 }
 
 /**
@@ -214,9 +296,9 @@ export function validateBedrockConfig(): boolean {
     AWS_SECRET_ACCESS_KEY !== 'your-aws-secret-key-here' &&
     bedrockClient !== null
   );
-  
+
   const hasApiKey = !!(AWS_BEDROCK_API_KEY && AWS_BEDROCK_API_KEY.length > 0);
-  
+
   return hasIAMCredentials || hasApiKey;
 }
 

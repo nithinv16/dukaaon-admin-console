@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminQueries } from '@/lib/supabase-admin';
+import { getAdminSupabaseClient } from '@/lib/supabase-admin';
 import { hasPermission } from '@/lib/permissions';
 import {
   startActivityTracking,
@@ -67,6 +68,41 @@ export async function POST(request: NextRequest) {
     delete processedData.stock_level;
 
     const product = await adminQueries.addProduct(processedData);
+
+    // Create variants if provided
+    if (product?.id && productData.variants && Array.isArray(productData.variants) && productData.variants.length > 0) {
+      try {
+        const supabase = getAdminSupabaseClient();
+        if (supabase) {
+          // Prepare variants with product_id
+          const variantsToCreate = productData.variants.map((v: any) => ({
+            product_id: product.id,
+            sku: v.sku,
+            variant_type: v.variant_type,
+            variant_value: v.variant_value,
+            price: v.price,
+            mrp: v.mrp || null,
+            stock_quantity: v.stock_quantity || 0,
+            image_url: v.image_url || null,
+            is_default: v.is_default || false,
+            display_order: v.display_order || 0,
+            is_active: true,
+          }));
+
+          const { error: variantError } = await supabase
+            .from('product_variants')
+            .insert(variantsToCreate);
+
+          if (variantError) {
+            console.error('Error creating variants:', variantError);
+            // Don't fail the product creation if variants fail
+          }
+        }
+      } catch (variantError) {
+        console.error('Error creating variants:', variantError);
+        // Don't fail the product creation if variants fail
+      }
+    }
 
     // Track product creation if admin_id is provided
     if (adminId && product?.id) {

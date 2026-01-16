@@ -29,6 +29,9 @@ import { useRouter } from 'next/navigation';
 import { adminQueries } from '@/lib/supabase-browser';
 import ProductImageEditor from '@/components/ProductImageEditor';
 import toast from 'react-hot-toast';
+import VariantManager from '@/components/VariantManager';
+import { VariantService } from '@/lib/services/products/VariantService';
+import { CreateVariantInput } from '@/lib/services/products/VariantService';
 
 export default function AddFromMasterProductsPage() {
   const router = useRouter();
@@ -54,6 +57,7 @@ export default function AddFromMasterProductsPage() {
     unit: 'piece',
     description: ''
   });
+  const [productVariants, setProductVariants] = useState<CreateVariantInput[]>([]);
 
   // Categories data - fetched from database
   const [categories, setCategories] = useState<string[]>([]);
@@ -271,12 +275,28 @@ export default function AddFromMasterProductsPage() {
         min_order_quantity: parseInt(sellerData.min_order_quantity) || 1,
         images: selectedMasterProduct.images || (selectedMasterProduct.image_url ? [selectedMasterProduct.image_url] : []),
         status: 'available',
+        // Add variants if any
+        variants: productVariants.length > 0 ? productVariants : undefined,
         // Add tracking info
         admin_id: admin?.id,
         session_id: sessionId,
       };
 
-      await adminQueries.addProduct(productData);
+      const createdProduct = await adminQueries.addProduct(productData);
+      
+      // Create variants if product was created and variants exist
+      if (createdProduct?.id && productVariants.length > 0) {
+        try {
+          const variantsWithProductId = productVariants.map(v => ({
+            ...v,
+            product_id: createdProduct.id,
+          }));
+          await VariantService.createVariants(variantsWithProductId);
+        } catch (variantError) {
+          console.error('Error creating variants:', variantError);
+          toast.error('Product created but variants failed to save. You can add them later.');
+        }
+      }
 
       toast.success('Product added to seller inventory successfully!');
       // Navigate back to products page
@@ -610,6 +630,17 @@ export default function AddFromMasterProductsPage() {
                       </Button>
                     </Grid>
                   </Grid>
+
+                  {/* Variant Manager */}
+                  {selectedMasterProduct && (
+                    <Box sx={{ mt: 3 }}>
+                      <VariantManager
+                        productName={selectedMasterProduct.name}
+                        variants={productVariants}
+                        onVariantsChange={setProductVariants}
+                      />
+                    </Box>
+                  )}
                 </>
               ) : (
                 <Box sx={{ textAlign: 'center', py: 4 }}>

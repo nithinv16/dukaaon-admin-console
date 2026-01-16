@@ -24,6 +24,9 @@ import {
   Chip,
   Autocomplete,
   Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import CheckIcon from '@mui/icons-material/Check';
@@ -31,9 +34,12 @@ import CloseIcon from '@mui/icons-material/Close';
 import WarningIcon from '@mui/icons-material/Warning';
 import FullscreenIcon from '@mui/icons-material/Fullscreen';
 import FullscreenExitIcon from '@mui/icons-material/FullscreenExit';
+import VariantIcon from '@mui/icons-material/ViewList';
 import { ExtractedProductV2 } from '@/lib/receiptExtractionV2';
 import CategorySelector from './CategorySelector';
 import { debounce } from 'lodash';
+import VariantManager from './VariantManager';
+import { CreateVariantInput } from '@/lib/services/products/VariantService';
 
 interface ReceiptProductEditorV2Props {
   products: ExtractedProductV2[];
@@ -54,6 +60,10 @@ export default function ReceiptProductEditorV2({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([]);
   const [subcategories, setSubcategories] = useState<Array<{ id: string; category_id: string; name: string }>>([]);
+  const [productVariants, setProductVariants] = useState<{ [productId: string]: CreateVariantInput[] }>({});
+  const [variantDialogOpen, setVariantDialogOpen] = useState(false);
+  const [selectedProductForVariants, setSelectedProductForVariants] = useState<ExtractedProductV2 | null>(null);
+  const [variantGroupTags, setVariantGroupTags] = useState<{ [productId: string]: number | '' }>({});
 
   // Track subcategory input per product for "Add New" functionality
   const [subcategoryInputs, setSubcategoryInputs] = useState<{ [productId: string]: string }>({});
@@ -81,9 +91,17 @@ export default function ReceiptProductEditorV2({
     loadCategories();
   }, []);
 
+  // Handle variant group tag change
+  const handleVariantGroupChange = useCallback((productId: string, tag: number | '') => {
+    setVariantGroupTags(prev => ({
+      ...prev,
+      [productId]: tag
+    }));
+  }, []);
+
   // Debounced field change for better performance
   const handleFieldChange = useCallback(
-    debounce((productId: string, field: 'name' | 'brand' | 'quantity' | 'unit' | 'netAmount' | 'category' | 'subcategory' | 'minOrderQuantity' | 'description' | 'stockAvailable', value: string | number) => {
+    debounce((productId: string, field: 'name' | 'brand' | 'quantity' | 'unit' | 'netAmount' | 'category' | 'subcategory' | 'minOrderQuantity' | 'description' | 'stockAvailable' | 'variantGroup', value: string | number) => {
       setProducts((prevProducts) =>
         prevProducts.map((product) => {
           if (product.id !== productId) return product;
@@ -116,6 +134,9 @@ export default function ReceiptProductEditorV2({
           } else if (field === 'stockAvailable') {
             const stock = typeof value === 'string' ? parseInt(value) : value;
             updated.stockAvailable = isNaN(stock) || stock < 0 ? 0 : stock;
+          } else if (field === 'variantGroup') {
+            // Variant group is handled separately via handleVariantGroupChange
+            return updated;
           }
 
           return updated;
@@ -131,7 +152,32 @@ export default function ReceiptProductEditorV2({
 
   const handleConfirm = () => {
     setIsFullscreen(false);
-    onConfirm(products);
+    // Attach variants and variant group tags to products before confirming
+    const productsWithVariants = products.map(p => ({
+      ...p,
+      variants: productVariants[p.id] || [],
+      variantGroupTag: variantGroupTags[p.id] || null
+    }));
+    onConfirm(productsWithVariants as any);
+  };
+
+  const handleOpenVariantDialog = (product: ExtractedProductV2) => {
+    setSelectedProductForVariants(product);
+    setVariantDialogOpen(true);
+  };
+
+  const handleCloseVariantDialog = () => {
+    setVariantDialogOpen(false);
+    setSelectedProductForVariants(null);
+  };
+
+  const handleVariantsChange = (variants: CreateVariantInput[]) => {
+    if (selectedProductForVariants) {
+      setProductVariants(prev => ({
+        ...prev,
+        [selectedProductForVariants.id]: variants
+      }));
+    }
   };
 
   const getConfidenceColor = (conf: number): 'error' | 'warning' | 'success' => {
@@ -168,6 +214,7 @@ export default function ReceiptProductEditorV2({
               <TableCell sx={{ width: 200 }}>Category</TableCell>
               <TableCell sx={{ width: 200 }}>Subcategory</TableCell>
               <TableCell sx={{ width: 180 }}>Description</TableCell>
+              <TableCell align="center" sx={{ width: 100 }}>Variant Group</TableCell>
               <TableCell align="right" sx={{ width: 60 }}>Min Qty</TableCell>
               <TableCell sx={{ width: 110 }}>Unit</TableCell>
               <TableCell align="right" sx={{ width: 80 }}>Stock</TableCell>
@@ -178,7 +225,7 @@ export default function ReceiptProductEditorV2({
               <TableCell
                 align="center"
                 sx={{
-                  width: 60,
+                  width: 100,
                   position: 'sticky',
                   right: 0,
                   backgroundColor: 'background.paper',
@@ -530,6 +577,30 @@ export default function ReceiptProductEditorV2({
                     sx={{ width: 175 }}
                   />
                 </TableCell>
+                {/* Variant Group Tag */}
+                <TableCell align="center">
+                  <TextField
+                    size="small"
+                    type="number"
+                    value={variantGroupTags[product.id] || ''}
+                    onChange={(e) => {
+                      const value = e.target.value === '' ? '' : parseInt(e.target.value);
+                      handleVariantGroupChange(product.id, value as number | '');
+                    }}
+                    variant="outlined"
+                    placeholder="Tag"
+                    inputProps={{ min: 1, step: 1 }}
+                    sx={{
+                      width: 80,
+                      '& .MuiInputBase-input': {
+                        padding: '6px 8px',
+                        textAlign: 'center'
+                      }
+                    }}
+                    helperText={variantGroupTags[product.id] ? `Group ${variantGroupTags[product.id]}` : ''}
+                    FormHelperTextProps={{ sx: { margin: 0, textAlign: 'center', fontSize: '0.65rem' } }}
+                  />
+                </TableCell>
                 {/* Min Order Quantity */}
                 <TableCell align="right">
                   <TextField
@@ -637,7 +708,7 @@ export default function ReceiptProductEditorV2({
                 <TableCell
                   align="center"
                   sx={{
-                    width: 60,
+                    width: 100,
                     position: 'sticky',
                     right: 0,
                     backgroundColor: 'background.paper',
@@ -645,14 +716,32 @@ export default function ReceiptProductEditorV2({
                     boxShadow: '-2px 0 4px rgba(0,0,0,0.1)',
                   }}
                 >
-                  <IconButton
-                    size="small"
-                    color="error"
-                    onClick={() => handleDelete(product.id)}
-                    title="Delete product"
-                  >
-                    <DeleteIcon fontSize="small" />
-                  </IconButton>
+                  <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
+                    <IconButton
+                      size="small"
+                      color="primary"
+                      onClick={() => handleOpenVariantDialog(product)}
+                      title="Manage variants"
+                    >
+                      <VariantIcon fontSize="small" />
+                    </IconButton>
+                    {productVariants[product.id] && productVariants[product.id].length > 0 && (
+                      <Chip
+                        label={productVariants[product.id].length}
+                        size="small"
+                        color="primary"
+                        sx={{ height: 20, fontSize: '0.65rem' }}
+                      />
+                    )}
+                    <IconButton
+                      size="small"
+                      color="error"
+                      onClick={() => handleDelete(product.id)}
+                      title="Delete product"
+                    >
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </Box>
                 </TableCell>
               </TableRow>
             ))}
@@ -740,6 +829,30 @@ export default function ReceiptProductEditorV2({
             Confirm & Add to Inventory ({products.length})
           </Button>
         </Box>
+      </Dialog>
+
+      {/* Variant Manager Dialog */}
+      <Dialog
+        open={variantDialogOpen}
+        onClose={handleCloseVariantDialog}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          Manage Variants - {selectedProductForVariants?.name}
+        </DialogTitle>
+        <DialogContent>
+          {selectedProductForVariants && (
+            <VariantManager
+              productName={selectedProductForVariants.name}
+              variants={productVariants[selectedProductForVariants.id] || []}
+              onVariantsChange={handleVariantsChange}
+            />
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseVariantDialog}>Close</Button>
+        </DialogActions>
       </Dialog>
     </Box>
   );

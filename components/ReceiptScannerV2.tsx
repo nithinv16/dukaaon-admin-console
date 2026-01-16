@@ -137,6 +137,9 @@ export default function ReceiptScannerV2({
       // Extract base64 from data URL
       const base64Image = selectedImage.split(',')[1];
 
+      // Get seller ID from sessionStorage if available
+      const sellerId = sessionStorage.getItem('receiptScanSellerId') || '';
+
       // Call scan API V2
       const response = await fetch('/api/admin/scan-receipt-v2', {
         method: 'POST',
@@ -145,6 +148,7 @@ export default function ReceiptScannerV2({
         },
         body: JSON.stringify({
           image: base64Image,
+          seller_id: sellerId || undefined, // Pass seller ID for AI matching
         }),
       });
 
