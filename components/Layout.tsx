@@ -47,6 +47,7 @@ import {
   Send,
   Speed,
   Flag,
+  AssignmentTurnedIn,
 } from '@mui/icons-material';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
@@ -68,6 +69,7 @@ interface MenuItem {
 const menuItems: MenuItem[] = [
   { text: 'Dashboard', icon: <Dashboard />, path: '/', adminOnly: false },
   { text: 'Users', icon: <People />, path: '/users', adminOnly: false },
+  { text: 'Profile Approvals', icon: <AssignmentTurnedIn />, path: '/profile-approvals', adminOnly: false },
   { text: 'Orders', icon: <ShoppingCart />, path: '/orders', adminOnly: false },
   { text: 'Products', icon: <Inventory />, path: '/products', adminOnly: false },
   { text: 'Categories', icon: <Category />, path: '/categories', adminOnly: false },
@@ -118,7 +120,7 @@ export default function Layout({ children }: LayoutProps) {
 
   // Track activity for all authenticated users
   useActivityTracking();
-  
+
   // Track page visits for all authenticated users
   usePageTracking();
 
