@@ -48,6 +48,9 @@ import {
   Speed,
   Flag,
   AssignmentTurnedIn,
+  CardGiftcard,
+  BadgeOutlined,
+  TwoWheeler,
 } from '@mui/icons-material';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
@@ -79,11 +82,14 @@ const menuItems: MenuItem[] = [
   { text: 'WhatsApp', icon: <WhatsApp />, path: '/whatsapp', adminOnly: false },
   { text: 'Notifications', icon: <Notifications />, path: '/notifications', adminOnly: false },
   { text: 'Analytics', icon: <Analytics />, path: '/analytics', adminOnly: false },
+  { text: 'Referrals', icon: <CardGiftcard />, path: '/referrals', adminOnly: false },
   { text: 'Database Tools', icon: <Storage />, path: '/database-tools', adminOnly: false },
   { text: 'Audit Log', icon: <History />, path: '/audit-log', adminOnly: true },
   { text: 'Live Dashboard', icon: <Speed />, path: '/live-dashboard', adminOnly: true },
   { text: 'Employee Tracking', icon: <Assessment />, path: '/employee-tracking', adminOnly: true },
   { text: 'Employee Targets', icon: <Flag />, path: '/employee-targets', adminOnly: true },
+  { text: 'Sales Personnel', icon: <BadgeOutlined />, path: '/sales-personnel', adminOnly: true },
+  { text: 'Delivery Partners', icon: <TwoWheeler />, path: '/delivery-partners', adminOnly: true },
   { text: 'Seller Inventory', icon: <Store />, path: '/seller-inventory', adminOnly: false },
   { text: 'Bulk Operations', icon: <People />, path: '/bulk-operations', adminOnly: false },
   { text: 'Templates', icon: <Campaign />, path: '/templates', adminOnly: false },
