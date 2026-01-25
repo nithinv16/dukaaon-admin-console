@@ -122,7 +122,7 @@ export const adminQueries = {
   },
 
   async getDashboardStats(timeFilter?: string) {
-    const url = timeFilter 
+    const url = timeFilter
       ? `/api/admin/dashboard?timeFilter=${timeFilter}`
       : '/api/admin/dashboard';
     const response = await fetch(url);
@@ -503,7 +503,7 @@ export const adminQueries = {
   async updateSubcategory(id: string, name: string, categoryId?: string): Promise<any> {
     const body: any = { id, type: 'subcategory', name };
     if (categoryId) body.category_id = categoryId;
-    
+
     const response = await fetch('/api/admin/categories', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -582,7 +582,7 @@ export const adminQueries = {
     if (category) params.append('category', category);
     if (subcategory) params.append('subcategory', subcategory);
     if (limit) params.append('limit', limit.toString());
-    
+
     const response = await fetch(`/api/admin/products/by-category?${params.toString()}`);
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
@@ -600,7 +600,7 @@ export const adminQueries = {
     const params = new URLSearchParams();
     params.append('uncategorized', 'true');
     if (limit) params.append('limit', limit.toString());
-    
+
     const response = await fetch(`/api/admin/products/by-category?${params.toString()}`);
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
@@ -673,6 +673,91 @@ export const adminQueries = {
       throw new Error(error.error || 'Failed to copy products');
     }
     return response.json();
+  },
+
+  // WhatsApp Admin
+  async getWhatsAppTemplates(category?: string) {
+    const params = new URLSearchParams({ type: 'templates' });
+    if (category) params.append('category', category);
+    const response = await fetch(`/api/admin/whatsapp?${params.toString()}`);
+    if (!response.ok) throw new Error('Failed to fetch WhatsApp templates');
+    return response.json();
+  },
+
+  async updateWhatsAppTemplate(templateKey: string, updates: Record<string, any>) {
+    const response = await fetch('/api/admin/whatsapp', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ template_key: templateKey, updates }),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || 'Failed to update WhatsApp template');
+    }
+    return response.json();
+  },
+
+  async getWhatsAppMessages(options?: { phone?: string; status?: string; direction?: string; limit?: number }) {
+    const params = new URLSearchParams({ type: 'messages' });
+    if (options?.phone) params.append('phone', options.phone);
+    if (options?.status) params.append('status', options.status);
+    if (options?.direction) params.append('direction', options.direction);
+    if (options?.limit) params.append('limit', options.limit.toString());
+    const response = await fetch(`/api/admin/whatsapp?${params.toString()}`);
+    if (!response.ok) throw new Error('Failed to fetch WhatsApp messages');
+    return response.json();
+  },
+
+  async getWhatsAppConversations(activeOnly?: boolean, limit?: number) {
+    const params = new URLSearchParams({ type: 'conversations' });
+    if (activeOnly) params.append('active', 'true');
+    if (limit) params.append('limit', limit.toString());
+    const response = await fetch(`/api/admin/whatsapp?${params.toString()}`);
+    if (!response.ok) throw new Error('Failed to fetch WhatsApp conversations');
+    return response.json();
+  },
+
+  async getWhatsAppOrderResponses(processed?: boolean, limit?: number) {
+    const params = new URLSearchParams({ type: 'order_responses' });
+    if (processed !== undefined) params.append('processed', processed.toString());
+    if (limit) params.append('limit', limit.toString());
+    const response = await fetch(`/api/admin/whatsapp?${params.toString()}`);
+    if (!response.ok) throw new Error('Failed to fetch WhatsApp order responses');
+    return response.json();
+  },
+
+  async getWhatsAppAnalytics(days?: number) {
+    const params = new URLSearchParams({ type: 'analytics' });
+    if (days) params.append('days', days.toString());
+    const response = await fetch(`/api/admin/whatsapp?${params.toString()}`);
+    if (!response.ok) throw new Error('Failed to fetch WhatsApp analytics');
+    return response.json();
+  },
+
+  async processWhatsAppOrderResponse(responseId: string) {
+    const response = await fetch('/api/admin/whatsapp', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'process_response', id: responseId }),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || 'Failed to process order response');
+    }
+    return response.json();
+  },
+
+  async retryWhatsAppSend(sendId: string) {
+    const response = await fetch('/api/admin/whatsapp', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'retry_send', id: sendId }),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || 'Failed to retry send');
+    }
+    return response.json();
   }
 };
 
@@ -688,7 +773,7 @@ export const queries = {
       .from('products')
       .select('*')
       .order('created_at', { ascending: false });
-    
+
     if (error) throw error;
     return data;
   },
@@ -703,7 +788,7 @@ export const queries = {
       .from('categories')
       .select('*')
       .order('name');
-    
+
     if (error) throw error;
     return data;
   }
@@ -713,7 +798,7 @@ export const queries = {
 export async function validateAdminCredentials(email: string, password: string) {
   try {
     console.log('🔐 validateAdminCredentials called with:', email);
-    
+
     const response = await fetch('/api/admin/validate-credentials', {
       method: 'POST',
       headers: {
@@ -739,7 +824,7 @@ export async function validateAdminCredentials(email: string, password: string) 
     console.log('✅ Response data received:', data);
     console.log('✅ data.success:', data?.success);
     console.log('✅ data.admin:', data?.admin);
-    
+
     return data;
   } catch (error) {
     console.error('❌ Admin credentials validation error:', error);
