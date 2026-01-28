@@ -57,7 +57,7 @@ export default function SellerInventoryPage() {
   const [productsToDelete, setProductsToDelete] = useState<any[]>([]);
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
   const [deleting, setDeleting] = useState(false);
-  
+
   // Bulk import state
   const [bulkImportDialogOpen, setBulkImportDialogOpen] = useState(false);
   const [bulkImportPreviewOpen, setBulkImportPreviewOpen] = useState(false);
@@ -95,11 +95,11 @@ export default function SellerInventoryPage() {
       setLoading(true);
       const sellers = await adminQueries.getSellersWithDetails();
       console.log('Loaded sellers in seller-inventory:', sellers);
-      
+
       if (sellers && Array.isArray(sellers)) {
         const validSellers = sellers.filter(seller => seller && seller.id);
         setSellers(validSellers);
-        
+
         // Auto-select first seller if available
         if (validSellers.length > 0 && !selectedSeller) {
           setSelectedSeller(validSellers[0].id);
@@ -170,7 +170,7 @@ export default function SellerInventoryPage() {
       toast.error('Please select at least one product to delete');
       return;
     }
-    
+
     const selectedProducts = products.filter(p => selectedProductIds.includes(p.id));
     setProductToDelete(null);
     setProductsToDelete(selectedProducts);
@@ -187,7 +187,7 @@ export default function SellerInventoryPage() {
       setDeleting(true);
       const adminId = localStorage.getItem('admin_id') || undefined;
       const sessionId = localStorage.getItem('session_id') || undefined;
-      
+
       const url = new URL('/api/admin/products', window.location.origin);
       if (isBulkDelete) {
         url.searchParams.set('ids', productIds.join(','));
@@ -239,12 +239,12 @@ export default function SellerInventoryPage() {
   const handleImportComplete = (results: ImportResult) => {
     setBulkImportPreviewOpen(false);
     setParsedProducts([]);
-    
+
     if (results.successful > 0) {
       toast.success(`Successfully imported ${results.successful} product(s)`);
       loadSellerProducts(); // Refresh the product list
     }
-    
+
     if (results.failed > 0) {
       toast.error(`${results.failed} product(s) failed to import`);
     }
@@ -397,33 +397,83 @@ export default function SellerInventoryPage() {
                   value={selectedSeller || ''}
                   label="Seller"
                   onChange={(e) => setSelectedSeller(e.target.value)}
-                >
-                  {sellers.map((seller) => {
-                    const businessName = seller.business_name || 
-                                        seller.display_name || 
-                                        seller.phone_number || 
-                                        'Unknown Seller';
+                  renderValue={(selected) => {
+                    const seller = sellers.find(s => s.id === selected);
+                    if (!seller) return <Typography color="text.secondary">Select a seller</Typography>;
+
+                    const name = seller.business_name ||
+                      seller.display_name ||
+                      seller.phone_number ||
+                      'Unknown Seller';
+
                     return (
-                      <MenuItem key={seller.id} value={seller.id}>
-                        <Box>
-                          <Typography variant="body1">{businessName}</Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {seller.seller_type || seller.role} • {seller.phone_number || 'N/A'}
-                          </Typography>
-                        </Box>
-                      </MenuItem>
+                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                        <Typography variant="body1" sx={{ mr: 1 }}>
+                          {name}
+                        </Typography>
+                        <Chip
+                          label={seller.seller_type || seller.role || 'Seller'}
+                          size="small"
+                          variant="outlined"
+                          sx={{ height: 20, fontSize: '0.7rem' }}
+                        />
+                      </Box>
                     );
-                  })}
+                  }}
+                >
+                  {sellers.length === 0 ? (
+                    <MenuItem disabled value="">
+                      <Typography variant="body2" color="text.secondary">
+                        No sellers found
+                      </Typography>
+                    </MenuItem>
+                  ) : (
+                    sellers.map((seller) => {
+                      // Ensure business name is valid
+                      let businessName = seller.business_name;
+                      if (!businessName || (typeof businessName === 'string' && businessName.trim() === '')) {
+                        businessName = seller.display_name;
+                      }
+                      if (!businessName || (typeof businessName === 'string' && businessName.trim() === '')) {
+                        businessName = seller.phone_number;
+                      }
+                      if (!businessName) {
+                        businessName = 'Unknown Seller';
+                      }
+
+                      return (
+                        <MenuItem key={seller.id} value={seller.id}>
+                          <Box sx={{ width: '100%' }}>
+                            <Typography variant="body1" color="text.primary">
+                              {businessName}
+                            </Typography>
+                            <Stack direction="row" spacing={1} alignItems="center" mt={0.5}>
+                              <Chip
+                                label={seller.seller_type || seller.role || 'Seller'}
+                                size="small"
+                                color="primary"
+                                variant="outlined"
+                                sx={{ height: 20, fontSize: '0.65rem' }}
+                              />
+                              <Typography variant="caption" color="text.secondary">
+                                {seller.phone_number || 'No phone'}
+                              </Typography>
+                            </Stack>
+                          </Box>
+                        </MenuItem>
+                      );
+                    })
+                  )}
                 </Select>
               </FormControl>
 
               {selectedSellerData && (
                 <Alert severity="info" sx={{ mt: 2 }}>
                   <Typography variant="subtitle2">
-                    {selectedSellerData.business_name || 
-                     selectedSellerData.display_name || 
-                     selectedSellerData.phone_number || 
-                     'Seller'}
+                    {selectedSellerData.business_name ||
+                      selectedSellerData.display_name ||
+                      selectedSellerData.phone_number ||
+                      'Seller'}
                   </Typography>
                   <Typography variant="caption" display="block">
                     Type: {selectedSellerData.seller_type || selectedSellerData.role || 'N/A'}
@@ -644,11 +694,11 @@ export default function SellerInventoryPage() {
         </DialogTitle>
         <DialogContent>
           <Alert severity="warning" sx={{ mb: 2 }}>
-            {productsToDelete.length > 1 
+            {productsToDelete.length > 1
               ? `Are you sure you want to delete ${productsToDelete.length} products? This action cannot be undone.`
               : 'Are you sure you want to delete this product? This action cannot be undone.'}
           </Alert>
-          
+
           {productsToDelete.length === 1 && productsToDelete[0] && (
             <Stack spacing={1}>
               <Typography variant="body1">
@@ -700,7 +750,7 @@ export default function SellerInventoryPage() {
           )}
         </DialogContent>
         <DialogActions>
-          <Button 
+          <Button
             onClick={() => {
               setDeleteDialogOpen(false);
               setProductToDelete(null);
@@ -710,9 +760,9 @@ export default function SellerInventoryPage() {
           >
             Cancel
           </Button>
-          <Button 
-            onClick={handleDeleteConfirm} 
-            variant="contained" 
+          <Button
+            onClick={handleDeleteConfirm}
+            variant="contained"
             color="error"
             disabled={deleting}
             startIcon={deleting ? undefined : <Delete />}
@@ -752,7 +802,7 @@ export default function SellerInventoryPage() {
           )}
         </DialogContent>
       </Dialog>
-    </Box>
+    </Box >
   );
 }
 

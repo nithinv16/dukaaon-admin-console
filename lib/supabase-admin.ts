@@ -168,144 +168,81 @@ export const adminQueries = {
   async getSellersWithDetails() {
     const supabase = getAdminSupabaseClient();
 
-    // Step 1: Fetch all profiles from the profiles table
-    const { data: profiles, error: profilesError } = await supabase
+    // Use a single JOIN query for efficiency and reliability
+    const { data: profiles, error } = await supabase
       .from('profiles')
-      .select('*')
+      .select('*, seller_details(*)')
+      .in('role', ['seller', 'wholesaler', 'manufacturer'])
       .order('created_at', { ascending: false });
 
-    if (profilesError) throw profilesError;
+    if (error) {
+      console.error('Error fetching sellers with details:', error);
+      throw error;
+    }
+
     if (!profiles || profiles.length === 0) return [];
 
-    // Step 2: Identify sellers based on role column
-    // Sellers have role = 'seller' or role in ['wholesaler', 'manufacturer']
-    const sellerProfiles = profiles.filter((p: any) =>
-      p.role === 'seller' ||
-      p.role === 'wholesaler' ||
-      p.role === 'manufacturer'
-    );
+    console.log(`getSellersWithDetails - Fetched ${profiles.length} profiles`);
 
-    console.log('getSellersWithDetails - Profiles:', {
-      total: profiles.length,
-      sellers: sellerProfiles.length,
-      sellerRoles: Array.from(new Set(sellerProfiles.map((p: any) => p.role))),
-      allRoles: Array.from(new Set(profiles.map((p: any) => p.role))),
-      sampleProfile: profiles[0] ? { id: profiles[0].id, role: profiles[0].role } : null
-    });
+    // Process and enrich
+    const enrichedSellers = profiles.map((profile: any) => {
+      // Handle seller_details whether it's an object (1:1) or array (1:many)
+      // Supabase returns object if 1:1 relationship is detected, array otherwise
+      let sellerDetail: any = null;
 
-    if (sellerProfiles.length === 0) {
-      console.warn('No sellers found with roles: seller, wholesaler, or manufacturer');
-      console.log('Available roles in profiles:', Array.from(new Set(profiles.map((p: any) => p.role))));
-      return [];
-    }
-
-    // Step 3: Fetch seller_details for those sellers using user_id (foreign key)
-    let sellersDetailsMap: Map<string, any> = new Map();
-
-    if (sellerProfiles.length > 0) {
-      const sellerIds = sellerProfiles.map((p: any) => p.id).filter(Boolean);
-
-      const { data: sellersData, error: sellersError } = await supabase
-        .from('seller_details')
-        .select('user_id, business_name, owner_name, seller_type')
-        .in('user_id', sellerIds);
-
-      if (sellersError) {
-        console.error('Error fetching seller_details:', sellersError);
-      } else if (sellersData && sellersData.length > 0) {
-        // Create a map for quick lookup: user_id -> seller_details
-        sellersDetailsMap = new Map(sellersData.map((s: any) => [s.user_id, s]));
-
-        console.log('getSellersWithDetails - seller_details:', {
-          fetched: sellersData.length,
-          requested: sellerIds.length,
-          sample: sellersData[0] ? {
-            user_id: sellersData[0].user_id,
-            business_name: sellersData[0].business_name,
-            seller_type: sellersData[0].seller_type
-          } : null
-        });
-      } else {
-        console.warn('No seller_details found for seller IDs:', sellerIds);
+      if (profile.seller_details) {
+        if (Array.isArray(profile.seller_details)) {
+          sellerDetail = profile.seller_details[0] || null;
+        } else {
+          sellerDetail = profile.seller_details;
+        }
       }
-    }
 
-    // Step 4 & 5: Process sellers and set business_name from seller_details.business_name
-    const enrichedSellers = sellerProfiles.map((profile: any) => {
       // Parse business_details if it's a string
       const businessDetails = typeof profile.business_details === 'string'
         ? JSON.parse(profile.business_details || '{}')
         : profile.business_details || {};
 
-      // Step 5: Get seller_details for this seller
-      const sellerDetail = sellersDetailsMap.get(profile.id);
-
       if (sellerDetail && sellerDetail.business_name) {
-        // Set business_name from seller_details.business_name (primary source)
+        // Primary source: seller_details table
         return {
           ...profile,
-          business_name: sellerDetail.business_name, // From seller_details table
+          business_name: sellerDetail.business_name,
           owner_name: sellerDetail.owner_name,
-          seller_type: sellerDetail.seller_type, // wholesaler or manufacturer from seller_details
+          seller_type: sellerDetail.seller_type,
           business_details: {
             ...businessDetails,
-            business_name: sellerDetail.business_name, // Also add to business_details for compatibility
+            business_name: sellerDetail.business_name,
             shopName: sellerDetail.business_name,
           },
-          // display_name should be seller_details.business_name (direct)
           display_name: sellerDetail.business_name,
-          // business_info object for compatibility
           business_info: {
             business_name: sellerDetail.business_name,
-            owner_name: sellerDetail.owner_name || businessDetails.ownerName || businessDetails.owner_name || null,
+            owner_name: sellerDetail.owner_name || businessDetails.ownerName || null,
           },
-          seller_details: sellerDetail // Keep for reference
+          seller_details: sellerDetail
         };
       } else {
-        // Seller but no seller_details entry found
-        console.warn(`Seller ${profile.id} (role: ${profile.role}) has no seller_details entry`);
+        // Fallback: business_details JSON
+        console.warn(`Seller ${profile.id} (${profile.role}) missing seller_details linked data`);
+        const displayName = businessDetails.business_name ||
+          businessDetails.shopName ||
+          businessDetails.shop_name ||
+          businessDetails.name ||
+          profile.phone_number ||
+          'Unknown Seller';
+
         return {
           ...profile,
           business_details: businessDetails,
           business_name: businessDetails.business_name || businessDetails.shopName || null,
-          display_name: businessDetails.business_name ||
-            businessDetails.shopName ||
-            businessDetails.shop_name ||
-            businessDetails.name ||
-            profile.phone_number ||
-            'Unknown Seller',
+          display_name: displayName,
+          seller_details: sellerDetail // might be null or partial
         };
       }
     });
 
-    // Debug: Log sample seller data
-    if (enrichedSellers.length > 0) {
-      console.log('getSellersWithDetails - Sample processed seller:', {
-        id: enrichedSellers[0].id,
-        role: enrichedSellers[0].role,
-        business_name: enrichedSellers[0].business_name,
-        seller_type: enrichedSellers[0].seller_type,
-        display_name: enrichedSellers[0].display_name,
-        has_seller_detail: !!enrichedSellers[0].seller_details,
-        phone_number: enrichedSellers[0].phone_number
-      });
-    } else {
-      console.warn('getSellersWithDetails - No enriched sellers returned');
-    }
-
-    // Ensure all sellers have valid IDs
-    const validSellers = enrichedSellers.filter((s: any) => s && s.id);
-    if (validSellers.length !== enrichedSellers.length) {
-      console.warn(`Filtered out ${enrichedSellers.length - validSellers.length} sellers without valid IDs`);
-    }
-
-    console.log('getSellersWithDetails - Returning sellers:', {
-      total: validSellers.length,
-      with_business_name: validSellers.filter((s: any) => s.business_name).length,
-      with_display_name: validSellers.filter((s: any) => s.display_name).length
-    });
-
-    return validSellers;
+    return enrichedSellers;
   },
 
   // Fallback method: fetch separately and join manually
@@ -1187,7 +1124,7 @@ export const adminQueries = {
     // Only resolve if category/subcategory are provided and not empty
     const categoryToResolve = productData.category && productData.category.trim() ? productData.category : '';
     const subcategoryToResolve = productData.subcategory && productData.subcategory.trim() ? productData.subcategory : undefined;
-    
+
     const { category_id, subcategory_id } = await this.getCategoryAndSubcategoryIds(
       categoryToResolve,
       subcategoryToResolve
